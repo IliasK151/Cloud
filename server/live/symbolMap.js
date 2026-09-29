@@ -12,7 +12,8 @@ const CANDIDATES = {
   SOLUSD: ['SOLUSD', 'SOLUSDT'],
 };
 
-const bare = (s) => s.toUpperCase().replace(/[._-](CASH|PRO|RAW|ECN|STD|R|M|C|I)$/i, '').replace(/[^A-Z0-9]/g, '');
+// Strip broker suffixes such as ".cash", ".pro", ".z", "-ECN", "_i" or a trailing "+" / "#".
+const bare = (s) => s.toUpperCase().replace(/[+#!]+$/, '').replace(/[._-][A-Z0-9]{1,5}$/, '').replace(/[^A-Z0-9]/g, '');
 
 export function autoMap(brokerSymbols = []) {
   const byUpper = new Map(brokerSymbols.map((s) => [s.toUpperCase(), s]));

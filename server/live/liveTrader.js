@@ -168,9 +168,9 @@ export class LiveTrader extends EventEmitter {
     if (!this.bridge.connected || !acc) return { ok: false, error: 'MT5 bridge is not connected' };
     if (!p) return { ok: false, error: 'Set up the account first' };
     if (this.halt) return { ok: false, error: `Trading is halted: ${this.halt.reason}` };
-    if (!acc.tradeAllowed || !acc.expertAllowed || !acc.algoAllowed) {
-      return { ok: false, error: 'Algo Trading is off in MT5. Turn on the "Algo Trading" button and tick "Allow Algo Trading" in the EA settings.' };
-    }
+    if (acc.connected === false) return { ok: false, error: 'MT5 is not connected to its trade server. Log in again in MT5 (File → Login to Trade Account).' };
+    if (!acc.tradeAllowed || !acc.expertAllowed) return { ok: false, error: 'This MT5 account does not allow (automated) trading right now.' };
+    if (!acc.algoAllowed) return { ok: false, error: 'Algo Trading is off in MT5. Turn on the "Algo Trading" button and tick "Allow Algo Trading" in the EA settings.' };
     if (!Object.values(p.desks).some(Boolean)) return { ok: false, error: 'Enable at least one desk first' };
     if (p.type !== 'trial' && String(confirm ?? '').trim() !== this.login) {
       return { ok: false, error: `Type the account number ${this.login} to confirm live trading on a ${ACCOUNT_TYPES[p.type].label}` };
@@ -527,8 +527,12 @@ export class LiveTrader extends EventEmitter {
     const links = [...this.links.values()];
     const warnings = [];
     if (this.mode !== 'live') warnings.push('You are in demo mode (simulated prices). Live FTMO trading needs npm start.');
-    if (acc && (!acc.algoAllowed || !acc.expertAllowed || !acc.tradeAllowed)) warnings.push('Algo Trading is off in MT5 — turn on the "Algo Trading" toolbar button and allow it in the EA settings.');
-    if (acc && acc.connected === false) warnings.push('MT5 is not connected to the FTMO server.');
+    const isFtmo = !!acc && /ftmo/i.test(`${acc.server} ${acc.company}`);
+    if (acc && !isFtmo) warnings.push(`MT5 is logged into ${acc.server} (${acc.company || 'another broker'}), which doesn't look like an FTMO account. In MT5 use File → Login to Trade Account with the login, password and server from your FTMO Client Area.`);
+    if (acc && acc.connected === false) warnings.push('MT5 is not connected to its trade server (bottom-right of MT5 shows "No connection" or 0 / 0 Kb). Log in again via File → Login to Trade Account and check the password and server.');
+    else if (acc && !acc.tradeAllowed) warnings.push('This account does not allow trading right now: logged in with the investor (read-only) password, or the account is disabled or expired.');
+    if (acc && acc.connected !== false && !acc.expertAllowed) warnings.push('The broker has disabled Expert Advisor trading on this account.');
+    if (acc && !acc.algoAllowed) warnings.push('Algo Trading is off in MT5 — turn on the "Algo Trading" toolbar button, and tick "Allow Algo Trading" in the EA settings (click the chart, press F7).');
     if (acc && acc.marginMode === 0) warnings.push('This is a netting account: desks trading the same symbol will net against each other.');
     const orphans = this.bridge.positions.filter((x) => this.#ours(x) && !links.some((l) => l.ticket === x.ticket && !l.previousSession && ['open', 'closing'].includes(l.state)));
     if (orphans.length) warnings.push(`${orphans.length} floor position(s) on MT5 are from a previous session. They keep their stop-loss; close them below if you like.`);
@@ -539,6 +543,7 @@ export class LiveTrader extends EventEmitter {
       eaVersion: this.bridge.version,
       token: this.token,
       account: acc,
+      isFtmo,
       serverDay: this.bridge.serverDay,
       profile: p,
       armed: this.armed,

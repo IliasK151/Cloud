@@ -180,7 +180,11 @@ store.on('live', (v) => {
   // "It asks me to connect": a newly seen MT5 account prompts for its setup.
   if (acc && v.connected && !v.profile && !promptedLogins.has(acc.login) && view !== 'ftmo') {
     promptedLogins.add(acc.login);
-    document.getElementById('live-modal-body').innerHTML = `Account <b>${escapeHtml(String(acc.login))}</b> on <b>${escapeHtml(acc.server)}</b> (${escapeHtml(acc.name || '')}, balance ${money(acc.balance)}) just connected through MetaTrader 5. Is it a Free Trial or a Challenge? Set it up, then pick which desks may trade it.`;
+    document.getElementById('live-modal-title').textContent = v.isFtmo ? 'New FTMO account detected' : 'New MT5 account detected';
+    document.getElementById('live-modal-body').innerHTML = `Account <b>${escapeHtml(String(acc.login))}</b> on <b>${escapeHtml(acc.server)}</b> (${escapeHtml(acc.name || '')}, balance ${money(acc.balance)}) just connected through MetaTrader 5. ` +
+      (v.isFtmo
+        ? 'Is it a Free Trial or a Challenge? Set it up, then pick which desks may trade it.'
+        : 'This doesn’t look like an FTMO account. To trade FTMO, log MT5 into the account from your FTMO Client Area (File → Login to Trade Account).');
     liveModal.hidden = false;
   }
   hud.setLive(v);

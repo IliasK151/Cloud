@@ -72,6 +72,12 @@ test('FTMO symbol names are mapped automatically', () => {
   assert.equal(map.USOIL, 'USOIL.cash');
   assert.equal(map.SOLUSD, null);
   assert.equal(autoMap(['EURUSD.r', 'XAUUSD.pro']).EURUSD, 'EURUSD.r');
+  const suffixed = autoMap(['XAUUSD.z', 'EURUSD.z', 'NAS100.z', 'USDJPY+', 'BTCUSD#']);
+  assert.equal(suffixed.XAUUSD, 'XAUUSD.z');
+  assert.equal(suffixed.NAS100, 'NAS100.z');
+  assert.equal(suffixed.USDJPY, 'USDJPY+');
+  assert.equal(suffixed.BTCUSD, 'BTCUSD#');
+  assert.equal(suffixed.SPX500, null);
 });
 
 test('bridge converts broker bars to UTC and re-sends until acknowledged', () => {
