@@ -4,17 +4,18 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildRoom, PLATFORM } from './room.js';
+import { buildRoom, PLATFORM, DESK_XS, FRONT_ROW_Z, BACK_ROW_Z } from './room.js';
 import { Desk } from './desk.js';
 import { VideoWall } from './videowall.js';
 import { money, escapeHtml } from '../format.js';
 import { deskBook } from '../book.js';
+import { voice } from '../voice.js';
 
-const OVERVIEW = { pos: new THREE.Vector3(-2.3, 7.0, 14.6), target: new THREE.Vector3(-2.3, 0.3, -3.0) };
-const FRONT_ROW_Z = -5.4;
-const BACK_ROW_Z = 1.9;
-const XS = [-10, -5, 0, 5, 10];
+const OVERVIEW = { pos: new THREE.Vector3(-2.0, 7.0, 11.8), target: new THREE.Vector3(-2.0, 0.4, -4.4) };
+
+const LABEL_OFFSET = new THREE.Vector3(0, 2.25, 0.3);
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
@@ -24,6 +25,7 @@ export class TradingFloor {
     this.overlay = overlay;
     this.store = store;
     this.desks = new Map();
+    this.labels = new Map();
     this.bubbles = new Map();
     this.focused = null;
     this.hovered = null;
@@ -58,42 +60,49 @@ export class TradingFloor {
 
   #initRenderer() {
     const r = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    r.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFShadowMap;
-    r.toneMapping = THREE.ACESFilmicToneMapping;
-    r.toneMappingExposure = 1.15;
+    r.toneMapping = THREE.NeutralToneMapping;
+    r.toneMappingExposure = 1.0;
     r.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer = r;
   }
 
   #initScene() {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#05070b');
-    scene.fog = new THREE.Fog('#05070b', 38, 70);
+    scene.background = new THREE.Color('#0c0d10');
+    scene.fog = new THREE.Fog('#0c0d10', 40, 75);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.28;
+    scene.environmentIntensity = 0.32;
     this.scene = scene;
 
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
+    this.camera = new THREE.PerspectiveCamera(45, 1, 0.05, 200);
     this.camera.position.copy(OVERVIEW.pos);
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.target.copy(OVERVIEW.target);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.maxPolarAngle = 1.5;
-    this.controls.minDistance = 1.2;
-    this.controls.maxDistance = 38;
+    this.controls.minDistance = 0.8;
+    this.controls.maxDistance = 36;
     this.controls.screenSpacePanning = true;
     this.controls.update();
 
     buildRoom(scene);
     this.wall = new VideoWall(scene);
 
-    this.composer = new EffectComposer(this.renderer);
+    // Multisampled target so edges stay crisp through post-processing.
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.38, 0.4, 0.93);
+    this.ao = new GTAOPass(scene, this.camera, 1, 1);
+    this.ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.4, thickness: 1.2, scale: 1.1, samples: 12 });
+    this.ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+    this.ao.blendIntensity = 0.85;
+    this.composer.addPass(this.ao);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.22, 0.5, 0.92);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
   }
@@ -104,9 +113,11 @@ export class TradingFloor {
     profiles.forEach((p, i) => {
       const desk = new Desk(p, i);
       const back = i >= 5;
-      desk.group.position.set(XS[i % 5], back ? PLATFORM.height : 0, back ? BACK_ROW_Z : FRONT_ROW_Z);
+      desk.group.position.set(DESK_XS[i % 5], back ? PLATFORM.height : 0, back ? BACK_ROW_Z : FRONT_ROW_Z);
+      desk.blob.visible = !this.quality;
       this.scene.add(desk.group);
       this.desks.set(p.id, desk);
+      this.#buildLabel(p, i);
     });
     this.hitboxes = [...this.desks.values()].map((d) => d.hitbox);
   }
@@ -115,10 +126,6 @@ export class TradingFloor {
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
     let down = null;
-    this.tip = document.createElement('div');
-    this.tip.className = 'hover-tip';
-    this.tip.hidden = true;
-    this.overlay.appendChild(this.tip);
 
     const pick = (e) => {
       if (!this.hitboxes) return null;
@@ -141,33 +148,59 @@ export class TradingFloor {
       if (id) this.#emit('select', id);
     });
     this.canvas.addEventListener('pointermove', (e) => {
-      if (e.buttons) {
-        this.tip.hidden = true;
-        return;
-      }
+      if (e.buttons) return;
       const id = pick(e);
       if (id !== this.hovered) {
-        if (this.hovered) this.desks.get(this.hovered).hover = false;
+        if (this.hovered) {
+          this.desks.get(this.hovered).hover = false;
+          this.labels.get(this.hovered)?.el.classList.remove('hover');
+        }
         this.hovered = id;
-        if (id) this.desks.get(id).hover = true;
+        if (id) {
+          this.desks.get(id).hover = true;
+          this.labels.get(id)?.el.classList.add('hover');
+        }
         this.canvas.style.cursor = id ? 'pointer' : '';
-      }
-      if (id && id !== this.focused) {
-        const p = this.store.profileById[id];
-        const a = this.store.agents[id];
-        const book = deskBook(this.store, id);
-        const day = book.day;
-        this.tip.innerHTML = `<b>${escapeHtml(p.name)}</b>${escapeHtml(p.desk)} · ${escapeHtml(a?.status ?? '')} · <span class="${day > 0.5 ? 'pos' : day < -0.5 ? 'neg' : ''}">${money(day, { sign: true })}</span>`;
-        this.tip.style.left = `${e.clientX}px`;
-        this.tip.style.top = `${e.clientY - 58}px`;
-        this.tip.hidden = false;
-      } else {
-        this.tip.hidden = true;
       }
     });
     this.canvas.addEventListener('pointerleave', () => {
-      this.tip.hidden = true;
+      if (!this.hovered) return;
+      this.desks.get(this.hovered).hover = false;
+      this.labels.get(this.hovered)?.el.classList.remove('hover');
+      this.hovered = null;
     });
+  }
+
+  // Minimal floating name tag above each desk: name, desk and today's P&L.
+  #buildLabel(p, i) {
+    const el = document.createElement('button');
+    el.className = 'desk-tag';
+    el.type = 'button';
+    el.innerHTML = `<span class="k">${i === 9 ? 0 : i + 1}</span><span class="who"><b>${escapeHtml(p.name.split(' ')[0])}</b><small>${escapeHtml(p.desk)}</small></span><span class="v"></span><i class="st"></i>`;
+    el.style.setProperty('--accent', p.accent);
+    el.addEventListener('click', () => this.#emit('select', p.id));
+    this.overlay.appendChild(el);
+    this.labels.set(p.id, { el, v: el.querySelector('.v'), st: el.querySelector('.st'), key: '' });
+  }
+
+  #placeLabels() {
+    const v = new THREE.Vector3();
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    const cam = this.camera.position;
+    for (const [id, lab] of this.labels) {
+      const desk = this.desks.get(id);
+      const hide = !!this.focused || this.tween?.focus;
+      v.copy(desk.group.position).add(LABEL_OFFSET);
+      const dist = v.distanceTo(cam);
+      v.project(this.camera);
+      const visible = !hide && v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05;
+      lab.el.classList.toggle('off', !visible);
+      if (!visible) continue;
+      const scale = THREE.MathUtils.clamp(15 / dist, 0.72, 1.12);
+      lab.el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px) translate(-50%, -100%) scale(${scale.toFixed(3)})`;
+      lab.el.style.zIndex = String(Math.round(1000 - dist * 10));
+    }
   }
 
   #resize() {
@@ -175,6 +208,7 @@ export class TradingFloor {
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
+    this.ao?.setSize(Math.ceil(w * 0.75), Math.ceil(h * 0.75));
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -186,8 +220,9 @@ export class TradingFloor {
 
   setQuality(on) {
     this.quality = on;
-    this.renderer.setPixelRatio(on ? Math.min(window.devicePixelRatio, 1.75) : 1);
+    this.renderer.setPixelRatio(on ? Math.min(window.devicePixelRatio, 1.5) : 1);
     this.renderer.shadowMap.enabled = on;
+    for (const d of this.desks.values()) d.blob.visible = !on;
     this.scene.traverse((o) => {
       if (o.material) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -222,23 +257,23 @@ export class TradingFloor {
     }
     this.focused = id;
     desk.selected = true;
-    this.tip.hidden = true;
     const base = desk.group.position;
-    const camPos = base.clone().add(new THREE.Vector3(1.55, 1.95, 4.15));
-    const target = base.clone().add(new THREE.Vector3(0.1, 1.3, 0.55));
-    // Frame the trader in the free half of the screen (the agent panel covers the right side).
+    // A conversational close-up: slightly above eye level, off to the side of the monitors.
+    const camPos = base.clone().add(new THREE.Vector3(1.05, 1.62, 2.55));
+    const target = base.clone().add(new THREE.Vector3(0.05, 1.12, 0.72));
+    // Frame the trader in the free part of the screen (the agent panel covers the right side).
     const side = new THREE.Vector3().subVectors(target, camPos).cross(new THREE.Vector3(0, 1, 0)).normalize();
-    const offset = window.innerWidth > 1100 ? 0.55 : 0;
+    const offset = window.innerWidth > 1100 ? 0.42 : 0;
     camPos.addScaledVector(side, offset);
     target.addScaledVector(side, offset);
     this.#flyTo(camPos, target, 1.5, () => {
-      const local = desk.group.worldToLocal(this.camera.position.clone());
-      desk.avatar.greet(local);
+      desk.avatar.greet(desk.group.worldToLocal(this.camera.position.clone()));
     });
+    this.tween.focus = true;
     // Start turning a little before the camera lands.
     setTimeout(() => {
       if (this.focused === id) desk.avatar.greet(desk.group.worldToLocal(camPos.clone()));
-    }, 700);
+    }, 650);
   }
 
   overview() {
@@ -319,9 +354,20 @@ export class TradingFloor {
   }
 
   sync() {
+    const colors = { 'IN TRADE': '#3d8ef0', ARMED: '#f2b01e', HALTED: '#e5484d', PAUSED: '#8b919c', COOLDOWN: '#ec835a' };
     for (const [id, desk] of this.desks) {
+      const a = this.store.agents[id];
+      desk.sync(a);
+      const lab = this.labels.get(id);
+      if (!lab || !a) continue;
       const b = deskBook(this.store, id);
-      desk.sync(this.store.agents[id], { label: b.mode === 'ftmo' ? 'FTMO TODAY' : 'PAPER · DAY P&L', value: b.day, na: b.na });
+      const key = `${b.na}|${Math.round(b.day)}|${a.status}`;
+      if (key === lab.key) continue;
+      lab.key = key;
+      lab.v.textContent = b.na ? 'paper' : money(b.day, { sign: true, compact: Math.abs(b.day) >= 1e5 });
+      lab.v.className = `v ${b.na ? 'na' : b.day > 0.5 ? 'pos' : b.day < -0.5 ? 'neg' : ''}`;
+      lab.st.style.background = colors[a.status] || '#3fb950';
+      lab.el.title = `${this.store.profileById[id].name} · ${a.status}`;
     }
   }
 
@@ -352,6 +398,12 @@ export class TradingFloor {
       this.controls.update();
     }
 
+    if (this.focused) {
+      const av = this.desks.get(this.focused).avatar;
+      av.lookAt(this.camera.position);
+      av.speaking = voice.isSpeaking(this.focused);
+      av.speech = av.speaking ? voice.level(this.focused) : 0;
+    }
     for (const desk of this.desks.values()) desk.update(dt, t);
     this.wall.tick(dt);
 
@@ -380,6 +432,7 @@ export class TradingFloor {
     }
 
     this.#placeBubbles(now);
+    this.#placeLabels();
     if (this.quality) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
     this.#watchPerformance(realDt);

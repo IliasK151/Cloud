@@ -29,7 +29,8 @@ export class LiveView {
   #build() {
     this.root.innerHTML = `
       <h1>FTMO live trading</h1>
-      <p class="lede">Connect your FTMO MetaTrader 5 account and choose which desks may trade it. The floor stays the brain: when an enabled desk opens, scales out, trails or closes a trade, the same action goes to MT5, with lots sized for your account and a stop-loss on every order. Your FTMO password stays in MT5; the floor never sees it.</p>
+      <p class="lede">Let the desks trade your FTMO account through MetaTrader 5. Every order carries a stop-loss, lots are sized for your account, and nothing trades for real until you arm it. Your FTMO password stays in MT5.</p>
+      <div class="card steps-card" id="live-steps"></div>
       <div id="live-warnings"></div>
       <div class="grid live-top">
         <div class="card" id="live-status"></div>
@@ -37,7 +38,7 @@ export class LiveView {
       </div>
       <div class="card" id="live-connect" style="margin-top:14px"></div>
       <div class="card" id="live-setup" style="margin-top:14px"></div>
-      <div class="card" style="margin-top:14px">
+      <div class="card" id="live-desks-card" style="margin-top:14px">
         <h2>Desks on the account</h2>
         <p class="sub">Switch on the desks that may trade FTMO. Everyone keeps paper trading either way. Your TradingView alerts reach the account through Chen's TradingView Signals desk, or through any desk named in the alert.</p>
         <div class="table-wrap" style="max-height:none"><table class="table" id="live-desks"></table></div>
@@ -94,6 +95,10 @@ export class LiveView {
       await this.#post('disarm');
     } else if (act === 'kill') {
       if (confirm('Close every floor position on the FTMO account now and disarm?')) await this.#post('kill');
+    } else if (act === 'goto') {
+      if (btn.dataset.target === 'setup') this.editing = true;
+      this.render(true);
+      this.root.querySelector(`#live-${btn.dataset.target}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
     } else if (act === 'edit') {
       this.editing = true;
       this.formLogin = null;
@@ -166,6 +171,36 @@ export class LiveView {
     };
   }
 
+  // Five-step checklist that ticks itself off as MT5 connects and the account is set up.
+  #renderSteps(v) {
+    const acc = v.account;
+    const p = v.profile;
+    const steps = [
+      { t: 'Connect MT5', d: 'Install the bridge EA and attach it to a chart', done: !!acc && v.connected },
+      { t: 'Allow algo trading', d: 'Algo Trading button on in MT5', done: !!acc && v.connected && acc.algoAllowed && acc.tradeAllowed },
+      { t: 'Set up the account', d: 'Free Trial or Challenge, and its limits', done: !!p },
+      { t: 'Choose desks', d: 'Pick who may trade the account', done: !!p && v.desks.some((d) => d.enabled) },
+      { t: 'Arm', d: 'Start live trading', done: v.armed },
+    ];
+    const now = steps.findIndex((x) => !x.done);
+    const next = [
+      { text: acc ? 'MT5 has stopped talking to the floor. Make sure MT5 is open and the MeridianBridge EA is on a chart.' : 'Follow the steps below to install the bridge in MetaTrader 5. This page ticks off each step by itself.', btn: ['connect', 'Show the steps'] },
+      { text: 'Turn on the Algo Trading button in the MT5 toolbar, and tick "Allow Algo Trading" in the EA settings (click the chart, press F7).', btn: null },
+      { text: 'Tell the floor what kind of account this is so it can respect FTMO\'s loss limits.', btn: ['setup', 'Set up the account'] },
+      { text: 'Switch on the desks that may trade your account. Everyone keeps paper trading either way.', btn: ['desks-card', 'Choose desks'] },
+      { text: v.mode === 'live' ? 'Ready. Arm live trading when you want the enabled desks to start trading.' : 'Restart the floor with npm start (live mode) to trade the account.', btn: v.mode === 'live' ? ['arm', 'Arm live trading'] : null },
+    ][now] || { text: 'All set: enabled desks are trading your account. Close all & disarm is always one click away.', btn: null };
+    const btn = next.btn
+      ? next.btn[0] === 'arm'
+        ? `<button class="btn arm" data-act="arm">${next.btn[1]}</button>`
+        : `<button class="btn primary" data-act="goto" data-target="${next.btn[0]}">${next.btn[1]}</button>`
+      : '';
+    this.root.querySelector('#live-steps').innerHTML = `
+      <h2>${now < 0 ? 'Your FTMO account is live' : 'Setup'}</h2>
+      <ol class="stepper">${steps.map((x, i) => `<li class="${x.done ? 'done' : i === now ? 'now' : ''}"><b><span class="n">${x.done ? '✓' : i + 1}</span>${x.t}</b>${x.d}</li>`).join('')}</ol>
+      <div class="next-step"><span>${escapeHtml(next.text)}</span>${btn}</div>`;
+  }
+
   render(force = false) {
     const v = this.store.live;
     if (!v) return;
@@ -173,6 +208,8 @@ export class LiveView {
     const $ = (id) => this.root.querySelector(id);
     const acc = v.account;
     const p = v.profile;
+
+    this.#renderSteps(v);
 
     $('#live-warnings').innerHTML = [
       ...(v.halt ? [`<div class="banner crit">⛔ <span><b>Trading halted:</b> ${escapeHtml(v.halt.reason)}.${v.halt.kind === 'daily' ? ' It resets at the start of the next FTMO server day.' : ''} <button class="mini-btn" data-act="reset-halt">Clear halt</button></span></div>`] : []),

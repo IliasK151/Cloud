@@ -66,6 +66,7 @@ export class AgentPanel {
   open(id) {
     const p = this.store.profileById[id];
     if (!p) return;
+    voice.unlock();
     this.id = id;
     this.el.root.hidden = false;
     this.el.avatar.textContent = initials(p.name);
@@ -144,6 +145,7 @@ export class AgentPanel {
       this.floor.updateBubble(id, `<b>${escapeHtml(p.name)}</b>${escapeHtml(lines[i])}`);
     };
     let speaking = false;
+    if (!voice.enabled) voice.mimic(id, 1200 + (text.length / 2) * 55);
     if (voice.enabled) {
       voice
         .speakLines([opener, ...lines], p, {

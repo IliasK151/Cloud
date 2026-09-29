@@ -67,38 +67,139 @@ function setView(next, opts = {}) {
 }
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 
-// ---- toggles ---------------------------------------------------------------------------
-const voiceBtn = document.getElementById('btn-voice');
-const qualityBtn = document.getElementById('btn-quality');
-const syncVoice = () => {
-  voiceBtn.setAttribute('aria-pressed', String(voice.enabled));
-  voiceBtn.title = voice.supported ? `Agent voices ${voice.enabled ? 'on' : 'off'} (V)` : 'Speech is not supported in this browser';
-};
-voiceBtn.addEventListener('click', () => {
-  voice.setEnabled(!voice.enabled);
-  syncVoice();
+// ---- settings: voices, graphics, tour ------------------------------------------------------
+const settingsBtn = document.getElementById('btn-settings');
+const settings = document.getElementById('settings');
+const voiceSeg = document.getElementById('set-voice');
+const voiceNote = document.getElementById('set-voice-note');
+const voiceBar = document.getElementById('set-voice-progress');
+const hqBox = document.getElementById('set-hq');
+
+function openSettings(open) {
+  settings.hidden = !open;
+  settingsBtn.setAttribute('aria-expanded', String(open));
+}
+settingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  openSettings(settings.hidden);
 });
-syncVoice();
+document.addEventListener('pointerdown', (e) => {
+  if (!settings.hidden && !settings.contains(e.target) && !settingsBtn.contains(e.target)) openSettings(false);
+});
+
+const mb = (n) => `${Math.round(n / 1e6)} MB`;
+function voiceNoteText(st) {
+  const n = st.neural;
+  if (st.engine === 'off') return 'Traders answer in text only.';
+  if (st.engine === 'natural') {
+    if (n.state === 'ready') return `Realistic voices are ready${n.device === 'webgpu' ? ' (running on your graphics chip)' : ''}. Everything runs on this computer.`;
+    if (n.state === 'loading') return n.total ? `Downloading the voice model: ${mb(n.loaded)} of ${mb(n.total)}. Only needed once; Mac voices fill in meanwhile.` : 'Starting the voice engine…';
+    if (n.state === 'error') return `Realistic voices could not load (${n.error}). Check your internet connection for the one-time download; Mac voices are used meanwhile.`;
+    return 'Natural AI voices that run privately on this computer. One-time download of about 100–330 MB.';
+  }
+  const names = [...new Set(Object.values(st.assigned))];
+  if (!st.systemVoices) return 'No English system voices found in this browser.';
+  const basic = names.every((x) => !/premium|enhanced|natural|google/i.test(x));
+  return `Using ${names.slice(0, 4).join(', ')}${names.length > 4 ? '…' : ''}.${basic ? ' For better Mac voices open System Settings → Accessibility → Spoken Content → System voice → Manage Voices and add Premium voices such as Zoe, Ava, Evan or Serena.' : ''}`;
+}
+function syncVoiceUi(st = voice.status()) {
+  voiceSeg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.engine === st.engine)));
+  voiceNote.textContent = voiceNoteText(st);
+  const loading = st.engine === 'natural' && st.neural.state === 'loading';
+  voiceBar.hidden = !loading;
+  voiceBar.firstElementChild.style.width = `${Math.round((st.neural.progress || 0) * 100)}%`;
+  document.getElementById('set-voice-preview').disabled = st.engine === 'off';
+  welcome.syncVoice(st);
+}
+voiceSeg.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-engine]');
+  if (b) setVoiceEngine(b.dataset.engine);
+});
+function setVoiceEngine(engine) {
+  voice.unlock();
+  if (engine !== 'off') try { localStorage.setItem('floor.voiceLast', engine); } catch { /* ignore */ }
+  voice.setEngine(engine);
+}
+function previewVoice() {
+  voice.unlock();
+  const p = store.profileById[store.selected] || store.profiles[0];
+  if (p) voice.preview(p);
+}
+document.getElementById('set-voice-preview').addEventListener('click', previewVoice);
+voice.on((st) => syncVoiceUi(st));
+
 let hq = true;
 try { hq = localStorage.getItem('floor.hq') !== 'off'; } catch { /* ignore */ }
 if (params.get('hq') === '0') hq = false;
 floor?.setQuality(hq);
-qualityBtn.setAttribute('aria-pressed', String(hq));
-qualityBtn.addEventListener('click', () => floor?.setQuality(!floor.quality));
+hqBox.checked = hq;
+hqBox.addEventListener('change', () => floor?.setQuality(hqBox.checked));
 floor?.on('quality', (on) => {
-  qualityBtn.setAttribute('aria-pressed', String(on));
+  hqBox.checked = on;
   try { localStorage.setItem('floor.hq', on ? 'on' : 'off'); } catch { /* ignore */ }
 });
 if (params.get('hq') === '1' && floor) floor.autoQuality = false; // pin high quality (skip auto-downgrade)
 
+// ---- first-run welcome ----------------------------------------------------------------------
+const welcome = (() => {
+  const el = document.getElementById('welcome');
+  const steps = [...el.querySelectorAll('section[data-step]')];
+  const dots = [...el.querySelectorAll('.wc-dots i')];
+  let step = 0;
+  const show = (i) => {
+    step = i;
+    steps.forEach((sec, k) => { sec.hidden = k !== i; });
+    dots.forEach((d, k) => d.classList.toggle('on', k <= i));
+  };
+  const finish = () => {
+    el.hidden = true;
+    try { localStorage.setItem('floor.welcomed', '1'); } catch { /* ignore */ }
+  };
+  el.addEventListener('click', (e) => {
+    const opt = e.target.closest('.wc-opt');
+    if (opt) {
+      setVoiceEngine(opt.dataset.engine);
+      return;
+    }
+    const act = e.target.closest('[data-wc]')?.dataset.wc;
+    if (act === 'next') show(Math.min(steps.length - 1, step + 1));
+    else if (act === 'skip' || act === 'done') finish();
+    else if (act === 'preview') previewVoice();
+    else if (act === 'ftmo') {
+      finish();
+      setView('ftmo');
+    }
+  });
+  return {
+    open() {
+      openSettings(false);
+      show(0);
+      el.hidden = false;
+    },
+    get seen() {
+      try { return localStorage.getItem('floor.welcomed') === '1'; } catch { return true; }
+    },
+    syncVoice(st) {
+      el.querySelectorAll('.wc-opt').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.engine === st.engine)));
+      const note = document.getElementById('wc-voice-note');
+      if (note) note.textContent = st.engine === 'natural' ? voiceNoteText(st) : '';
+    },
+  };
+})();
+document.getElementById('set-tour').addEventListener('click', () => welcome.open());
+syncVoiceUi();
+voice.prepare();
+
 // ---- keyboard --------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
   if (e.target.closest('input, select, textarea') || e.metaKey || e.ctrlKey) return;
+  if (!document.getElementById('welcome').hidden) return;
   const ids = store.profiles.map((p) => p.id);
   if (/^[0-9]$/.test(e.key) && ids.length) {
     const idx = e.key === '0' ? 9 : Number(e.key) - 1;
     if (ids[idx]) select(ids[idx]);
   } else if (e.key === 'Escape') {
+    if (!settings.hidden) return openSettings(false);
     deselect();
   } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
     if (!store.selected || view !== 'floor') return;
@@ -108,8 +209,11 @@ window.addEventListener('keydown', (e) => {
   else if (e.key.toLowerCase() === 'f') setView('floor');
   else if (e.key.toLowerCase() === 't') setView('tradingview');
   else if (e.key.toLowerCase() === 'l') setView('ftmo');
-  else if (e.key.toLowerCase() === 'v') voiceBtn.click();
-  else if (e.key.toLowerCase() === 'q') qualityBtn.click();
+  else if (e.key.toLowerCase() === 'v') {
+    let last = 'system';
+    try { last = localStorage.getItem('floor.voiceLast') || 'system'; } catch { /* ignore */ }
+    setVoiceEngine(voice.enabled ? 'off' : last);
+  } else if (e.key.toLowerCase() === 'q') floor?.setQuality(!floor.quality);
 });
 
 // ---- data flow -------------------------------------------------------------------------
@@ -120,12 +224,14 @@ function hideHint() {
 store.on('init', ({ first }) => {
   if (first) {
     floor?.buildDesks(store.profiles);
+    voice.setProfiles(store.profiles);
     hud.init();
     setTimeout(() => document.getElementById('loading').classList.add('done'), 400);
     setTimeout(hideHint, 14000);
     const pre = params.get('agent');
     if (pre) setTimeout(() => select(pre), 900);
     if (params.get('view')) setView(params.get('view'));
+    if (!welcome.seen && !pre && !params.get('view')) setTimeout(() => welcome.open(), 900);
   } else {
     hud.init();
   }

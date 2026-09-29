@@ -26,9 +26,9 @@ A 3D institutional trading floor that runs in your browser, served by a small se
    npm run demo       # simulated markets at 20× speed, works offline
    ```
 
-3. Your browser opens **http://localhost:3000**. That's the floor.
+3. Your browser opens **http://localhost:3000**. That's the floor. The first time, a short welcome walks you through it: what you're looking at, how the traders should sound, and (optionally) connecting FTMO.
 
-Prefer double-clicking? Use **`start.command`** (live) or **`start-demo.command`** (simulation) in Finder. They install dependencies on the first run and then start the server. Stop the server with `Ctrl+C`. The desks flatten and the track record is saved to `data/`.
+**Prefer double-clicking?** Open the folder in Finder and double-click **`start.command`** (live) or **`start-demo.command`** (simulation). If Node.js is missing it opens the download page for you; otherwise it installs everything on the first run, starts the server and opens your browser. Close the window or press `Ctrl+C` to stop. The desks flatten and the track record is saved to `data/`.
 
 ### Live vs demo
 
@@ -45,16 +45,27 @@ If a live source can't be reached, that market automatically falls back to a rea
 
 ## The floor
 
+- **A calm, modern floor:** polished concrete, walnut slat walls, linear pendants over every desk and floor-to-ceiling windows onto the city at dusk, with soft shadows and ambient occlusion.
 - **10 desks in two tiers**, each with a six-screen workstation. The screens are live: a TradingView-style chart with the desk's entry, stop and target drawn as a position box, the book and setup checklist, a DOM ladder with time & sales, a Bloomberg-style terminal with the desk's log, the intraday P&L curve, and market watch.
-- **A hanging sign over every desk** shows its live day P&L. A status tag over each trader shows `SCANNING`, `ARMED`, `IN TRADE`, `COOLDOWN` or `HALTED`.
-- **The front wall** carries the LED video wall (NAV, day P&L, fund equity, desk P&L bars, markets), world clocks, and scrolling ticker tapes. Night-time city skyline windows run down both sides.
-- **The traders are animated.** They type, glance between screens, fist-pump a winner, facepalm a loser and slump when risk halts them. When they trade, a speech bubble pops up over their head.
+- **A name tag floats over every desk** with the trader, their desk, today's P&L and a status dot (scanning, armed, in trade, halted). Click it to talk to them.
+- **The front wall** carries the LED video wall (NAV, day P&L, fund equity, desk P&L bars, markets), world clocks and a ticker tape.
+- **The traders are real characters,** each with their own look: faces with eyes that blink and follow what they're reading, hairstyles, suits, blazers and knitwear, glasses and trading headsets. Their hands work the keyboard and mouse (the arms use inverse kinematics), and between trades they sit back to read, rest their chin on a hand, take calls on the headset or sip their coffee. They fist-pump a winner, put their hands on their head after a loser and slump when risk halts them. When they trade, a speech bubble pops up over their head.
 
-**Controls:** click a trader, or press keys `1`–`0`, to zoom in. Drag to orbit, scroll to zoom, right-drag to pan. `←`/`→` moves to the next trader, and `Esc` returns to the overview. `D` opens the dashboard, `T` the TradingView page, `L` the FTMO tab, `F` the floor. `V` toggles voices and `Q` toggles glow effects.
+**Controls:** click a trader, or press keys `1`–`0`, to zoom in. Drag to orbit, scroll to zoom, right-drag to pan. `←`/`→` moves to the next trader, and `Esc` returns to the overview. `D` opens the dashboard, `T` the TradingView page, `L` the FTMO tab, `F` the floor. `V` turns voices on and off, and `Q` switches graphics quality. The gear icon (top right) holds the voice and graphics settings and can replay the welcome tour.
 
 ### "Hello boss!"
 
-Selecting a trader flies the camera to their desk. They swivel their chair toward you, wave, and give a live briefing: their strategy, the current setup and key levels, any open position with stop, target and R-multiple, and their P&L for the day and since inception. The briefing is spoken using your Mac's built-in voices, and each trader has their own voice. The side panel shows the full setup checklist, levels, positions, performance, a live chart, the real **TradingView** chart for their market, and their trade history. From the panel you can also **flatten** or **pause** the desk.
+Selecting a trader flies the camera to their desk. They swivel their chair toward you, wave, and give a live briefing: their strategy, the current setup and key levels, any open position with stop, target and R-multiple, and their P&L for the day and since inception. The briefing is spoken aloud, each trader has their own voice, and their lips move with the words. The side panel shows the full setup checklist, levels, positions, performance, a live chart, the real **TradingView** chart for their market, and their trade history. From the panel you can also **flatten** or **pause** the desk.
+
+### Voices
+
+Choose how the traders sound in the welcome tour or under the gear icon:
+
+- **Realistic** (recommended): natural, human-sounding AI voices from [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), an open (Apache-2.0) text-to-speech model that runs entirely in your browser on this computer. The first time, the browser downloads it once (about 100 MB, or about 330 MB for the faster version on Macs with a capable graphics chip); after that it works from the cache. Nothing you hear is sent anywhere. Until the download finishes, Mac voices fill in.
+- **Mac voices:** your computer's built-in voices. The floor picks the best installed English voices, matches each trader's gender and accent, gives everyone a different voice where it can, and never uses the novelty or old robotic ones. For much better Mac voices, open **System Settings → Accessibility → Spoken Content → System voice → Manage Voices** and download a few **Premium** or **Enhanced** voices (for example Zoe, Ava, Evan, Nathan, Serena or Daniel), then reload the floor.
+- **Off:** traders answer in text only.
+
+Tickers are read the way traders say them ("gold", "the Nasdaq", "dollar yen"), and P&L and R-multiples are spoken properly.
 
 ---
 

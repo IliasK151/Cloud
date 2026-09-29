@@ -24,26 +24,18 @@
 
     <header id="topbar">
       <div class="brand">
-        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M7 22 L13 14 L18 18 L25 9"/></svg>
-        <div class="brand-text">
-          <strong id="fund-name">Meridian Capital</strong>
-          <span>Institutional Trading Floor</span>
-        </div>
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8"/><path d="M8 21.5 L13.5 14.5 L18 18 L24.5 10"/></svg>
+        <strong id="fund-name">Meridian Capital</strong>
+        <span class="conn" id="conn" title="Connection to the local server"><i></i><span>Connecting</span></span>
       </div>
       <div class="kpis" id="kpis">
         <div class="book-switch" id="book-switch" role="group" aria-label="Which P&amp;L to show" hidden>
           <button data-book="ftmo" aria-pressed="true">FTMO</button>
           <button data-book="paper" aria-pressed="false">Paper</button>
         </div>
-        <div class="kpi"><span class="kpi-label" id="kpi-nav-label">NAV</span><span class="kpi-value" id="kpi-nav">—</span></div>
-        <div class="kpi"><span class="kpi-label" id="kpi-day-label">Day P&amp;L</span><span class="kpi-value" id="kpi-day">—</span></div>
-        <div class="kpi"><span class="kpi-label" id="kpi-total-label">Since inception</span><span class="kpi-value" id="kpi-total">—</span></div>
-        <div class="kpi hide-sm"><span class="kpi-label" id="kpi-gross-label">Gross exposure</span><span class="kpi-value" id="kpi-gross">—</span></div>
-        <div class="kpi hide-sm"><span class="kpi-label">Open positions</span><span class="kpi-value" id="kpi-open">—</span></div>
-      </div>
-      <div class="clock">
-        <span class="mode-badge" id="mode-badge">—</span>
-        <div class="clock-time"><span id="clock-time">--:--:--</span><span class="clock-zone">ET · <span id="clock-session">—</span></span></div>
+        <div class="kpi"><span class="kpi-label" id="kpi-nav-label">NAV</span><span class="kpi-value num" id="kpi-nav">—</span></div>
+        <div class="kpi"><span class="kpi-label" id="kpi-day-label">Today</span><span class="kpi-value num" id="kpi-day">—</span></div>
+        <div class="kpi hide-sm"><span class="kpi-label" id="kpi-total-label">Since inception</span><span class="kpi-value num" id="kpi-total">—</span></div>
       </div>
       <nav class="tabs" role="tablist" aria-label="Views">
         <button role="tab" data-view="floor" aria-selected="true">Floor</button>
@@ -51,15 +43,32 @@
         <button role="tab" data-view="tradingview" aria-selected="false">TradingView</button>
         <button role="tab" data-view="ftmo" aria-selected="false">FTMO</button>
       </nav>
-      <button class="live-pill" id="live-pill" title="FTMO live trading"><i></i><span>Connect FTMO</span></button>
-      <div class="toggles">
-        <button class="icon-btn" id="btn-voice" title="Agent voices (V)" aria-pressed="true">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
-        </button>
-        <button class="icon-btn" id="btn-quality" title="Glow effects (Q)" aria-pressed="true">HQ</button>
-        <span class="conn" id="conn" title="Connection to the local server"><i></i><span>Connecting</span></span>
+      <div class="clock">
+        <span class="mode-badge" id="mode-badge">—</span>
+        <div class="clock-time"><span id="clock-time">--:--:--</span><span class="clock-zone">New York · <span id="clock-session">—</span></span></div>
       </div>
+      <button class="live-pill" id="live-pill" title="FTMO live trading"><i></i><span>Connect FTMO</span></button>
+      <button class="icon-btn" id="btn-settings" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path class="stroke" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/><path class="stroke" d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.4-2.3.9a7.6 7.6 0 0 0-2.6-1.5L14.1 2.5h-4.2l-.4 2.5a7.6 7.6 0 0 0-2.6 1.5l-2.3-.9-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.4 2.3-.9a7.6 7.6 0 0 0 2.6 1.5l.4 2.5h4.2l.4-2.5a7.6 7.6 0 0 0 2.6-1.5l2.3.9 2-3.4-2-1.5z"/></svg>
+      </button>
     </header>
+
+    <div id="settings" class="popover" hidden role="dialog" aria-label="Settings">
+      <h3>Voices</h3>
+      <div class="seg" id="set-voice" role="radiogroup" aria-label="Agent voices">
+        <button role="radio" data-engine="natural">Realistic</button>
+        <button role="radio" data-engine="system">Mac voices</button>
+        <button role="radio" data-engine="off">Off</button>
+      </div>
+      <p class="set-note" id="set-voice-note"></p>
+      <div class="progress" id="set-voice-progress" hidden><i></i></div>
+      <button class="btn small" id="set-voice-preview">▶ Hear a sample</button>
+      <h3>Graphics</h3>
+      <label class="set-row"><span>High quality<small>Soft shadows, ambient light and glow. Turns itself off on slow machines.</small></span><span class="switch accent"><input type="checkbox" id="set-hq"><span></span></span></label>
+      <h3>Help</h3>
+      <button class="link-btn" id="set-tour">Show the welcome tour again</button>
+      <p class="set-keys"><kbd>1</kbd>–<kbd>0</kbd> talk to a trader · <kbd>Esc</kbd> back to the floor · <kbd>D</kbd> dashboard · <kbd>V</kbd> voices on/off</p>
+    </div>
 
     <aside id="desk-rail" aria-label="Desks">
       <div class="rail-head"><span>Desks</span><span class="rail-sub" id="rail-sub">Today</span></div>
@@ -139,7 +148,7 @@
       <div class="tape-track"><div class="tape-inner" id="tape-inner"></div></div>
     </footer>
 
-    <div id="floor-hint">Click a trader to talk to them · drag to look around · scroll to zoom · keys 1–0 · Esc for the overview</div>
+    <div id="floor-hint">Click any trader to talk to them · drag to look around · scroll to zoom</div>
 
     <section id="dashboard-view" class="view" hidden aria-label="Dashboard"></section>
     <section id="tv-view" class="view" hidden aria-label="TradingView integration"></section>
@@ -154,6 +163,40 @@
           <button class="btn primary" id="live-modal-setup">Set it up</button>
           <button class="btn" id="live-modal-later">Later</button>
         </div>
+      </div>
+    </div>
+
+    <div id="welcome" class="modal welcome" hidden role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+      <div class="modal-card welcome-card">
+        <div class="wc-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        <section data-step="0">
+          <p class="modal-kicker">Welcome</p>
+          <h2 id="welcome-title">Your trading floor is open</h2>
+          <p>Ten AI traders run their own desks, each with a strategy and a market. They trade with practice money, so nothing here touches your own cash.</p>
+          <ul class="wc-list">
+            <li><b>Click any trader</b> (or press 1–0) to hear their setup and P&amp;L.</li>
+            <li><b>Dashboard</b> shows the whole book at a glance.</li>
+            <li><b>FTMO</b> lets the desks trade your prop account — only when you say so.</li>
+          </ul>
+          <div class="modal-actions"><button class="btn primary" data-wc="next">Get started</button><button class="btn ghost" data-wc="skip">Skip</button></div>
+        </section>
+        <section data-step="1" hidden>
+          <p class="modal-kicker">Step 2 of 3</p>
+          <h2>How should they sound?</h2>
+          <div class="wc-options" role="radiogroup" aria-label="Agent voices">
+            <button class="wc-opt" role="radio" data-engine="natural"><b>Realistic voices <em>Recommended</em></b><span>Natural, human-sounding AI voices that run privately on this computer. One-time download of about 100–330 MB.</span></button>
+            <button class="wc-opt" role="radio" data-engine="system"><b>Mac voices</b><span>Your computer's built-in voices. Instant, no download.</span></button>
+            <button class="wc-opt" role="radio" data-engine="off"><b>No voices</b><span>Traders answer in text only.</span></button>
+          </div>
+          <p class="fine" id="wc-voice-note"></p>
+          <div class="modal-actions"><button class="btn primary" data-wc="next">Continue</button><button class="btn ghost" data-wc="preview">▶ Hear a sample</button></div>
+        </section>
+        <section data-step="2" hidden>
+          <p class="modal-kicker">Step 3 of 3 · optional</p>
+          <h2>Trade your FTMO account?</h2>
+          <p>The desks can also trade your FTMO Free Trial or Challenge through MetaTrader 5. Setup takes about five minutes and nothing trades for real until you arm it.</p>
+          <div class="modal-actions"><button class="btn primary" data-wc="ftmo">Set up FTMO</button><button class="btn" data-wc="done">Explore the floor</button></div>
+        </section>
       </div>
     </div>
 

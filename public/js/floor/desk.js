@@ -2,15 +2,46 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Avatar } from './avatar.js';
 import { DeskScreens, SLOTS } from './screens.js';
-import { canvasTexture, blobTexture, roundRect } from './textures.js';
-import { money } from '../format.js';
+import { blobTexture, canvasTexture } from './textures.js';
 
-const std = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.05, ...opts });
+// One trading desk: a clean solid-surface bench with a six-screen monitor arm, keyboard,
+// mouse, dealer board and a few personal touches, plus the trader in their chair.
+// Desk-local: the trader sits on +Z and faces -Z. Name and P&L labels are HTML (floor.js).
 
-let sharedBlob = null;
-const blob = () => (sharedBlob ||= blobTexture());
+let shared = null;
+function materials() {
+  if (shared) return shared;
+  const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.05, ...o });
+  const keys = canvasTexture(256, 96);
+  keys.ctx.fillStyle = '#2b2e34';
+  keys.ctx.fillRect(0, 0, 256, 96);
+  keys.ctx.fillStyle = '#3b3f46';
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 18; c++) keys.ctx.fillRect(4 + c * 14, 4 + r * 18, 11, 14);
+  keys.texture.needsUpdate = true;
+  shared = {
+    top: new THREE.MeshPhysicalMaterial({ color: '#b9b6b0', roughness: 0.5, clearcoat: 0.2, clearcoatRoughness: 0.5 }),
+    edge: std('#cfccc6', { roughness: 0.5 }),
+    frame: std('#1a1b1f', { roughness: 0.45, metalness: 0.4 }),
+    panel: std('#26282d', { roughness: 0.8 }),
+    arm: std('#2a2c31', { roughness: 0.35, metalness: 0.7 }),
+    bezel: std('#0c0d10', { roughness: 0.35, metalness: 0.3 }),
+    back: std('#1b1c20', { roughness: 0.55, metalness: 0.2 }),
+    kb: std('#c9ccd2', { roughness: 0.35, metalness: 0.6 }),
+    keys: std('#ffffff', { map: keys.texture, roughness: 0.7 }),
+    mouse: std('#e9eaec', { roughness: 0.3 }),
+    paper: std('#f4f2ec', { roughness: 0.95 }),
+    notebook: std('#2c2f35', { roughness: 0.8 }),
+    turret: std('#141519', { roughness: 0.4, metalness: 0.2 }),
+    turretScreen: new THREE.MeshBasicMaterial({ color: '#3b6fb5', toneMapped: false }),
+    pot: std('#f0efeb', { roughness: 0.6 }),
+    leaf: std('#4f7a4a', { roughness: 0.7, flatShading: true }),
+    soil: std('#2b2119', { roughness: 1 }),
+    blob: new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false, opacity: 0.55 }),
+  };
+  return shared;
+}
 
-// Monitor layout (desk-local, the trader sits on +Z and faces -Z).
+// Monitor layout (desk-local).
 const MONITORS = [
   { slot: 'position', x: -0.66, y: 1.06, z: -0.2, ry: 0.32, rx: 0 },
   { slot: 'chart', x: 0, y: 1.06, z: -0.32, ry: 0, rx: 0 },
@@ -19,6 +50,8 @@ const MONITORS = [
   { slot: 'pnl', x: 0, y: 1.47, z: -0.36, ry: 0, rx: 0.12 },
   { slot: 'watch', x: 0.66, y: 1.47, z: -0.24, ry: -0.32, rx: 0.12 },
 ];
+
+const TOP_Y = 0.7625;
 
 export class Desk {
   constructor(profile, index) {
@@ -29,225 +62,156 @@ export class Desk {
     this.screens = new DeskScreens();
     this.#buildFurniture();
     this.#buildMonitors();
-    this.#buildSign();
-    this.avatar = new Avatar(profile);
+    this.avatar = new Avatar(profile, index);
     this.avatar.root.position.set(0, 0, 0.78);
     this.group.add(this.avatar.root);
-    this.#buildStatusTag();
     this.#buildRing();
     this.#buildHitbox();
     this.hover = false;
     this.selected = false;
-    this.lastSign = '';
-    this.lastStatus = '';
   }
 
   #buildFurniture() {
+    const m = materials();
     const g = this.group;
-    const accent = new THREE.Color(this.profile.accent);
-    const top = new THREE.Mesh(new RoundedBoxGeometry(3.0, 0.045, 1.15, 2, 0.015), std('#b4bac4', { roughness: 0.5 }));
-    top.position.set(0, 0.74, 0);
+    const top = new THREE.Mesh(new RoundedBoxGeometry(3.0, 0.035, 1.15, 3, 0.012), m.top);
+    top.position.set(0, TOP_Y - 0.0175, 0);
     top.castShadow = top.receiveShadow = true;
     g.add(top);
-    const frame = std('#23272f', { roughness: 0.7 });
+    // Slim T-leg frames and a cable spine.
     for (const s of [-1, 1]) {
-      const side = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.72, 1.05), frame);
-      side.position.set(s * 1.44, 0.36, 0);
-      side.castShadow = true;
-      g.add(side);
+      const post = new THREE.Mesh(new RoundedBoxGeometry(0.06, TOP_Y - 0.06, 0.06, 2, 0.01), m.frame);
+      post.position.set(s * 1.32, (TOP_Y - 0.06) / 2 + 0.03, -0.05);
+      post.castShadow = true;
+      g.add(post);
+      const foot = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.035, 0.95, 2, 0.012), m.frame);
+      foot.position.set(s * 1.32, 0.0175, -0.05);
+      foot.castShadow = foot.receiveShadow = true;
+      g.add(foot);
+      const rail = new THREE.Mesh(new RoundedBoxGeometry(0.05, 0.04, 1.0, 2, 0.01), m.frame);
+      rail.position.set(s * 1.32, TOP_Y - 0.055, -0.05);
+      g.add(rail);
     }
-    const modesty = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.56, 0.04), frame);
-    modesty.position.set(0, 0.42, -0.52);
+    const spine = new THREE.Mesh(new RoundedBoxGeometry(2.6, 0.12, 0.08, 2, 0.02), m.frame);
+    spine.position.set(0, TOP_Y - 0.1, -0.42);
+    g.add(spine);
+    const modesty = new THREE.Mesh(new RoundedBoxGeometry(2.7, 0.34, 0.02, 2, 0.008), m.panel);
+    modesty.position.set(0, 0.5, -0.54);
     modesty.castShadow = true;
     g.add(modesty);
-    const led = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.025, 0.045), new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 1.6 }));
-    led.position.set(0, 0.69, -0.52);
-    g.add(led);
-    this.led = led;
 
-    // Monitor arm pole
-    const metal = std('#3a3f48', { metalness: 0.6, roughness: 0.35 });
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.05, 10), metal);
-    pole.position.set(0, 1.25, -0.46);
+    // Monitor arm: a central pole with two crossbars.
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.95, 16), m.arm);
+    pole.position.set(0, TOP_Y + 0.475, -0.46);
+    pole.castShadow = true;
     g.add(pole);
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.2), metal);
-    foot.position.set(0, 0.772, -0.42);
-    g.add(foot);
-    for (const yy of [1.06, 1.47]) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.03, 0.03), metal);
-      bar.position.set(0, yy, -0.44);
+    const clamp = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.03, 0.1, 2, 0.01), m.arm);
+    clamp.position.set(0, TOP_Y + 0.015, -0.46);
+    g.add(clamp);
+    for (const y of [1.06, 1.47]) {
+      const bar = new THREE.Mesh(new RoundedBoxGeometry(1.4, 0.028, 0.03, 2, 0.01), m.arm);
+      bar.position.set(0, y, -0.44);
       g.add(bar);
     }
 
-    // Keyboard, Bloomberg keyboard, mouse, turret, coffee.
-    const kb = new THREE.Mesh(new RoundedBoxGeometry(0.46, 0.022, 0.15, 2, 0.006), std('#1b1d22', { roughness: 0.5 }));
-    kb.position.set(0.05, 0.775, 0.28);
+    // Keyboard, mouse, notebook and a voice dealer board.
+    const kb = new THREE.Mesh(new RoundedBoxGeometry(0.44, 0.016, 0.14, 2, 0.006), m.kb);
+    kb.position.set(0.05, TOP_Y + 0.008, 0.28);
+    kb.castShadow = true;
     g.add(kb);
-    const keys = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.11), std('#2c3038', { roughness: 0.8 }));
+    const keys = new THREE.Mesh(new THREE.PlaneGeometry(0.41, 0.115), m.keys);
     keys.rotation.x = -Math.PI / 2;
-    keys.position.set(0.05, 0.787, 0.28);
+    keys.position.set(0.05, TOP_Y + 0.0165, 0.28);
     g.add(keys);
-    const bbg = new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.022, 0.15, 2, 0.006), std('#0e0f12'));
-    bbg.position.set(-0.62, 0.775, 0.2);
-    bbg.rotation.y = 0.18;
-    g.add(bbg);
-    const bbgKeys = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.1), new THREE.MeshStandardMaterial({ color: '#e0a100', emissive: '#e0a100', emissiveIntensity: 0.4 }));
-    bbgKeys.rotation.x = -Math.PI / 2;
-    bbgKeys.position.set(-0.76, 0.788, 0.22);
-    g.add(bbgKeys);
-    const mouse = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), std('#1b1d22'));
-    mouse.scale.set(0.8, 0.45, 1.2);
-    mouse.position.set(0.42, 0.78, 0.3);
+    const mouse = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), m.mouse);
+    mouse.scale.set(0.9, 0.45, 1.35);
+    mouse.position.set(0.42, TOP_Y + 0.012, 0.3);
+    mouse.castShadow = true;
     g.add(mouse);
-    const turret = new THREE.Mesh(new RoundedBoxGeometry(0.36, 0.1, 0.26, 2, 0.02), std('#16181d'));
-    turret.position.set(1.05, 0.8, 0.05);
-    turret.rotation.set(-0.35, -0.35, 0);
+    const notebook = new THREE.Mesh(new RoundedBoxGeometry(0.21, 0.014, 0.29, 2, 0.005), m.notebook);
+    notebook.position.set(-0.78, TOP_Y + 0.007, 0.26);
+    notebook.rotation.y = 0.12;
+    notebook.castShadow = true;
+    g.add(notebook);
+    const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.27), m.paper);
+    paper.rotation.set(-Math.PI / 2, 0, 0.12);
+    paper.position.set(-0.78, TOP_Y + 0.0145, 0.26);
+    g.add(paper);
+    const turret = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.07, 0.24, 2, 0.015), m.turret);
+    turret.position.set(1.08, TOP_Y + 0.04, 0.02);
+    turret.rotation.set(-0.3, -0.35, 0);
+    turret.castShadow = true;
     g.add(turret);
-    // Dealer-board (voice turret) with a lit button panel.
-    const turretScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.2), new THREE.MeshBasicMaterial({ color: '#1f5fae', toneMapped: false }));
-    turretScreen.rotation.x = -Math.PI / 2;
-    turretScreen.position.y = 0.051;
-    turret.add(turretScreen);
-    const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.1, 14), std(this.index % 2 ? '#f2f2f2' : this.profile.accent));
-    mug.position.set(0.85, 0.815, 0.38);
-    g.add(mug);
-    const papers = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.02, 0.3), std('#eeeeea', { roughness: 0.9 }));
-    papers.position.set(-1.1, 0.772, 0.28);
-    papers.rotation.y = 0.2;
-    g.add(papers);
+    const tScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.18), m.turretScreen);
+    tScreen.rotation.x = -Math.PI / 2;
+    tScreen.position.y = 0.0355;
+    turret.add(tScreen);
 
-    // Contact shadows
-    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.8, 2.6), new THREE.MeshBasicMaterial({ map: blob(), transparent: true, depthWrite: false, opacity: 0.8 }));
+    // A small plant on some desks.
+    if (this.index % 3 !== 1) {
+      const plant = new THREE.Group();
+      plant.position.set(this.index % 2 ? -1.2 : 1.25, TOP_Y, this.index % 2 ? -0.28 : 0.38);
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.045, 0.1, 20), m.pot);
+      pot.position.y = 0.05;
+      pot.castShadow = true;
+      plant.add(pot);
+      const soil = new THREE.Mesh(new THREE.CircleGeometry(0.05, 16), m.soil);
+      soil.rotation.x = -Math.PI / 2;
+      soil.position.y = 0.095;
+      plant.add(soil);
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2 + this.index;
+        const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 4), m.leaf);
+        leaf.scale.set(0.45, 1.6, 0.25);
+        leaf.position.set(Math.sin(a) * 0.028, 0.14 + (i % 3) * 0.012, Math.cos(a) * 0.028);
+        leaf.rotation.set(Math.cos(a) * 0.55, 0, -Math.sin(a) * 0.55);
+        leaf.castShadow = true;
+        plant.add(leaf);
+      }
+      g.add(plant);
+    }
+
+    // Soft contact shadow (used when ambient occlusion is off).
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.8, 2.6), m.blob);
     shadow.rotation.x = -Math.PI / 2;
-    shadow.position.set(0, 0.006, 0.2);
+    shadow.position.set(0, 0.004, 0.2);
     g.add(shadow);
+    this.blob = shadow;
   }
 
   #buildMonitors() {
+    const m = materials();
     const screenMat = new THREE.MeshBasicMaterial({ map: this.screens.texture, toneMapped: false });
-    const bezelMat = std('#0b0c0f', { roughness: 0.4, metalness: 0.3 });
     this.screenMeshes = [];
-    for (const m of MONITORS) {
-      const mon = new THREE.Group();
-      mon.position.set(m.x, m.y, m.z);
-      mon.rotation.set(m.rx, m.ry, 0, 'YXZ');
-      const bezel = new THREE.Mesh(new RoundedBoxGeometry(0.645, 0.395, 0.03, 2, 0.008), bezelMat);
+    for (const mon of MONITORS) {
+      const grp = new THREE.Group();
+      grp.position.set(mon.x, mon.y, mon.z);
+      grp.rotation.set(mon.rx, mon.ry, 0, 'YXZ');
+      const bezel = new THREE.Mesh(new RoundedBoxGeometry(0.636, 0.382, 0.012, 2, 0.004), m.bezel);
+      bezel.position.z = 0.002;
       bezel.castShadow = true;
-      mon.add(bezel);
-      const geo = new THREE.PlaneGeometry(0.62, 0.37);
-      const [c, r] = SLOTS[m.slot];
+      grp.add(bezel);
+      const back = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.26, 0.03, 2, 0.012), m.back);
+      back.position.z = -0.02;
+      grp.add(back);
+      const geo = new THREE.PlaneGeometry(0.622, 0.366);
+      const [c, r] = SLOTS[mon.slot];
       DeskScreens.uvFor(c, r, geo);
       const screen = new THREE.Mesh(geo, screenMat);
-      screen.position.z = 0.0165;
-      mon.add(screen);
+      screen.position.z = 0.0085;
+      grp.add(screen);
       this.screenMeshes.push(screen);
-      this.group.add(mon);
+      this.group.add(grp);
     }
-  }
-
-  #buildSign() {
-    const { canvas, ctx, texture } = canvasTexture(1024, 240);
-    this.signCanvas = canvas;
-    this.signCtx = ctx;
-    this.signTex = texture;
-    const face = new THREE.MeshBasicMaterial({ map: texture, color: '#d8dce4' });
-    const edge = std('#111318');
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.61, 0.05), [edge, edge, edge, edge, face, face]);
-    sign.position.set(0, 3.25, -0.2);
-    this.group.add(sign);
-    const cable = std('#555a63', { metalness: 0.6 });
-    for (const s of [-1, 1]) {
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 1.6, 4), cable);
-      c.position.set(s * 1.1, 4.35, -0.2);
-      this.group.add(c);
-    }
-    this.drawSign(null);
-  }
-
-  // book: { label, value, na } — the P&L to show (FTMO or paper).
-  drawSign(agent, book = null) {
-    const ctx = this.signCtx;
-    const W = 1024;
-    const H = 240;
-    const p = this.profile;
-    ctx.fillStyle = '#0b0e14';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = p.accent;
-    ctx.fillRect(0, 0, 16, H);
-    ctx.fillStyle = '#f2f4f8';
-    ctx.textBaseline = 'alphabetic';
-    ctx.textAlign = 'left';
-    // Shrink long desk names so they never run into the P&L block.
-    let size = 64;
-    do {
-      ctx.font = `800 ${size}px system-ui, -apple-system, sans-serif`;
-      size -= 2;
-    } while (ctx.measureText(p.desk.toUpperCase()).width > W - 380 && size > 30);
-    ctx.fillText(p.desk.toUpperCase(), 44, 96);
-    ctx.fillStyle = '#9aa3b2';
-    ctx.font = '500 34px system-ui, -apple-system, sans-serif';
-    ctx.fillText(`${p.name} · ${p.symbols.join(' / ')}`, 44, 150);
-    ctx.fillStyle = '#6b7383';
-    ctx.font = '500 28px system-ui, -apple-system, sans-serif';
-    ctx.fillText(p.strategy, 44, 198);
-    if (agent) {
-      const v = book ? book.value : agent.pnl.day;
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#6b7383';
-      ctx.font = '600 26px system-ui, -apple-system, sans-serif';
-      ctx.fillText(book?.label ?? 'DAY P&L', W - 40, 70);
-      ctx.fillStyle = book?.na ? '#6b7383' : v > 0.5 ? '#2fbf4f' : v < -0.5 ? '#ff6b6b' : '#e6e9ef';
-      ctx.font = `800 ${book?.na ? 44 : 64}px system-ui, -apple-system, sans-serif`;
-      ctx.fillText(book?.na ? 'PAPER ONLY' : money(v, { sign: true, compact: Math.abs(v) >= 1e6 }), W - 40, 140);
-      ctx.fillStyle = '#9aa3b2';
-      ctx.font = '600 28px system-ui, -apple-system, sans-serif';
-      ctx.fillText(agent.status, W - 40, 196);
-    }
-    this.signTex.needsUpdate = true;
-  }
-
-  #buildStatusTag() {
-    const { canvas, ctx, texture } = canvasTexture(320, 72);
-    this.tagCanvas = canvas;
-    this.tagCtx = ctx;
-    this.tagTex = texture;
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false }));
-    sprite.scale.set(0.62, 0.14, 1);
-    sprite.position.set(0, 1.78, 0.78);
-    sprite.renderOrder = 5;
-    this.group.add(sprite);
-    this.tag = sprite;
-  }
-
-  drawTag(status, mood) {
-    const ctx = this.tagCtx;
-    ctx.clearRect(0, 0, 320, 72);
-    const colors = { 'IN TRADE': '#3987e5', ARMED: '#fab219', HALTED: '#d03b3b', PAUSED: '#7d8594', COOLDOWN: '#ec835a' };
-    const dot = colors[status] || '#0ca30c';
-    ctx.fillStyle = 'rgba(8, 10, 14, 0.82)';
-    roundRect(ctx, 4, 8, 312, 56, 28);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = dot;
-    ctx.beginPath();
-    ctx.arc(36, 36, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = '700 26px system-ui, -apple-system, sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`${this.profile.name.split(' ')[0]} · ${status}`, 58, 37);
-    this.tagTex.needsUpdate = true;
   }
 
   #buildRing() {
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(1.95, 2.08, 72),
-      new THREE.MeshBasicMaterial({ color: this.profile.accent, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }),
+      new THREE.RingGeometry(0.62, 0.66, 64),
+      new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false, toneMapped: false }),
     );
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(0, 0.012, 0.25);
+    ring.position.set(0, 0.008, 0.85);
     this.group.add(ring);
     this.ring = ring;
   }
@@ -261,25 +225,16 @@ export class Desk {
   }
 
   // Called with fresh agent snapshots from the server.
-  sync(agent, book = null) {
+  sync(agent) {
     if (!agent) return;
-    const signKey = `${Math.round(book ? book.value : agent.pnl.day)}|${agent.status}|${book?.label}|${book?.na}`;
-    if (signKey !== this.lastSign) {
-      this.lastSign = signKey;
-      this.drawSign(agent, book);
-    }
-    if (agent.status !== this.lastStatus) {
-      this.lastStatus = agent.status;
-      this.drawTag(agent.status, agent.mood);
-    }
     this.avatar.setState({ mood: agent.mood, status: agent.status });
   }
 
   update(dt, t) {
     this.avatar.update(dt);
-    const target = this.selected ? 0.85 : this.hover ? 0.5 : 0;
-    const pulse = this.selected ? 0.15 * Math.sin(t * 3) : 0;
+    const target = this.selected ? 0.35 : this.hover ? 0.22 : 0;
+    const pulse = this.selected ? 0.06 * Math.sin(t * 2.5) : 0;
     this.ring.material.opacity = THREE.MathUtils.lerp(this.ring.material.opacity, target + pulse, 1 - Math.exp(-8 * dt));
-    this.tag.visible = !this.selected;
+    this.ring.visible = this.ring.material.opacity > 0.005;
   }
 }

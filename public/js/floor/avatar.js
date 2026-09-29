@@ -1,295 +1,170 @@
 import * as THREE from 'three';
+import { buildHead } from './avatar/head.js';
+import { buildHair } from './avatar/hair.js';
+import { buildTorso, buildArm, buildLegs } from './avatar/body.js';
+import { buildChair } from './avatar/chair.js';
+import { buildGlasses, buildHeadset } from './avatar/accessories.js';
+import { solveArm } from './avatar/ik.js';
+import { strandTexture, weaveTexture, mixColor, darken, mesh } from './avatar/geo.js';
 
-// A seated trader built from primitives, with a swivel chair and a small procedural
-// animation system (typing, glancing between screens, moods, greeting the boss).
-// Local space: the trader faces -Z (toward the monitors).
+// A seated trader at their desk: a stylised human with a swivel chair and a small
+// procedural animation system — typing, mousing, reading, sipping coffee, taking calls,
+// blinking and glancing between screens, reacting to P&L, and turning round to greet
+// and talk to the boss with lip sync. Local space: the trader faces -Z (the monitors).
 
-const mat = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.02, ...opts });
+const damp = (cur, target, lambda, dt) => THREE.MathUtils.lerp(cur, target, 1 - Math.exp(-lambda * dt));
+const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
 
-const damp = (current, target, lambda, dt) => THREE.MathUtils.lerp(current, target, 1 - Math.exp(-lambda * dt));
+// Points of interest in the avatar's root (chair) space, matching desk.js.
+const SCREENS = [v3(-0.66, 1.06, -0.98), v3(0, 1.06, -1.1), v3(0.66, 1.06, -0.98), v3(-0.66, 1.47, -1.02), v3(0, 1.47, -1.14), v3(0.66, 1.47, -1.02)];
+const KEYBOARD = v3(0.05, 0.78, -0.5);
+const MUG_SPOT = v3(0.72, 0.766, -0.42);
 
-function capsule(r, len, material, radial = 12) {
-  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, radial), material);
-  m.castShadow = true;
-  return m;
-}
+const HEAD_IN_TORSO = v3(0, 0.645, -0.012);
 
-function buildChair(accent) {
-  const base = new THREE.Group();
-  const metal = mat('#2b2f36', { metalness: 0.7, roughness: 0.35 });
-  const fabric = mat('#15181d', { roughness: 0.9 });
-  for (let i = 0; i < 5; i++) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.34), metal);
-    const a = (i / 5) * Math.PI * 2;
-    leg.position.set(Math.sin(a) * 0.17, 0.06, Math.cos(a) * 0.17);
-    leg.rotation.y = a;
-    base.add(leg);
-    const wheel = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), fabric);
-    wheel.position.set(Math.sin(a) * 0.33, 0.035, Math.cos(a) * 0.33);
-    base.add(wheel);
-  }
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.035, 0.36, 10), metal);
-  post.position.y = 0.26;
-  base.add(post);
-
-  const swivel = new THREE.Group();
-  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.48), fabric);
-  seat.position.y = 0.46;
-  seat.castShadow = true;
-  swivel.add(seat);
-  const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.62, 0.06), fabric);
-  back.position.set(0, 0.86, 0.25);
-  back.rotation.x = -0.1;
-  back.castShadow = true;
-  swivel.add(back);
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.47, 0.03, 0.065), mat(accent, { emissive: accent, emissiveIntensity: 0.35 }));
-  stripe.position.set(0, 1.12, 0.22);
-  stripe.rotation.x = -0.1;
-  swivel.add(stripe);
-  for (const s of [-1, 1]) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.3), metal);
-    arm.position.set(s * 0.26, 0.66, 0.02);
-    swivel.add(arm);
-    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.2, 0.03), metal);
-    strut.position.set(s * 0.26, 0.56, 0.1);
-    swivel.add(strut);
-  }
-  return { base, swivel };
-}
-
-function buildHair(style, color, headR) {
-  const g = new THREE.Group();
-  const m = mat(color, { roughness: 0.9 });
-  const cap = (phiStart, phiLen, thetaLen, r = headR * 1.06) => {
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14, phiStart, phiLen, 0, thetaLen), m);
-    mesh.castShadow = true;
-    return mesh;
+function makeMaterials(app, accent) {
+  const skin = new THREE.Color(app.skin);
+  const phys = (o) => new THREE.MeshPhysicalMaterial(o);
+  const fabric = (color, extra = {}) => phys({ color, roughness: 0.82, sheen: 0.5, sheenRoughness: 0.6, sheenColor: mixColor(color, '#ffffff', 0.35), bumpMap: weaveTexture(), bumpScale: 0.35, ...extra });
+  const sleeveColor = app.outfit === 'shirt' || app.outfit === 'vest' ? app.shirt : app.jacket;
+  const hairLum = new THREE.Color(app.hair).getHSL({}).l;
+  const hairColor = app.hairStyle === 'buzz' ? mixColor(app.hair, app.skin, 0.35) : new THREE.Color(app.hair);
+  const hair = phys({ color: hairColor, map: strandTexture(), bumpMap: strandTexture(), bumpScale: 0.5, roughness: 0.62, sheen: 0.35 + hairLum * 0.6, sheenRoughness: 0.4, sheenColor: mixColor(app.hair, '#ffffff', 0.12 + hairLum * 0.3) });
+  hair.userData.tieMat = new THREE.MeshStandardMaterial({ color: '#111', roughness: 0.4 });
+  return {
+    face: phys({ color: '#ffffff', vertexColors: true, roughness: 0.52, sheen: 0.35, sheenRoughness: 0.45, sheenColor: '#ff9f8c' }),
+    skin: phys({ color: skin, roughness: 0.52, sheen: 0.35, sheenRoughness: 0.45, sheenColor: '#ff9f8c' }),
+    skinDeep: new THREE.MeshStandardMaterial({ color: darken(skin, 0.72), roughness: 0.6 }),
+    lid: phys({ color: darken(skin, 0.93), roughness: 0.5, sheen: 0.3, sheenColor: '#ff9f8c' }),
+    lash: new THREE.MeshStandardMaterial({ color: '#16100c', roughness: 0.6 }),
+    brow: new THREE.MeshStandardMaterial({ color: darken(app.hair, app.hair === '#9a9a9a' ? 0.8 : 0.85), roughness: 0.8 }),
+    sclera: phys({ color: '#f1eee8', roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.05 }),
+    glint: new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85 }),
+    lips: phys({ color: app.lips || mixColor(darken(skin, 0.82), '#a4494e', app.build === 'f' ? 0.4 : 0.22), roughness: 0.38, sheen: 0.4, sheenColor: '#ffb0a8', clearcoat: app.build === 'f' ? 0.4 : 0.1 }),
+    mouth: new THREE.MeshStandardMaterial({ color: '#34110f', roughness: 0.8 }),
+    teeth: new THREE.MeshStandardMaterial({ color: '#efe9dc', roughness: 0.35 }),
+    nostril: new THREE.MeshStandardMaterial({ color: darken(skin, 0.45), roughness: 0.9 }),
+    hair,
+    torso: fabric('#ffffff'),
+    torsoEdge: fabric(mixColor(app.jacket, '#ffffff', 0.06)),
+    sleeve: fabric(sleeveColor),
+    shirt: fabric(app.shirt || '#f2f2f2', { bumpScale: 0.15 }),
+    button: new THREE.MeshStandardMaterial({ color: '#1b1917', roughness: 0.35 }),
+    trousers: fabric(app.trousers || (app.outfit === 'suit' ? app.jacket : '#24272d')),
+    shoes: new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.32, metalness: 0.1 }),
+    accent,
   };
-  switch (style) {
-    case 'buzz':
-      g.add(cap(0, Math.PI * 2, Math.PI * 0.42, headR * 1.02));
-      break;
-    case 'long': {
-      g.add(cap(0, Math.PI * 2, Math.PI * 0.5));
-      const back = new THREE.Mesh(new THREE.CylinderGeometry(headR * 1.02, headR * 1.15, headR * 2.6, 16, 1, true, Math.PI * 0.15, Math.PI * 1.7), m);
-      back.position.y = -headR * 1.05;
-      back.rotation.y = Math.PI;
-      g.add(back);
-      break;
-    }
-    case 'bun': {
-      g.add(cap(0, Math.PI * 2, Math.PI * 0.5));
-      const bun = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.45, 12, 10), m);
-      bun.position.set(0, headR * 0.75, headR * 0.75);
-      g.add(bun);
-      break;
-    }
-    case 'ponytail': {
-      g.add(cap(0, Math.PI * 2, Math.PI * 0.5));
-      const tail = capsule(headR * 0.28, headR * 1.6, m);
-      tail.position.set(0, -headR * 0.5, headR * 1.15);
-      tail.rotation.x = 0.35;
-      g.add(tail);
-      break;
-    }
-    case 'bob': {
-      g.add(cap(0, Math.PI * 2, Math.PI * 0.5));
-      const bob = new THREE.Mesh(new THREE.CylinderGeometry(headR * 1.1, headR * 1.12, headR * 1.1, 18, 1, true, Math.PI * 0.2, Math.PI * 1.6), m);
-      bob.position.y = -headR * 0.35;
-      bob.rotation.y = Math.PI;
-      g.add(bob);
-      break;
-    }
-    case 'messy': {
-      g.add(cap(0, Math.PI * 2, Math.PI * 0.48));
-      for (let i = 0; i < 7; i++) {
-        const tuft = new THREE.Mesh(new THREE.ConeGeometry(headR * 0.25, headR * 0.45, 5), m);
-        const a = (i / 7) * Math.PI * 2;
-        tuft.position.set(Math.sin(a) * headR * 0.55, headR * 0.9, Math.cos(a) * headR * 0.55);
-        tuft.rotation.set(Math.cos(a) * 0.6, 0, -Math.sin(a) * 0.6);
-        g.add(tuft);
-      }
-      break;
-    }
-    case 'side': {
-      const c = cap(0, Math.PI * 2, Math.PI * 0.46);
-      c.rotation.z = 0.12;
-      g.add(c);
-      break;
-    }
-    default:
-      g.add(cap(0, Math.PI * 2, Math.PI * 0.45));
-  }
+}
+
+function buildMug(color) {
+  const g = new THREE.Group();
+  const ceramic = new THREE.MeshStandardMaterial({ color, roughness: 0.35 });
+  const cup = mesh(new THREE.CylinderGeometry(0.037, 0.033, 0.095, 20, 1, true), ceramic);
+  cup.material = ceramic.clone();
+  cup.material.side = THREE.DoubleSide;
+  cup.position.y = 0.0475;
+  g.add(cup);
+  const bottom = mesh(new THREE.CircleGeometry(0.033, 20), ceramic);
+  bottom.rotation.x = -Math.PI / 2;
+  bottom.position.y = 0.002;
+  g.add(bottom);
+  const coffee = new THREE.Mesh(new THREE.CircleGeometry(0.035, 20), new THREE.MeshStandardMaterial({ color: '#2b1a10', roughness: 0.2 }));
+  coffee.rotation.x = -Math.PI / 2;
+  coffee.position.y = 0.08;
+  g.add(coffee);
+  const handle = mesh(new THREE.TorusGeometry(0.022, 0.006, 8, 16, Math.PI * 1.2), ceramic);
+  handle.position.set(0.038, 0.05, 0);
+  handle.rotation.z = -Math.PI * 0.6;
+  g.add(handle);
   return g;
 }
 
 export class Avatar {
-  constructor(profile) {
-    const ap = profile.appearance;
+  constructor(profile, index = 0) {
+    const app = { build: profile.gender === 'female' ? 'f' : 'm', ...profile.appearance };
     this.profile = profile;
+    this.index = index;
+    this.app = app;
     this.root = new THREE.Group();
-    const chair = buildChair(profile.accent);
+    const mats = makeMaterials(app, profile.accent);
+    this.mats = mats;
+
+    const chair = buildChair();
     this.root.add(chair.base);
     this.swivel = chair.swivel;
     this.root.add(this.swivel);
-
-    const skin = mat(ap.skin, { roughness: 0.6 });
-    const shirt = mat(ap.shirt, { roughness: 0.85 });
-    const pants = mat('#1c2029', { roughness: 0.9 });
-    const shoes = mat('#0d0e10', { roughness: 0.5 });
 
     // Body pivots at the hips so leaning looks natural.
     this.body = new THREE.Group();
     this.body.position.set(0, 0.56, 0.02);
     this.swivel.add(this.body);
+    this.body.add(buildLegs(app, mats));
 
-    for (const s of [-1, 1]) {
-      const thigh = capsule(0.075, 0.34, pants);
-      thigh.rotation.x = Math.PI / 2;
-      thigh.position.set(s * 0.1, 0, -0.2);
-      this.body.add(thigh);
-      const shin = capsule(0.062, 0.36, pants);
-      shin.position.set(s * 0.1, -0.24, -0.42);
-      this.body.add(shin);
-      const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.24), shoes);
-      shoe.position.set(s * 0.1, -0.5, -0.47);
-      this.body.add(shoe);
-    }
-
-    this.torso = new THREE.Group();
+    const torso = buildTorso(app, mats);
+    this.torso = torso.group;
     this.body.add(this.torso);
-    const chest = capsule(0.17, 0.3, shirt, 16);
-    chest.position.y = 0.3;
-    chest.scale.set(1.05, 1, 0.72);
-    this.torso.add(chest);
-    this.chest = chest;
-    if (ap.vest) {
-      const vestMat = mat(ap.vest, { roughness: 0.95 });
-      const vest = new THREE.Mesh(new THREE.CapsuleGeometry(0.178, 0.26, 6, 16, 1), vestMat);
-      vest.position.set(0, 0.28, 0.004);
-      vest.scale.set(1.06, 1, 0.76);
-      vest.castShadow = true;
-      this.torso.add(vest);
-      // open front shows the shirt
-      const placket = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.36, 0.02), shirt);
-      placket.position.set(0, 0.33, -0.132);
-      this.torso.add(placket);
-    }
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.018, 6, 14), shirt);
-    collar.rotation.x = Math.PI / 2;
-    collar.position.y = 0.58;
-    this.torso.add(collar);
 
-    // Head
+    // Neck and head
     this.neck = new THREE.Group();
-    this.neck.position.y = 0.6;
+    this.neck.position.set(0, 0.485, 0.004);
     this.torso.add(this.neck);
-    const neckMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.1, 10), skin);
-    neckMesh.position.y = 0.03;
+    const neckMesh = mesh(new THREE.CylinderGeometry(torso.neckR * 0.9, torso.neckR, 0.13, 20), mats.skin);
+    neckMesh.position.y = 0.055;
     this.neck.add(neckMesh);
+    this.headPivot = new THREE.Group();
+    this.headPivot.position.set(0, 0.1, -0.006);
+    this.neck.add(this.headPivot);
     this.head = new THREE.Group();
-    this.head.position.y = 0.19;
-    this.neck.add(this.head);
-    const headR = 0.115;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(headR, 24, 18), skin);
-    skull.scale.set(0.92, 1.08, 1);
-    skull.castShadow = true;
-    this.head.add(skull);
-    const hair = buildHair(ap.hairStyle, ap.hair, headR);
-    hair.position.y = 0.012;
-    hair.rotation.x = -0.18;
+    this.head.position.set(0, 0.06, -0.01);
+    this.head.scale.setScalar(1.1);
+    this.headPivot.add(this.head);
+    const head = buildHead(app, mats);
+    this.face = head;
+    this.head.add(head.group);
+    const hair = buildHair(app.hairStyle, head.shape, mats.hair);
     this.head.add(hair);
-    // Face (on -Z)
-    const eyeMat = mat('#101014', { roughness: 0.3 });
-    const white = mat('#f4f4f4', { roughness: 0.4 });
-    for (const s of [-1, 1]) {
-      const eyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.017, 10, 8), white);
-      eyeWhite.position.set(s * 0.04, 0.012, -0.1);
-      eyeWhite.scale.z = 0.5;
-      this.head.add(eyeWhite);
-      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6), eyeMat);
-      pupil.position.set(s * 0.04, 0.012, -0.108);
-      this.head.add(pupil);
-      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.007, 0.01), mat(ap.hair));
-      brow.position.set(s * 0.04, 0.042, -0.104);
-      brow.rotation.z = -s * 0.08;
-      this.head.add(brow);
-      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), skin);
-      ear.position.set(s * 0.105, 0, 0);
-      ear.scale.set(0.5, 1, 0.8);
-      this.head.add(ear);
-    }
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.04, 8), skin);
-    nose.rotation.x = -Math.PI / 2;
-    nose.position.set(0, -0.012, -0.118);
-    this.head.add(nose);
-    this.mouth = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.008, 0.01), mat('#6b2f2f'));
-    this.mouth.position.set(0, -0.05, -0.1);
-    this.head.add(this.mouth);
-    if (ap.glasses) {
-      const frame = mat('#111', { metalness: 0.4, roughness: 0.3 });
-      for (const s of [-1, 1]) {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.024, 0.004, 6, 16), frame);
-        ring.position.set(s * 0.04, 0.012, -0.112);
-        this.head.add(ring);
-      }
-      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.004, 0.004), frame);
-      bridge.position.set(0, 0.016, -0.114);
-      this.head.add(bridge);
-    }
-    if (ap.headset) {
-      const hs = mat('#16181c', { metalness: 0.3, roughness: 0.5 });
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.128, 0.009, 6, 20, Math.PI), hs);
-      band.position.y = 0.02;
-      this.head.add(band);
-      for (const s of [-1, 1]) {
-        const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.025, 14), hs);
-        cup.rotation.z = Math.PI / 2;
-        cup.position.set(s * 0.122, 0, 0);
-        this.head.add(cup);
-      }
-      const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.12, 6), hs);
-      boom.rotation.set(Math.PI / 2 - 0.3, 0, 0.5);
-      boom.position.set(0.09, -0.05, -0.06);
-      this.head.add(boom);
-      const mic = new THREE.Mesh(new THREE.SphereGeometry(0.01, 8, 6), mat(profile.accent, { emissive: profile.accent, emissiveIntensity: 0.6 }));
-      mic.position.set(0.045, -0.07, -0.11);
-      this.head.add(mic);
-    }
+    if (app.glasses) this.head.add(buildGlasses(head, typeof app.glasses === 'string' ? app.glasses : undefined));
+    if (app.headset) this.head.add(buildHeadset(head, app.hairStyle === 'buzz' ? 0.004 : app.hairStyle === 'bob' || app.hairStyle === 'side' || app.hairStyle === 'textured' ? 0.018 : 0.011, profile.accent));
 
-    // Arms: shoulder → elbow → hand
-    this.arms = [];
-    for (const s of [-1, 1]) {
-      const shoulder = new THREE.Group();
-      shoulder.position.set(s * 0.215, 0.5, 0);
-      this.torso.add(shoulder);
-      const upper = capsule(0.052, 0.2, shirt);
-      upper.position.y = -0.13;
-      shoulder.add(upper);
-      const elbow = new THREE.Group();
-      elbow.position.y = -0.27;
-      shoulder.add(elbow);
-      const fore = capsule(0.045, 0.2, shirt);
-      fore.position.y = -0.12;
-      elbow.add(fore);
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), skin);
-      hand.position.y = -0.27;
-      hand.scale.set(0.9, 1.1, 0.7);
-      hand.castShadow = true;
-      elbow.add(hand);
-      this.arms.push({ side: s, shoulder, elbow });
-    }
+    // Arms
+    this.arms = [-1, 1].map((s) => {
+      const arm = buildArm(app, mats, s, v3(s * torso.shoulderX, torso.shoulderY, 0.004));
+      this.torso.add(arm.shoulder);
+      return arm;
+    });
+
+    // Coffee mug that lives on the desk and travels with the hand when sipping.
+    this.mug = buildMug(index % 2 ? '#f2f1ee' : '#1d1f24');
+    this.mug.position.copy(MUG_SPOT);
+    this.root.add(this.mug);
 
     // Animation state
+    this.t = Math.random() * 100;
     this.mood = 'focused';
     this.status = 'SCANNING';
     this.mode = 'work'; // work | greet
-    this.faceAngle = 0; // swivel target when greeting
+    this.faceAngle = 0;
     this.greetStart = 0;
-    this.t = Math.random() * 100;
-    this.glance = { yaw: 0, pitch: 0, next: 0 };
-    this.typing = 0;
     this.celebrateUntil = 0;
+    this.activity = { kind: 'type', until: 0, start: 0 };
+    this.gaze = { target: SCREENS[1].clone(), next: 0 };
+    this.lookWorld = null; // camera position while greeting
+    this.blink = { next: 1 + Math.random() * 3, t: -1 };
+    this.speech = 0; // 0..1 mouth opening from the voice
+    this.speaking = false;
+    this.cur = { lean: 0.1, swivel: 0, yaw: 0, pitch: 0, eyeYaw: 0, eyePitch: 0, smile: 0, open: 0, brow: 0, lid: 0 };
+    this.hands = [0, 1].map(() => ({ pos: v3(0, 0.3, -0.3), fingers: v3(0, -0.3, -1), palm: v3(0, -1, 0) }));
+    this.gesture = { next: 0, a: v3(), b: v3() };
+
+    // Scratch objects
+    this._m = new THREE.Matrix4();
+    this._r = new THREE.Matrix3();
+    this._ri = new THREE.Matrix3();
+    this._v = new THREE.Vector3();
+    this._t = [v3(), v3()];
+    this._f = [v3(), v3()];
+    this._p = [v3(), v3()];
+    this.root.updateMatrixWorld(true);
   }
 
   setState({ mood, status }) {
@@ -300,120 +175,347 @@ export class Avatar {
     if (status) this.status = status;
   }
 
-  // Turn toward a point in the avatar's parent (desk) space and wave.
+  // Turn toward a point in the avatar's parent (desk) space, wave and look at it.
   greet(localTarget) {
     const chairPos = this.root.position;
-    const dx = localTarget.x - chairPos.x;
-    const dz = localTarget.z - chairPos.z;
-    this.faceAngle = Math.atan2(-dx, -dz);
+    this.faceAngle = Math.atan2(-(localTarget.x - chairPos.x), -(localTarget.z - chairPos.z));
+    if (this.mode !== 'greet') this.greetStart = this.t;
     this.mode = 'greet';
-    this.greetStart = this.t;
+    this.#dropMug();
   }
 
   backToWork() {
     this.mode = 'work';
+    this.lookWorld = null;
+    this.speaking = false;
+    this.speech = 0;
+    this.activity.until = 0;
+  }
+
+  // World-space point to look at while greeting (usually the camera).
+  lookAt(worldPos) {
+    this.lookWorld = worldPos ? (this.lookWorld || v3()).copy(worldPos) : null;
   }
 
   headWorldPosition(target = new THREE.Vector3()) {
     return this.head.getWorldPosition(target);
   }
 
+  #dropMug() {
+    if (this.mug.parent !== this.root) {
+      this.root.attach(this.mug);
+      this.mug.position.copy(MUG_SPOT);
+      this.mug.rotation.set(0, 0, 0);
+    }
+  }
+
+  #pickActivity() {
+    const busy = this.status === 'IN TRADE' || this.status === 'ARMED';
+    const options = busy
+      ? [['type', 4], ['mouse', 5], ['read', 1.2], ['think', 0.6], ['call', this.app.headset ? 1.5 : 0], ['sip', 0.6]]
+      : [['type', 3], ['mouse', 3], ['read', 2], ['think', 1.2], ['call', this.app.headset ? 0.8 : 0], ['sip', 1.2]];
+    const total = options.reduce((s, o) => s + o[1], 0);
+    let r = Math.random() * total;
+    let kind = 'type';
+    for (const [k, w] of options) {
+      r -= w;
+      if (r <= 0) { kind = k; break; }
+    }
+    if (kind === this.activity.kind && kind === 'sip') kind = 'type';
+    const len = kind === 'sip' ? 5.2 : kind === 'call' ? 6 + Math.random() * 6 : 4 + Math.random() * 7;
+    this.activity = { kind, start: this.t, until: this.t + len };
+  }
+
   update(dt) {
     this.t += dt;
     const t = this.t;
-    const [L, R] = this.arms;
     const greeting = this.mode === 'greet';
-    const sinceGreet = t - this.greetStart;
+    if (!greeting && t > this.activity.until) {
+      this.#dropMug();
+      this.#pickActivity();
+    }
+    const act = greeting ? 'greet' : this.activity.kind;
+    const since = t - (greeting ? this.greetStart : this.activity.start);
+    const celebrating = !greeting && t < this.celebrateUntil;
 
-    // Pose targets
-    let swivel = 0;
-    let lean = 0.08;
-    let headYaw = 0;
-    let headPitch = 0.05;
-    let armL = { sx: 0.35, sz: -0.12, ex: 1.2, ez: 0 };
-    let armR = { sx: 0.35, sz: 0.12, ex: 1.2, ez: 0 };
+    // ---- targets ------------------------------------------------------------------------
+    let swivel = Math.sin(t * 0.13 + this.index) * 0.05;
+    let lean = 0.1;
+    let smile = 0.08;
+    let brow = 0;
+    const L = { space: 'root', pos: v3(-0.13, 0.8, -0.37), fingers: v3(0.05, -0.3, -1), palm: v3(0, -1, 0.15), curl: 0.55, type: 0 };
+    const R = { space: 'root', pos: v3(0.15, 0.8, -0.37), fingers: v3(-0.05, -0.3, -1), palm: v3(0, -1, 0.15), curl: 0.55, type: 0 };
+    let gazeRoot = null;
 
-    if (!greeting) {
-      if (t > this.glance.next) {
-        const options = [[0, 0.05], [0.42, 0.02], [-0.42, 0.02], [0.3, -0.28], [0, -0.3], [-0.3, -0.28]];
-        const pick = options[Math.floor(Math.random() * options.length)];
-        this.glance = { yaw: pick[0], pitch: pick[1], next: t + 1.2 + Math.random() * 3.2 };
+    if (greeting) {
+      swivel = this.faceAngle;
+      lean = -0.02;
+      smile = this.speaking ? 0.35 : 0.55;
+      brow = since < 2 ? 1 : 0.3;
+      const waving = since > 0.5 && since < 3.2;
+      L.space = R.space = 'torso';
+      L.pos.set(-0.2, 0.2, -0.18);
+      L.fingers.set(0.4, -0.2, -1);
+      L.palm.set(0.2, -1, 0);
+      L.curl = 0.35;
+      R.pos.set(0.2, 0.2, -0.18);
+      R.fingers.set(-0.4, -0.2, -1);
+      R.palm.set(-0.2, -1, 0);
+      R.curl = 0.35;
+      if (waving) {
+        const w = Math.sin((since - 0.5) * 11);
+        R.pos.set(0.27 + w * 0.035, 0.66, -0.1);
+        R.fingers.set(w * 0.25, 1, -0.15);
+        R.palm.set(0, 0.1, -1);
+        R.curl = 0.1;
+      } else if (this.speaking || since > 3.2) {
+        // Talking gestures: hands drift in front of the body with the rhythm of speech.
+        if (t > this.gesture.next) {
+          this.gesture.next = t + 1.2 + Math.random() * 1.8;
+          this.gesture.a.set(-0.13 - Math.random() * 0.08, 0.24 + Math.random() * 0.1, -0.24 - Math.random() * 0.08);
+          this.gesture.b.set(0.13 + Math.random() * 0.08, 0.24 + Math.random() * 0.1, -0.24 - Math.random() * 0.08);
+        }
+        const k = this.speaking ? 1 : 0.4;
+        const beat = this.speaking ? this.speech * 0.03 : 0;
+        L.pos.lerp(this.gesture.a, k).y += beat;
+        R.pos.lerp(this.gesture.b, k).y += beat * 0.7;
+        L.fingers.set(0.6, 0.1, -1);
+        L.palm.set(0.5, 0.6, -0.2);
+        R.fingers.set(-0.6, 0.1, -1);
+        R.palm.set(-0.5, 0.6, -0.2);
       }
-      headYaw = this.glance.yaw;
-      headPitch = this.glance.pitch;
-      const busy = this.status === 'IN TRADE' || this.status === 'ARMED';
-      const typingRate = this.mood === 'stressed' ? 1 : busy ? 0.75 : 0.45;
-      const burst = Math.sin(t * 0.7 + this.t * 0.01) > 1 - typingRate * 1.6;
-      const tap = burst ? 1 : 0;
-      armL.ex += tap * Math.sin(t * 18) * 0.08;
-      armR.ex += tap * Math.sin(t * 18 + 1.7) * 0.08;
-      armL.sx += tap * Math.sin(t * 9) * 0.03;
-
+    } else if (celebrating) {
+      const pump = Math.sin(t * 9) * 0.05;
+      L.space = R.space = 'torso';
+      L.pos.set(-0.24, 0.9 + pump, -0.05);
+      R.pos.set(0.24, 0.9 - pump, -0.05);
+      L.fingers.set(0, 1, 0);
+      R.fingers.set(0, 1, 0);
+      L.palm.set(0, 0, -1);
+      R.palm.set(0, 0, -1);
+      L.curl = R.curl = 1.3;
+      lean = -0.15;
+      smile = 1;
+      brow = 1;
+      swivel = Math.sin(t * 3) * 0.25;
+      gazeRoot = SCREENS[4];
+    } else {
+      switch (act) {
+        case 'type':
+          L.type = R.type = 1;
+          break;
+        case 'mouse': {
+          const wig = Math.sin(t * 1.7) * 0.02;
+          R.pos.set(0.4 + wig, 0.795, -0.37 + Math.sin(t * 1.1) * 0.015);
+          R.fingers.set(0, -0.35, -1);
+          R.curl = 0.35;
+          L.pos.set(-0.1, 0.795, -0.36);
+          L.type = Math.sin(t * 0.7) > 0.6 ? 0.6 : 0;
+          break;
+        }
+        case 'read':
+          // Sit back and read the top screens, forearms resting on the desk edge.
+          lean = -0.06;
+          L.pos.set(-0.2, 0.79, -0.24);
+          L.fingers.set(0.35, -0.2, -1);
+          L.palm.set(0.1, -1, 0.1);
+          R.pos.set(0.2, 0.79, -0.24);
+          R.fingers.set(-0.35, -0.2, -1);
+          R.palm.set(-0.1, -1, 0.1);
+          L.curl = R.curl = 0.7;
+          gazeRoot = this.gaze.target.y > 1.3 ? null : SCREENS[4];
+          break;
+        case 'think':
+          // Chin on the hand, the other forearm on the desk.
+          lean = 0.2;
+          R.space = 'torso';
+          R.pos.set(0.035, 0.53, -0.2);
+          R.fingers.set(-0.2, 1, -0.3);
+          R.palm.set(-0.6, 0, -0.8);
+          R.curl = 1.1;
+          L.pos.set(-0.12, 0.79, -0.3);
+          L.fingers.set(0.6, -0.2, -1);
+          L.curl = 0.8;
+          break;
+        case 'call': {
+          // Hand to the headset, nodding and talking to a broker.
+          L.space = 'torso';
+          L.pos.set(-0.16, 0.62, -0.02);
+          L.fingers.set(0.2, 1, 0.1);
+          L.palm.set(1, 0, 0);
+          L.curl = 0.5;
+          R.type = 0.5;
+          smile = 0.2;
+          break;
+        }
+        case 'sip': {
+          // reach → lift → drink → put down
+          const mugWorldToRoot = MUG_SPOT.clone().add(v3(0.03, 0.05, 0.04));
+          R.curl = 0.9;
+          R.fingers.set(-1, 0, -0.3);
+          R.palm.set(-0.3, 0, -1);
+          if (since < 0.9) {
+            R.pos.copy(mugWorldToRoot);
+          } else if (since < 4.2) {
+            if (this.mug.parent === this.root) this.arms[1].hand.attach(this.mug);
+            R.space = 'torso';
+            const lift = since < 1.8 ? (since - 0.9) / 0.9 : since < 3.4 ? 1 : 1 - (since - 3.4) / 0.8;
+            R.pos.set(0.1 - 0.06 * lift, 0.32 + 0.24 * lift, -0.3 + 0.08 * lift);
+            R.fingers.set(-1, 0.3 * lift, -0.4);
+            R.palm.set(-0.2, 0, -1);
+            lean = 0.02 - 0.12 * lift;
+            gazeRoot = SCREENS[1];
+          } else {
+            R.pos.copy(mugWorldToRoot);
+            if (since > 4.9) this.#dropMug();
+          }
+          L.type = 0.4;
+          break;
+        }
+        default:
+          break;
+      }
       switch (this.mood) {
         case 'stressed':
-          lean = 0.22;
-          headPitch = -0.05;
+          lean = 0.24;
+          smile = -0.1;
+          brow = -0.8;
           break;
         case 'confident':
         case 'happy':
-          lean = -0.05;
-          headYaw *= 0.7;
+          smile = 0.35;
+          lean = Math.min(lean, 0.02);
           break;
         case 'dejected':
-          lean = -0.1;
-          headPitch = 0.45;
-          armL = { sx: 0.15, sz: -0.05, ex: 0.4, ez: 0 };
-          armR = { sx: 0.15, sz: 0.05, ex: 0.4, ez: 0 };
+          lean = -0.12;
+          smile = -0.2;
+          brow = -0.3;
           break;
         case 'frustrated':
-          // facepalm
-          headPitch = 0.3;
-          lean = 0.15;
-          armR = { sx: 1.95, sz: -0.35, ex: 1.35, ez: 0 };
+          if (act !== 'sip') {
+            L.space = R.space = 'torso';
+            L.pos.set(-0.1, 0.76, -0.12);
+            R.pos.set(0.1, 0.76, -0.12);
+            L.fingers.set(0.3, 1, 0.3);
+            R.fingers.set(-0.3, 1, 0.3);
+            L.palm.set(0.6, 0, -0.6);
+            R.palm.set(-0.6, 0, -0.6);
+            lean = 0.12;
+            smile = -0.3;
+            brow = -1;
+          }
           break;
         default:
           break;
       }
-      if (t < this.celebrateUntil) {
-        const pump = Math.sin(t * 9) * 0.25;
-        armL = { sx: 0.1, sz: -2.7 + pump, ex: 0.3, ez: 0 };
-        armR = { sx: 0.1, sz: 2.7 - pump, ex: 0.3, ez: 0 };
-        headPitch = -0.25;
-        lean = -0.12;
-        swivel = Math.sin(t * 3) * 0.25;
-      }
-    } else {
-      swivel = this.faceAngle;
-      lean = -0.02;
-      headPitch = -0.08;
-      headYaw = Math.sin(t * 0.8) * 0.08;
-      if (sinceGreet > 0.5 && sinceGreet < 3.6) {
-        // wave with the right hand
-        armR = { sx: 0.2, sz: 2.55, ex: 0, ez: -0.35 + Math.sin(t * 10) * 0.45 };
-      } else {
-        armR = { sx: 0.25, sz: 0.2, ex: 0.9, ez: 0 };
-      }
-      armL = { sx: 0.25, sz: -0.2, ex: 0.9, ez: 0 };
     }
 
-    // Apply with damping
-    const k = greeting ? 5 : 6;
-    this.swivel.rotation.y = damp(this.swivel.rotation.y, swivel, greeting ? 3.5 : 4, dt);
-    this.body.rotation.x = damp(this.body.rotation.x, 0, k, dt);
-    // lean > 0 leans toward the screens; headPitch > 0 looks down.
-    this.torso.rotation.x = damp(this.torso.rotation.x, -lean, k, dt);
-    this.neck.rotation.y = damp(this.neck.rotation.y, headYaw, 4, dt);
-    this.neck.rotation.x = damp(this.neck.rotation.x, -headPitch, 4, dt);
-    const breathe = 1 + Math.sin(t * 1.6) * 0.012;
-    this.chest.scale.y = breathe;
-    for (const [arm, p] of [[L, armL], [R, armR]]) {
-      arm.shoulder.rotation.x = damp(arm.shoulder.rotation.x, p.sx, 9, dt);
-      arm.shoulder.rotation.z = damp(arm.shoulder.rotation.z, p.sz, 9, dt);
-      arm.elbow.rotation.x = damp(arm.elbow.rotation.x, p.ex, 12, dt);
-      arm.elbow.rotation.z = damp(arm.elbow.rotation.z, p.ez, 12, dt);
+    // ---- body -------------------------------------------------------------------------
+    const c = this.cur;
+    c.swivel = damp(c.swivel, swivel, greeting ? 3.2 : 3, dt);
+    this.swivel.rotation.y = c.swivel;
+    c.lean = damp(c.lean, lean, 3.5, dt);
+    this.torso.rotation.x = -c.lean;
+    const breathe = Math.sin(t * 1.5);
+    this.torso.scale.set(1 + breathe * 0.006, 1 + breathe * 0.004, 1 + breathe * 0.01);
+
+    // ---- gaze ---------------------------------------------------------------------------
+    this.root.updateWorldMatrix(true, false);
+    this.torso.updateWorldMatrix(true, false);
+    const toTorso = this._m.copy(this.torso.matrixWorld).invert();
+    const g = this._v;
+    if (greeting && this.lookWorld) {
+      g.copy(this.lookWorld).applyMatrix4(toTorso);
+    } else {
+      if (!gazeRoot && t > this.gaze.next) {
+        const pool = act === 'type' || act === 'mouse' ? [0, 1, 1, 2, 3, 4, 5, 1, 4] : act === 'read' || act === 'think' ? [3, 4, 5, 4, 1] : act === 'call' ? [1, 4, 2, 0] : [1, 4];
+        const i = pool[Math.floor(Math.random() * pool.length)];
+        this.gaze.target.copy(SCREENS[i]).add(v3((Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.15, 0));
+        if (act === 'type' && Math.random() < 0.15) this.gaze.target.copy(KEYBOARD);
+        this.gaze.next = t + 0.7 + Math.random() * 2.6;
+      }
+      g.copy(gazeRoot || this.gaze.target).applyMatrix4(this.root.matrixWorld).applyMatrix4(toTorso);
     }
-    // Talking mouth while greeting
-    const talking = greeting && sinceGreet > 0.4;
-    this.mouth.scale.y = talking ? 1 + Math.abs(Math.sin(t * 14)) * 3 : 1;
+    g.sub(HEAD_IN_TORSO);
+    const yaw = Math.atan2(-g.x, -g.z);
+    const pitch = Math.atan2(g.y, Math.hypot(g.x, g.z));
+    const headYaw = THREE.MathUtils.clamp(yaw * 0.75, -1.0, 1.0);
+    const headPitch = THREE.MathUtils.clamp(pitch * 0.7, -0.5, 0.45);
+    const lagHead = greeting ? 4 : 5;
+    c.yaw = damp(c.yaw, headYaw, lagHead, dt);
+    c.pitch = damp(c.pitch, headPitch, lagHead, dt);
+    c.eyeYaw = damp(c.eyeYaw, THREE.MathUtils.clamp(yaw - c.yaw, -0.45, 0.45), 25, dt);
+    c.eyePitch = damp(c.eyePitch, THREE.MathUtils.clamp(pitch - c.pitch, -0.3, 0.3), 25, dt);
+    const nod = greeting && this.speaking ? Math.sin(t * 5.2) * 0.03 * this.speech + Math.sin(t * 1.3) * 0.02 : act === 'call' ? Math.sin(t * 2.1) * 0.04 : 0;
+    this.neck.rotation.set(-c.pitch * 0.35, c.yaw * 0.4, 0);
+    this.headPivot.rotation.set(-c.pitch * 0.65 - nod, c.yaw * 0.6, Math.sin(t * 0.37) * 0.025);
+    for (const e of this.face.eyes) e.rotation.set(-c.eyePitch, c.eyeYaw, 0);
+
+    // ---- face -----------------------------------------------------------------------------
+    const b = this.blink;
+    if (t > b.next && b.t < 0) b.t = 0;
+    let lidClose = 0;
+    if (b.t >= 0) {
+      b.t += dt;
+      lidClose = b.t < 0.07 ? b.t / 0.07 : Math.max(0, 1 - (b.t - 0.07) / 0.1);
+      if (b.t > 0.17) {
+        b.t = -1;
+        b.next = t + (Math.random() < 0.15 ? 0.25 : 1.8 + Math.random() * 4);
+      }
+    }
+    const lookDown = Math.max(0, -(c.pitch + c.eyePitch)) * 0.6;
+    c.lid = Math.max(lidClose, Math.min(0.55, lookDown + (this.mood === 'stressed' ? 0.12 : 0)));
+    for (const lid of this.face.lids) {
+      lid.upper.rotation.x = THREE.MathUtils.lerp(0.36, -0.3, c.lid) - c.eyePitch * 0.3;
+      lid.lower.rotation.x = Math.PI - 0.72 + lidClose * 0.12;
+    }
+    const talking = greeting ? this.speaking : act === 'call' && Math.sin(t * 0.9) > -0.2;
+    const openTarget = greeting ? (this.speaking ? this.speech : 0) : talking ? Math.max(0, Math.sin(t * 13) * Math.sin(t * 3.1)) * 0.45 : 0;
+    c.open = damp(c.open, openTarget, 28, dt);
+    c.smile = damp(c.smile, smile, 4, dt);
+    c.brow = damp(c.brow, brow, 5, dt);
+    for (const lip of this.face.lips) {
+      lip.morphTargetInfluences[0] = c.open;
+      lip.morphTargetInfluences[1] = Math.max(-0.4, c.smile);
+    }
+    this.face.inside.scale.y = 0.0006 + 0.0085 * c.open;
+    this.face.inside.position.y = this.face.mouth.y - 0.001 - 0.004 * c.open;
+    this.face.brows.position.y = 0.0028 * Math.max(0, c.brow) + 0.0012 * Math.min(0, c.brow);
+    this.face.brows.rotation.x = -0.05 * Math.min(0, c.brow);
+
+    // ---- arms (IK) ------------------------------------------------------------------------
+    const sw = this.swivel;
+    sw.updateWorldMatrix(false, false);
+    [L, R].forEach((h, i) => {
+      const arm = this.arms[i];
+      const tgt = this._t[i].copy(h.pos);
+      const fing = this._f[i].copy(h.fingers).normalize();
+      const palm = this._p[i].copy(h.palm).normalize();
+      if (h.type) {
+        // Little hops of the wrists as keys are pressed.
+        const hop = Math.max(0, Math.sin(t * 17 + i * 1.9)) * 0.006 * h.type;
+        tgt.y += hop;
+        tgt.x += Math.sin(t * 2.3 + i) * 0.012 * h.type;
+      }
+      if (h.space !== 'torso') {
+        const from = h.space === 'root' ? this.root.matrixWorld : sw.matrixWorld;
+        tgt.applyMatrix4(from).applyMatrix4(toTorso);
+        const rot = this._r.setFromMatrix4(from);
+        const inv = this._ri.setFromMatrix4(toTorso);
+        fing.applyMatrix3(rot).applyMatrix3(inv).normalize();
+        palm.applyMatrix3(rot).applyMatrix3(inv).normalize();
+      }
+      const hs = this.hands[i];
+      const k = 1 - Math.exp(-(greeting ? 9 : 7) * dt);
+      hs.pos.lerp(tgt, k);
+      hs.fingers.lerp(fing, k).normalize();
+      hs.palm.lerp(palm, k).normalize();
+      const pole = v3(arm.side * 0.8, -0.7, 0.45);
+      solveArm(arm, hs.pos, pole, hs.fingers, hs.palm, 0.9);
+      arm.fingers.forEach((f, j) => {
+        const tap = h.type ? Math.max(0, Math.sin(t * 15 + j * 1.3 + i * 2.1)) * 0.5 * h.type : 0;
+        f.rotation.x = damp(f.rotation.x, h.curl + tap - 0.08 * j * (h.curl < 0.3 ? 1 : 0), 14, dt);
+      });
+    });
   }
 }
