@@ -136,7 +136,9 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 1. Start the floor with `npm start` (live mode; demo mode never trades live).
 2. In the FTMO Client Area, start a **Free Trial** on **MetaTrader 5**. Install MT5 and log in with the credentials FTMO shows you.
 3. In MT5, go to **Tools → Options → Expert Advisors**. Tick **Allow algorithmic trading** and **Allow WebRequest for listed URL**, then add `http://127.0.0.1:3000`.
-4. Download **MeridianBridge.mq5** from the floor's FTMO tab, or use the copy in `mt5/`. In MT5 choose **File → Open Data Folder → MQL5 → Experts**, copy the file there, open it in **MetaEditor** and press **Compile**.
+4. Install the **MeridianBridge** Expert Advisor. On a Mac, MT5's folders usually don't accept drag-and-drop from Finder, so use one of these:
+   - **MetaEditor (easiest):** in MT5 press **F4**, then **File → New → Expert Advisor (template)** and name it `MeridianBridge`. Delete the template code, click **Copy EA code** in the floor's FTMO tab, paste it in (Cmd+V, or Ctrl+V / right-click → Paste) and press **Compile**.
+   - **One command:** quit MT5 and run `npm run install-ea` in the trading-floor folder. It finds MT5's hidden `MQL5/Experts` folder and copies the file in. Reopen MT5, right-click **Expert Advisors → Refresh** in the Navigator, then right-click MeridianBridge → **Modify** → **Compile**.
 5. Drag **MeridianBridge** onto any chart. Paste the **bridge token** from the FTMO tab into the inputs, tick **Allow Algo Trading**, and switch on **Algo Trading** in the toolbar.
 6. The floor pops up **"New FTMO account detected"**. Pick the account type (Free Trial, Challenge, Verification or FTMO Account), check the limits against your Client Area, and save.
 7. Switch on the desks that may trade the account, then press **Arm live trading**.
@@ -160,6 +162,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 | "Floor not reachable" | Start the floor (`npm start`). On a different port, set the EA's *Floor bridge URL* input to match |
 | "Floor refused the sync (HTTP 401)" | The bridge token is wrong: copy it again from the FTMO tab (it lives in `data/bridge-token.txt`) |
 | The FTMO tab says "Algo Trading is off" | Turn on the Algo Trading toolbar button and tick *Allow Algo Trading* in the EA's settings |
+| Can't drag the file into the Experts folder | Use the MetaEditor paste method or `npm run install-ea` (step 4 above) |
 | A market shows "not mapped" | Pick the matching MT5 symbol in **Edit setup → Symbols on your account** |
 
 ---
@@ -194,6 +197,7 @@ Other commands:
 ```bash
 npm test               # unit tests: indicators, broker, risk, webhooks, FTMO bridge + guard, a full simulated session
 npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow
+npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
 npm run backtest -- 5  # fast-forward 5 simulated sessions and print each desk's results
 npm run reset          # wipe the saved track record (keeps your webhook secret)
 ```

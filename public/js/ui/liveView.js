@@ -114,6 +114,15 @@ export class LiveView {
       if (confirm('Clear the halt? Trading stays disarmed until you arm it again.')) await this.#post('reset-halt');
     } else if (act === 'enable-all') {
       for (const d of v.desks.filter((x) => x.eligible && !x.enabled)) await this.#post('desk', { agentId: d.id, enabled: true });
+    } else if (act === 'copy-ea') {
+      try {
+        const code = await (await fetch('/mt5/MeridianBridge.mq5')).text();
+        await navigator.clipboard.writeText(code);
+        btn.textContent = 'Copied ✓ — now paste in MetaEditor';
+        setTimeout(() => { btn.textContent = 'Copy EA code'; }, 4000);
+      } catch {
+        window.open('/mt5/MeridianBridge.mq5', '_blank');
+      }
     } else if (act === 'copy-token') {
       try {
         await navigator.clipboard.writeText(v.token);
@@ -234,7 +243,12 @@ export class LiveView {
         <ol class="steps">
           <li>In your <b>FTMO Client Area</b>, start a Free Trial or Challenge on <b>MetaTrader 5</b>. Download MT5 for Mac and log in with the account number, password and server shown there.</li>
           <li>In MT5: <b>Tools → Options → Expert Advisors</b>. Tick <b>Allow algorithmic trading</b> and <b>Allow WebRequest for listed URL</b>, then add<div class="code-block">${origin}</div></li>
-          <li><a href="/mt5/MeridianBridge.mq5" download>Download MeridianBridge.mq5</a>. In MT5 choose <b>File → Open Data Folder</b>, then put the file into <b>MQL5 → Experts</b>. Open it in <b>MetaEditor</b> (F4) and press <b>Compile</b>.</li>
+          <li>Install the bridge Expert Advisor. On a Mac, drag-and-drop into MT5's folders usually doesn't work, so use one of these:
+            <ul class="steps">
+              <li><b>Easiest:</b> in MT5 open <b>MetaEditor</b> (F4 or the IDE button). Choose <b>File → New → Expert Advisor (template)</b>, name it <code>MeridianBridge</code>, and click Next until Finish. Select all the template code and delete it. Then <button class="mini-btn" data-act="copy-ea">Copy EA code</button> and paste it in (Cmd+V, or Ctrl+V / right-click → Paste if that doesn't work). Press <b>Compile</b>.</li>
+              <li><b>Or with one command:</b> quit MT5, then run <code>npm run install-ea</code> in Terminal inside the trading-floor folder. Reopen MT5, right-click <b>Expert Advisors → Refresh</b> in the Navigator, then right-click MeridianBridge → <b>Modify</b> → <b>Compile</b>.</li>
+              <li>Or <a href="/mt5/MeridianBridge.mq5" download>download MeridianBridge.mq5</a> and copy it into <b>MQL5 → Experts</b> via <b>File → Open Data Folder</b>.</li>
+            </ul></li>
           <li>In the Navigator, drag <b>MeridianBridge</b> onto any chart.${origin.endsWith(':3000') ? '' : ` Set its <b>Floor bridge URL</b> input to <code>${origin}/api/bridge/sync</code>.`} On the <b>Inputs</b> tab, paste this bridge token: <span class="field" style="display:inline-flex"><span class="code">${escapeHtml(v.token)}</span><button class="mini-btn" data-act="copy-token">Copy</button></span> On the Common tab, tick <b>Allow Algo Trading</b>.</li>
           <li>Switch on the <b>Algo Trading</b> button in the MT5 toolbar. This page detects the account within a second.</li>
         </ol>

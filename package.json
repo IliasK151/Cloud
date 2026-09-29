@@ -16,7 +16,8 @@
     "test": "node --test test/*.test.js",
     "reset": "node scripts/reset.js",
     "backtest": "node scripts/backtest.js",
-    "mock-mt5": "node scripts/mock-mt5.js"
+    "mock-mt5": "node scripts/mock-mt5.js",
+    "install-ea": "node scripts/install-ea.js"
   },
   "license": "MIT",
   "dependencies": {
