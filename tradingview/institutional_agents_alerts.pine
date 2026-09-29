@@ -1,0 +1,50 @@
+//@version=6
+// Meridian Trading Floor — TradingView → agent alert bridge.
+//
+// Sends JSON webhook alerts that the local floor server understands. Each Supertrend
+// flip becomes a BUY or SELL for the desk you pick, with a stop at the Supertrend line
+// and a target at a fixed reward:risk.
+//
+// Setup:
+//   1. Add this indicator to a chart (any market the floor trades: NAS100, SPX500,
+//      XAUUSD, USOIL, EURUSD, USDJPY, BTCUSD, ETHUSD, SOLUSD or their aliases).
+//   2. Enter the webhook secret shown in the floor's TradingView tab.
+//   3. Create an alert → Condition: this indicator → "Any alert() function call".
+//   4. Notifications → Webhook URL → https://<your-tunnel>/webhook
+indicator("Meridian Floor — Agent Alert Bridge", overlay = true)
+
+secret  = input.string("CHANGE_ME", "Webhook secret")
+agentId = input.string("chen", "Desk that trades the alerts", options = ["chen", "marcus", "sofia", "kenji", "amara", "viktor", "isabella", "james", "priya", "lucas"])
+atrLen  = input.int(10, "Supertrend ATR length", minval = 1)
+factor  = input.float(3.0, "Supertrend factor", minval = 0.1, step = 0.1)
+rr      = input.float(2.0, "Reward : risk", minval = 0.5, step = 0.25)
+sendExits = input.bool(false, "Also send CLOSE on the opposite flip before reversing")
+
+[st, dir] = ta.supertrend(factor, atrLen)
+upTrend   = dir < 0
+plot(upTrend ? st : na, "Supertrend up", color = color.new(color.teal, 0), style = plot.style_linebr, linewidth = 2)
+plot(upTrend ? na : st, "Supertrend down", color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
+
+longSignal  = ta.change(dir) < 0
+shortSignal = ta.change(dir) > 0
+
+makeMessage(string action, float stop, float target) =>
+    '{"secret":"' + secret + '","agent":"' + agentId + '","symbol":"' + syminfo.ticker + '","action":"' + action + '","price":' + str.tostring(close) + ',"stop":' + str.tostring(stop) + ',"target":' + str.tostring(target) + ',"comment":"Supertrend ' + timeframe.period + '"}'
+
+makeClose() =>
+    '{"secret":"' + secret + '","agent":"' + agentId + '","symbol":"' + syminfo.ticker + '","action":"close","comment":"Supertrend flip"}'
+
+if barstate.isconfirmed and not na(st)
+    if longSignal
+        if sendExits
+            alert(makeClose(), alert.freq_once_per_bar_close)
+        risk = close - st
+        alert(makeMessage("buy", st, close + risk * rr), alert.freq_once_per_bar_close)
+    if shortSignal
+        if sendExits
+            alert(makeClose(), alert.freq_once_per_bar_close)
+        risk = st - close
+        alert(makeMessage("sell", st, close - risk * rr), alert.freq_once_per_bar_close)
+
+plotshape(longSignal, "Buy", shape.triangleup, location.belowbar, color.teal, size = size.small)
+plotshape(shortSignal, "Sell", shape.triangledown, location.abovebar, color.red, size = size.small)

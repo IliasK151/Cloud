@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meridian Trading Floor</title>
+  <meta name="description" content="3D institutional trading floor with ten autonomous day-trading desks." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1220'/%3E%3Cpath d='M7 22 L13 14 L18 18 L25 9' stroke='%233987e5' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/css/app.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/build/three.module.js",
+        "three/addons/": "/vendor/three/examples/jsm/",
+        "lightweight-charts": "/vendor/lightweight-charts/lightweight-charts.standalone.production.mjs"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app" data-view="floor">
+    <canvas id="floor-canvas" aria-label="3D trading floor"></canvas>
+    <div id="overlay-layer" aria-live="polite"></div>
+
+    <header id="topbar">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M7 22 L13 14 L18 18 L25 9"/></svg>
+        <div class="brand-text">
+          <strong id="fund-name">Meridian Capital</strong>
+          <span>Institutional Trading Floor</span>
+        </div>
+      </div>
+      <div class="kpis" id="kpis">
+        <div class="kpi"><span class="kpi-label">NAV</span><span class="kpi-value" id="kpi-nav">—</span></div>
+        <div class="kpi"><span class="kpi-label">Day P&amp;L</span><span class="kpi-value" id="kpi-day">—</span></div>
+        <div class="kpi"><span class="kpi-label">Since inception</span><span class="kpi-value" id="kpi-total">—</span></div>
+        <div class="kpi hide-sm"><span class="kpi-label">Gross exposure</span><span class="kpi-value" id="kpi-gross">—</span></div>
+        <div class="kpi hide-sm"><span class="kpi-label">Open positions</span><span class="kpi-value" id="kpi-open">—</span></div>
+      </div>
+      <div class="clock">
+        <span class="mode-badge" id="mode-badge">—</span>
+        <div class="clock-time"><span id="clock-time">--:--:--</span><span class="clock-zone">ET · <span id="clock-session">—</span></span></div>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="Views">
+        <button role="tab" data-view="floor" aria-selected="true">Floor</button>
+        <button role="tab" data-view="dashboard" aria-selected="false">Dashboard</button>
+        <button role="tab" data-view="tradingview" aria-selected="false">TradingView</button>
+      </nav>
+      <div class="toggles">
+        <button class="icon-btn" id="btn-voice" title="Agent voices (V)" aria-pressed="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-quality" title="Glow effects (Q)" aria-pressed="true">HQ</button>
+        <span class="conn" id="conn" title="Connection to the local server"><i></i><span>Connecting</span></span>
+      </div>
+    </header>
+
+    <aside id="desk-rail" aria-label="Desks">
+      <div class="rail-head"><span>Desks</span><span class="rail-sub">Today</span></div>
+      <ol id="desk-list"></ol>
+    </aside>
+
+    <section id="agent-panel" aria-label="Trader detail" hidden>
+      <header class="ap-head">
+        <div class="ap-avatar" id="ap-avatar"></div>
+        <div class="ap-id">
+          <h2 id="ap-name">—</h2>
+          <p id="ap-title">—</p>
+        </div>
+        <span class="status-chip" id="ap-status">—</span>
+        <button class="icon-btn ap-close" id="ap-close" title="Back to the floor (Esc)" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="speech" id="ap-speech">
+        <p class="speech-greet" id="ap-greet"></p>
+        <p class="speech-text" id="ap-text"></p>
+        <button class="link-btn" id="ap-replay">▶ Ask for another briefing</button>
+      </div>
+      <div class="ap-pnl">
+        <div><span class="lbl">Day P&amp;L</span><span class="val" id="ap-day">—</span></div>
+        <div><span class="lbl">Unrealized</span><span class="val" id="ap-unreal">—</span></div>
+        <div><span class="lbl">Since inception</span><span class="val" id="ap-total">—</span></div>
+        <div><span class="lbl">Loss limit used</span><span class="val" id="ap-limit">—</span></div>
+      </div>
+      <nav class="ap-tabs" role="tablist">
+        <button role="tab" data-tab="setup" aria-selected="true">Setup</button>
+        <button role="tab" data-tab="chart" aria-selected="false">Chart</button>
+        <button role="tab" data-tab="tv" aria-selected="false">TradingView</button>
+        <button role="tab" data-tab="trades" aria-selected="false">Trades</button>
+      </nav>
+      <div class="ap-body">
+        <div class="ap-tab" data-tab="setup">
+          <div class="setup-head">
+            <span class="bias" id="ap-bias">—</span>
+            <span class="strategy" id="ap-strategy">—</span>
+          </div>
+          <p class="stage" id="ap-stage">—</p>
+          <p class="thesis" id="ap-thesis">—</p>
+          <div class="confidence"><span>Setup quality</span><div class="meter"><i id="ap-conf-bar"></i></div><b id="ap-conf">—</b></div>
+          <ul class="checklist" id="ap-checklist"></ul>
+          <h3>Positions</h3>
+          <div id="ap-positions" class="positions"></div>
+          <h3>Key levels</h3>
+          <table class="levels" id="ap-levels"></table>
+          <h3>Performance</h3>
+          <div class="stats-grid" id="ap-stats"></div>
+          <div class="ap-actions">
+            <button class="btn" id="ap-flatten">Flatten desk</button>
+            <button class="btn" id="ap-pause">Pause desk</button>
+          </div>
+        </div>
+        <div class="ap-tab" data-tab="chart" hidden>
+          <div class="chart-meta" id="ap-chart-meta"></div>
+          <div class="chart-box" id="ap-chart"></div>
+          <p class="fine">Live 1-minute bars from the floor's feed, drawn with TradingView Lightweight Charts™. Dashed lines are the desk's entry, stop and target.</p>
+        </div>
+        <div class="ap-tab" data-tab="tv" hidden>
+          <div class="tv-embed" id="ap-tv"></div>
+          <a class="btn wide" id="ap-tv-link" target="_blank" rel="noopener">Open on TradingView ↗</a>
+        </div>
+        <div class="ap-tab" data-tab="trades" hidden>
+          <table class="table compact" id="ap-trades"></table>
+          <h3>Desk log</h3>
+          <ol class="log" id="ap-log"></ol>
+        </div>
+      </div>
+    </section>
+
+    <footer id="event-tape" aria-label="Floor events">
+      <span class="tape-label">Floor</span>
+      <div class="tape-track"><div class="tape-inner" id="tape-inner"></div></div>
+    </footer>
+
+    <div id="floor-hint">Click a trader to talk to them · drag to look around · scroll to zoom · keys 1–0 · Esc for the overview</div>
+
+    <section id="dashboard-view" class="view" hidden aria-label="Dashboard"></section>
+    <section id="tv-view" class="view" hidden aria-label="TradingView integration"></section>
+
+    <div id="loading">
+      <div class="loading-card">
+        <svg class="brand-mark big" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M7 22 L13 14 L18 18 L25 9"/></svg>
+        <p id="loading-text">Opening the trading floor…</p>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

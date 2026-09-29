@@ -1,0 +1,27 @@
+{
+  "name": "institutional-trading-floor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A local, browser-based 3D institutional trading floor with 10 autonomous day-trading agents, a live dashboard and TradingView integration.",
+  "type": "module",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "live": "FEED=live node server/index.js",
+    "demo": "FEED=sim node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/*.test.js",
+    "reset": "node scripts/reset.js",
+    "backtest": "node scripts/backtest.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.2.1",
+    "lightweight-charts": "^5.2.1",
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  }
+}
