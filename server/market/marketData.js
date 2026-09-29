@@ -40,13 +40,18 @@ export class MarketData extends EventEmitter {
 
   // Hand a symbol to one data source exclusively (e.g. the broker's own MT5 prices),
   // replacing its history so indicators run on the prices that will be traded.
+  // Emits 'rebase' (id, offset) so open positions can be shifted to the new price level
+  // instead of showing a fake profit or loss from the feed switch.
   claim(id, source, bars, status = 'LIVE') {
     const s = this.series.get(id);
     if (!s) return;
+    const before = s.price;
     s.owner = source;
     this.seed(id, bars);
     s.dayRef = bars.length ? bars[0].open : s.dayRef;
     this.setStatus(id, status, source);
+    const offset = s.price - before;
+    if (Number.isFinite(offset) && offset !== 0) this.emit('rebase', id, offset);
   }
 
   ownerOf(id) {

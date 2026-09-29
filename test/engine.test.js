@@ -167,3 +167,15 @@ test('a simulated session runs every desk without errors', () => {
     assert.equal(b.greeting, 'Hello boss!');
   }
 });
+
+test('paper P&L can be reset to zero', () => {
+  const fund = runBacktest({ sessions: 1, seed: 3, quiet: true });
+  assert.ok(fund.agents.some((a) => a.lifetime.trades > 0));
+  fund.resetPaper();
+  for (const a of fund.agents) {
+    assert.equal(a.lifetime.trades, 0);
+    assert.equal(fund.broker.book(a.id).trades.length, 0);
+    assert.equal(a.book.realizedTotal, 0);
+  }
+  assert.ok(Math.abs(fund.nav() - fund.config.startingCapital) < 1e-6);
+});

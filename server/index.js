@@ -183,6 +183,10 @@ md.on('bar', (symbol, bar) => closedBars.push({ symbol, bar }));
 fund.on('event', (event) => broadcast({ type: 'event', event }));
 fund.on('equity', (sample) => broadcast({ type: 'equity', sample }));
 fund.on('alert', (alert) => broadcast({ type: 'alert', alert }));
+fund.on('reset', () => {
+  store.save(fund.serialize());
+  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view() }));
+});
 broker.on('trade', (trade) => broadcast({ type: 'trade', trade }));
 
 // Push the FTMO panel state when it changes (and at least every few seconds).
@@ -251,7 +255,9 @@ async function shutdown() {
   shuttingDown = true;
   log.info('\n  Flattening all desks and saving the track record…');
   try {
-    if (await live.shutdown()) log.info('  Closed the floor\'s positions on the FTMO account.');
+    const closed = await live.shutdown();
+    if (closed === true) log.info('  Closed the floor\'s positions on the FTMO account.');
+    else if (live.bridge.positions.length) log.info('  MT5 did not confirm closing the FTMO positions — check MT5 (they keep their stop-loss).');
   } catch (err) {
     log.warn('  Could not close FTMO positions:', err.message);
   }

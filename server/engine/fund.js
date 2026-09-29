@@ -50,6 +50,10 @@ export class Fund extends EventEmitter {
       for (const a of this.agents) a.onTick(symbol, price);
     });
     broker.on('trade', (t) => this.byId.get(t.agentId)?.onTradeClosed(t));
+    md.on('rebase', (symbol, offset) => {
+      broker.rebase(symbol, offset);
+      for (const a of this.agents) a.rebase(symbol, offset);
+    });
     broker.on('fill', (f) => this.emit('fill', f));
   }
 
@@ -151,9 +155,32 @@ export class Fund extends EventEmitter {
     for (const a of this.agents) a.flatten(reason);
   }
 
+  // Wipe the paper track record (P&L, trades, stats). Open trades keep running.
+  resetPaper() {
+    for (const a of this.agents) {
+      const b = this.broker.book(a.id);
+      b.realizedDay = b.realizedTotal = b.feesDay = b.feesTotal = 0;
+      b.trades = [];
+      b.fills = [];
+      a.resetDay();
+      Object.assign(a.lifetime, { trades: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0, sumR: 0, countR: 0, best: 0, worst: 0 });
+      a.maxDrawdown = 0;
+      a.equityPeak = a.totalPnl();
+      this.dayCurves.set(a.id, []);
+    }
+    this.equity = [];
+    this.risk.resetDay();
+    this.dayStartNav = this.config.startingCapital;
+    this.#event({ kind: 'session', text: 'Paper P&L and stats reset by the boss.' });
+    this.emit('reset');
+  }
+
   command(cmd, agentId) {
     const agent = agentId ? this.byId.get(agentId) : null;
     switch (cmd) {
+      case 'reset-paper':
+        this.resetPaper();
+        return { ok: true };
       case 'flatten':
         if (agent) agent.flatten('Boss ordered flat');
         else this.flattenAll('Boss ordered the whole floor flat');

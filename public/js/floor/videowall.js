@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ROOM } from './room.js';
 import { canvasTexture, roundRect } from './textures.js';
 import { money, price as fmtPrice, pct, nyTime, zoneTime } from '../format.js';
+import { fundBook, deskBook } from '../book.js';
 
 // The big LED wall at the front of the floor, the world clocks above it and the
 // scrolling ticker tapes.
@@ -74,6 +75,8 @@ export class VideoWall {
 
   #drawMain(store) {
     const f = store.fund;
+    const book = fundBook(store);
+    const ftmo = book.mode === 'ftmo';
     const ctx = this.main.ctx;
     ctx.fillStyle = '#04060a';
     ctx.fillRect(0, 0, CW, CH);
@@ -105,23 +108,23 @@ export class VideoWall {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#7d8594';
     ctx.font = `700 28px ${FONT}`;
-    ctx.fillText('NET ASSET VALUE', L, 200);
+    ctx.fillText(ftmo ? `${book.name} · EQUITY` : 'PAPER FUND · NET ASSET VALUE', L, 200);
     ctx.fillStyle = '#ffffff';
     ctx.font = `800 92px ${FONT}`;
-    ctx.fillText(money(f.nav), L, 290);
-    const dayCol = f.dayPnl > 0.5 ? '#2fbf4f' : f.dayPnl < -0.5 ? '#ff6b6b' : '#e6e9ef';
+    ctx.fillText(money(book.nav), L, 290);
+    const col = (v) => (v > 0.5 ? '#2fbf4f' : v < -0.5 ? '#ff6b6b' : '#e6e9ef');
     ctx.fillStyle = '#7d8594';
     ctx.font = `700 28px ${FONT}`;
-    ctx.fillText('DAY P&L', L, 360);
-    ctx.fillText('SINCE INCEPTION', L + 380, 360);
-    ctx.fillStyle = dayCol;
+    ctx.fillText(ftmo ? 'TODAY' : 'DAY P&L', L, 360);
+    ctx.fillText(ftmo ? 'SINCE START' : 'SINCE INCEPTION', L + 380, 360);
+    ctx.fillStyle = col(book.day);
     ctx.font = `800 58px ${FONT}`;
-    ctx.fillText(money(f.dayPnl, { sign: true }), L, 425);
-    ctx.fillStyle = f.totalPnl >= 0 ? '#2fbf4f' : '#ff6b6b';
-    ctx.fillText(money(f.totalPnl, { sign: true, compact: true }), L + 380, 425);
+    ctx.fillText(money(book.day, { sign: true }), L, 425);
+    ctx.fillStyle = col(book.total);
+    ctx.fillText(money(book.total, { sign: true, compact: Math.abs(book.total) >= 1e5 }), L + 380, 425);
 
-    // Fund equity sparkline (recent)
-    const eq = store.equity.slice(-240);
+    // Equity sparkline (recent)
+    const eq = book.equity.slice(-240);
     const sx = L;
     const sy = 470;
     const sw = 700;
@@ -131,7 +134,7 @@ export class VideoWall {
     ctx.fill();
     ctx.fillStyle = '#7d8594';
     ctx.font = `700 22px ${FONT}`;
-    ctx.fillText('FUND EQUITY', sx + 20, sy + 38);
+    ctx.fillText(ftmo ? 'ACCOUNT EQUITY' : 'FUND EQUITY', sx + 20, sy + 38);
     if (eq.length > 1) {
       const vals = eq.map((p) => p.value);
       const lo = Math.min(...vals);
@@ -163,14 +166,14 @@ export class VideoWall {
     const MW = 700;
     ctx.fillStyle = '#7d8594';
     ctx.font = `700 28px ${FONT}`;
-    ctx.fillText('DESK P&L — TODAY', M, 200);
-    const agents = store.profiles.map((p) => ({ p, a: store.agents[p.id] })).filter((x) => x.a);
-    const maxAbs = Math.max(1, ...agents.map((x) => Math.abs(x.a.pnl.day)));
+    ctx.fillText(ftmo ? 'DESK P&L ON FTMO — TODAY' : 'DESK P&L — TODAY (PAPER)', M, 200);
+    const agents = store.profiles.map((p) => ({ p, a: store.agents[p.id], b: deskBook(store, p.id) })).filter((x) => x.a);
+    const maxAbs = Math.max(1, ...agents.map((x) => Math.abs(x.b.day)));
     const rowH = 56;
     const nameW = 250;
     const barArea = MW - nameW - 170;
     const zeroX = M + nameW + barArea / 2;
-    agents.forEach(({ p, a }, i) => {
+    agents.forEach(({ p, b }, i) => {
       const y = 240 + i * rowH;
       ctx.fillStyle = p.accent;
       ctx.fillRect(M, y + 8, 8, rowH - 22);
@@ -178,7 +181,7 @@ export class VideoWall {
       ctx.font = `600 26px ${FONT}`;
       ctx.textAlign = 'left';
       ctx.fillText(p.desk, M + 22, y + 34);
-      const v = a.pnl.day;
+      const v = b.day;
       const len = (Math.abs(v) / maxAbs) * (barArea / 2);
       ctx.fillStyle = v >= 0 ? '#0ca30c' : '#d03b3b';
       if (v >= 0) ctx.fillRect(zeroX, y + 10, len, rowH - 26);
@@ -186,7 +189,7 @@ export class VideoWall {
       ctx.fillStyle = v > 0.5 ? '#2fbf4f' : v < -0.5 ? '#ff6b6b' : '#b9c0cc';
       ctx.font = `700 26px ${MONO}`;
       ctx.textAlign = 'right';
-      ctx.fillText(money(v, { sign: true, compact: true }), M + MW, y + 34);
+      ctx.fillText(b.na ? 'paper' : money(v, { sign: true, compact: true }), M + MW, y + 34);
     });
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.fillRect(zeroX - 1, 232, 2, agents.length * rowH);
@@ -225,13 +228,26 @@ export class VideoWall {
 
     // Footer: risk line
     ctx.textAlign = 'left';
-    const risk = f.riskOff ? `RISK-OFF — ${f.riskOff.reason}` : 'RISK: NORMAL';
-    ctx.fillStyle = f.riskOff ? '#ff6b6b' : '#2fbf4f';
-    ctx.font = `800 28px ${FONT}`;
-    ctx.fillText(risk, 50, CH - 40);
-    ctx.fillStyle = '#9aa3b2';
-    ctx.font = `600 28px ${FONT}`;
-    ctx.fillText(`Gross ${money(f.grossExposure, { compact: true })}  ·  Open positions ${f.openPositions}  ·  Trades today ${f.tradesDay}${f.winRateDay != null ? `  ·  Win rate ${Math.round(f.winRateDay * 100)}%` : ''}`, 420, CH - 40);
+    if (ftmo) {
+      const v = store.live;
+      const m = v.metrics;
+      const state = v.halt ? `FTMO HALTED — ${v.halt.reason}` : v.armed ? 'FTMO: ARMED · LIVE' : 'FTMO: DISARMED';
+      ctx.fillStyle = v.halt ? '#ff6b6b' : v.armed ? '#ff8a8a' : '#9aa3b2';
+      ctx.font = `800 28px ${FONT}`;
+      ctx.fillText(state, 50, CH - 40);
+      ctx.fillStyle = '#9aa3b2';
+      ctx.font = `600 28px ${FONT}`;
+      const trades = v.desks.reduce((s, d) => s + (d.tradesToday || 0), 0);
+      ctx.fillText(`Daily loss used ${m ? Math.round(m.dailyUsed * 100) : 0}%  ·  Max loss used ${m ? Math.round(m.maxUsed * 100) : 0}%  ·  Open risk ${money(v.openRisk || 0)}  ·  Floor positions ${book.open}  ·  Trades today ${trades}`, 560, CH - 40);
+    } else {
+      const risk = f.riskOff ? `RISK-OFF — ${f.riskOff.reason}` : 'PAPER · RISK: NORMAL';
+      ctx.fillStyle = f.riskOff ? '#ff6b6b' : '#2fbf4f';
+      ctx.font = `800 28px ${FONT}`;
+      ctx.fillText(risk, 50, CH - 40);
+      ctx.fillStyle = '#9aa3b2';
+      ctx.font = `600 28px ${FONT}`;
+      ctx.fillText(`Gross ${money(f.grossExposure, { compact: true })}  ·  Open positions ${f.openPositions}  ·  Trades today ${f.tradesDay}${f.winRateDay != null ? `  ·  Win rate ${Math.round(f.winRateDay * 100)}%` : ''}`, 480, CH - 40);
+    }
     this.main.texture.needsUpdate = true;
   }
 

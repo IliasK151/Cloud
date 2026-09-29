@@ -17,7 +17,7 @@ export class Dashboard {
   #build() {
     this.root.innerHTML = `
       <div id="dash-banner"></div>
-      <h1>Fund dashboard</h1>
+      <h1>Paper fund dashboard</h1>
       <p class="lede" id="dash-lede"></p>
       <div class="grid tiles" id="dash-tiles"></div>
       <div class="grid dash-row" style="margin-top:14px">
@@ -62,6 +62,7 @@ export class Dashboard {
             <button class="btn" data-cmd="pause-all">Pause all desks</button>
             <button class="btn" data-cmd="resume-all">Resume all desks</button>
             <button class="btn danger" data-cmd="flatten">Flatten the floor</button>
+            <button class="btn" data-cmd="reset-paper">Reset paper P&amp;L</button>
           </div>
           <h2 style="margin-top:18px">TradingView alerts</h2>
           <p class="sub">Latest webhook alerts received</p>
@@ -70,6 +71,7 @@ export class Dashboard {
       </div>`;
     this.root.querySelectorAll('[data-cmd]').forEach((b) => b.addEventListener('click', () => {
       if (b.dataset.cmd === 'flatten' && !confirm('Flatten every desk now?')) return;
+      if (b.dataset.cmd === 'reset-paper' && !confirm('Reset the paper P&L, trade history and stats to zero? Open trades keep running. Your FTMO account is not affected.')) return;
       command(b.dataset.cmd);
     }));
     this.root.querySelector('#dash-table').addEventListener('click', (e) => {
@@ -114,11 +116,14 @@ export class Dashboard {
     const f = s.fund;
     const r = s.config.risk;
 
-    this.root.querySelector('#dash-banner').innerHTML = f.riskOff
+    const ftmoNote = s.live?.profile && s.live?.account
+      ? `<div class="banner info">ℹ︎ This dashboard is the <b>paper fund</b> (practice money that every desk trades). Your real FTMO account ${escapeHtml(String(s.live.account.login))} and its P&amp;L are in the FTMO tab, and on the floor when the top-bar switch is on FTMO.</div>`
+      : '';
+    this.root.querySelector('#dash-banner').innerHTML = ftmoNote + (f.riskOff
       ? `<div class="banner crit">⛔ <b>Fund risk-off.</b> ${escapeHtml(f.riskOff.reason)}. All desks are halted until the next trading day.</div>`
       : f.mode === 'sim'
         ? `<div class="banner info">ℹ︎ Simulation mode — markets are simulated at ${f.speed}× speed. Run <code>npm run live</code> for real market data.</div>`
-        : '';
+        : '');
     this.root.querySelector('#dash-lede').textContent = `${f.name} · trading day ${f.dayKey} · ${f.session} session · ${nyTime(f.marketTime, true)} ET · ${s.profiles.length} desks × ${money(s.config.allocation, { compact: true })} allocation`;
 
     const usedFund = f.dayPnl < 0 ? -f.dayPnl / f.fundLossLimit : 0;

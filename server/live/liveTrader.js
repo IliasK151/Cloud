@@ -45,6 +45,12 @@ export class LiveTrader extends EventEmitter {
     bridge.on('sync', () => this.#onSync());
     fund.broker.on('fill', () => setImmediate(() => this.reconcile()));
     fund.env.liveDescribe = (id) => this.describeFor(id);
+    fund.env.liveBook = (id) => (this.profile && this.account ? this.deskBook(id) : null);
+    // A data-feed switch shifts the desks' paper levels; keep the live stop mapping aligned.
+    md.on('rebase', (symbol, offset) => {
+      for (const l of this.links.values()) if (l.floorSymbol === symbol && !l.previousSession && Number.isFinite(l.paperEntry)) l.paperEntry += offset;
+    });
+    this.equityHistory = [];
     this.timer = setInterval(() => this.tick(), 1000);
   }
 
@@ -119,6 +125,7 @@ export class LiveTrader extends EventEmitter {
   // ---- setup & controls -----------------------------------------------------------------
   #onAccount(acc) {
     this.armed = false;
+    this.equityHistory = [];
     const known = !!this.state.profiles[String(acc.login)];
     this.#note(`MT5 connected: account ${acc.login} on ${acc.server}${known ? '' : ' — new account, set it up in the FTMO tab'}`);
     this.bridge.requestSymbols();
@@ -305,6 +312,7 @@ export class LiveTrader extends EventEmitter {
           const pnl = this.bridge.deals.filter((d) => d.position === link.ticket && d.entry !== 0).reduce((s, d) => s + d.pnl, 0);
           link.state = 'closed';
           link.closedAt = Date.now();
+          link.closedDay = this.bridge.serverDay;
           link.pnl = pnl;
           const how = link.closeRequested ? 'closed' : 'closed on MT5 (stop, target or manual)';
           this.#note(`${this.#who(link)} ${link.brokerSymbol} ${how}: ${fmtUsd(pnl, { sign: true })}`, 'live', link.agentId);
@@ -378,7 +386,34 @@ export class LiveTrader extends EventEmitter {
     if (this.profile && !this.bridge.connected) {
       for (const id of SYMBOL_IDS) if (this.md.ownerOf(id) === 'mt5') this.md.setStatus(id, 'STALE', 'ftmo');
     }
+    // Account equity once a minute, for the floor's equity charts in FTMO view.
+    const acc = this.account;
+    if (this.profile && acc && this.bridge.connected) {
+      const t = Math.floor(Date.now() / 60_000) * 60;
+      const last = this.equityHistory[this.equityHistory.length - 1];
+      if (!last || t > last.time) this.equityHistory.push({ time: t, value: acc.equity });
+      else last.value = acc.equity;
+      if (this.equityHistory.length > 1440) this.equityHistory.shift();
+    }
     this.reconcile();
+  }
+
+  // One desk's results on the connected account (floor trades only).
+  deskBook(agentId) {
+    const login = this.login;
+    const mine = [...this.links.values()].filter((l) => l.agentId === agentId && l.login === login);
+    const openLink = mine.find((l) => !l.previousSession && (l.state === 'open' || l.state === 'closing'));
+    const closed = mine.filter((l) => l.state === 'closed');
+    const isToday = (l) => (l.closedDay ? l.closedDay === this.bridge.serverDay : l.closedAt >= Date.now() - 86_400_000);
+    const closedToday = closed.filter(isToday);
+    const openProfit = openLink?.profit ?? 0;
+    return {
+      enabled: !!this.profile?.desks?.[agentId] && this.eligible(agentId),
+      day: closedToday.reduce((s, l) => s + (l.pnl || 0), 0) + openProfit,
+      total: closed.reduce((s, l) => s + (l.pnl || 0), 0) + openProfit,
+      trades: closedToday.length + (openLink ? 1 : 0),
+      open: openLink ? { side: openLink.side, volume: openLink.volumeNow, symbol: openLink.brokerSymbol, profit: openProfit, sl: openLink.sl, tp: openLink.tp } : null,
+    };
   }
 
   reconcile() {
@@ -496,13 +531,14 @@ export class LiveTrader extends EventEmitter {
 
   async shutdown() {
     this.armed = false;
-    if (!this.bridge.connected || !this.bridge.positions.some((x) => this.#ours(x))) return false;
+    if (!this.bridge.connected || !this.bridge.positions.some((x) => this.#ours(x))) return null;
     this.bridge.closeAll({ kind: 'shutdown' });
     const deadline = Date.now() + 4000;
     while (Date.now() < deadline && this.bridge.hasPending((c) => c.kind === 'closeall')) {
       await new Promise((r) => setTimeout(r, 200));
     }
-    return true;
+    // true = MT5 confirmed the close; false = no answer (positions keep their stop-loss).
+    return !this.bridge.hasPending((c) => c.kind === 'closeall');
   }
 
   // ---- presentation -----------------------------------------------------------------------------
@@ -522,8 +558,6 @@ export class LiveTrader extends EventEmitter {
     const acc = this.account;
     const p = this.profile;
     const brokerSymbols = this.bridge.symbols;
-    const now = Date.now();
-    const todayStart = now - 24 * 3600_000;
     const links = [...this.links.values()];
     const warnings = [];
     if (this.mode !== 'live') warnings.push('You are in demo mode (simulated prices). Live FTMO trading needs npm start.');
@@ -557,18 +591,19 @@ export class LiveTrader extends EventEmitter {
       suggestedMap: autoMap(brokerSymbols),
       candidates: Object.fromEntries(SYMBOL_IDS.map((id) => [id, candidatesFor(id, brokerSymbols).slice(0, 12)])),
       desks: this.fund.agents.map((a) => {
-        const mine = links.filter((l) => l.agentId === a.id && !l.previousSession);
-        const openLink = mine.find((l) => l.state === 'open');
-        const closedToday = mine.filter((l) => l.state === 'closed' && l.closedAt >= todayStart).reduce((s, l) => s + (l.pnl || 0), 0);
+        const b = this.deskBook(a.id);
         return {
           id: a.id, name: a.profile.name, desk: a.profile.desk, symbols: a.symbols,
           eligible: this.eligible(a.id), reason: INELIGIBLE[a.id] || null,
           enabled: !!p?.desks?.[a.id],
           brokerSymbol: p?.symbolMap?.[a.symbol] ?? null,
-          live: openLink ? { side: openLink.side, volume: openLink.volumeNow, symbol: openLink.brokerSymbol, profit: openLink.profit ?? 0, sl: openLink.sl, tp: openLink.tp } : null,
-          pnlToday: closedToday + (openLink?.profit ?? 0),
+          live: b.open,
+          pnlToday: b.day,
+          pnlTotal: b.total,
+          tradesToday: b.trades,
         };
       }),
+      equityHistory: this.equityHistory.slice(-240),
       positions: this.bridge.positions.map((x) => ({ ...x, agentId: this.#ours(x) ? this.agentForMagic(x.magic) : null, floor: this.#ours(x) })),
       links: links.filter((l) => !l.previousSession).slice(-25).reverse(),
       events: this.events.slice(-40).reverse(),

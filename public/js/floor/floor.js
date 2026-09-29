@@ -9,6 +9,7 @@ import { buildRoom, PLATFORM } from './room.js';
 import { Desk } from './desk.js';
 import { VideoWall } from './videowall.js';
 import { money, escapeHtml } from '../format.js';
+import { deskBook } from '../book.js';
 
 const OVERVIEW = { pos: new THREE.Vector3(-2.3, 7.0, 14.6), target: new THREE.Vector3(-2.3, 0.3, -3.0) };
 const FRONT_ROW_Z = -5.4;
@@ -154,7 +155,8 @@ export class TradingFloor {
       if (id && id !== this.focused) {
         const p = this.store.profileById[id];
         const a = this.store.agents[id];
-        const day = a?.pnl.day ?? 0;
+        const book = deskBook(this.store, id);
+        const day = book.day;
         this.tip.innerHTML = `<b>${escapeHtml(p.name)}</b>${escapeHtml(p.desk)} · ${escapeHtml(a?.status ?? '')} · <span class="${day > 0.5 ? 'pos' : day < -0.5 ? 'neg' : ''}">${money(day, { sign: true })}</span>`;
         this.tip.style.left = `${e.clientX}px`;
         this.tip.style.top = `${e.clientY - 58}px`;
@@ -317,7 +319,10 @@ export class TradingFloor {
   }
 
   sync() {
-    for (const [id, desk] of this.desks) desk.sync(this.store.agents[id]);
+    for (const [id, desk] of this.desks) {
+      const b = deskBook(this.store, id);
+      desk.sync(this.store.agents[id], { label: b.mode === 'ftmo' ? 'FTMO TODAY' : 'PAPER · DAY P&L', value: b.day, na: b.na });
+    }
   }
 
   #frame() {

@@ -150,6 +150,14 @@ export class TraderAgent {
     if (had) this.note(`Flat — ${reason}`, 'exit');
   }
 
+  // Keep a managed trade's levels consistent after a data-feed switch.
+  rebase(symbol, offset) {
+    const plan = this.plans.get(symbol);
+    if (!plan) return;
+    for (const k of ['entry', 'stop', 'initialStop', 'extreme']) plan[k] += offset;
+    if (plan.target != null) plan.target += offset;
+  }
+
   halt(reason) {
     this.halted = reason;
     this.flatten('Risk halt');
@@ -386,10 +394,13 @@ export class TraderAgent {
     } else {
       lines.push(this.pitch());
     }
+    // With an FTMO account connected, desks on the account talk about the real position
+    // (below) and paper-only desks say plainly that theirs is paper.
+    const book = this.env.liveBook?.(this.id);
     for (const p of this.positionsView()) {
-      if (this.profile.customPositionPitch) break;
+      if (this.profile.customPositionPitch || book?.enabled) break;
       const plan = this.plans.get(p.symbol);
-      let s = `I'm ${p.side.toLowerCase()} ${fmtQty(p.qty)} ${p.symbol} from ${this.px(p.avg, p.symbol)}`;
+      let s = `${book ? 'On paper, ' : ''}I'm ${p.side.toLowerCase()} ${fmtQty(p.qty)} ${p.symbol} from ${this.px(p.avg, p.symbol)}`;
       if (plan) {
         s += `, stop at ${this.px(plan.stop, p.symbol)}`;
         if (plan.target != null) s += `, target ${this.px(plan.target, p.symbol)}`;
@@ -400,9 +411,17 @@ export class TraderAgent {
     }
     const d = this.day;
     const tradesTxt = d.trades === 0 ? 'no closed trades yet' : `${d.trades} closed trade${d.trades === 1 ? '' : 's'}, ${d.wins} winner${d.wins === 1 ? '' : 's'}`;
-    lines.push(`On the day I'm ${spokenPnl(this.dayPnl())} with ${tradesTxt}. Since inception the desk is ${spokenPnl(this.totalPnl())}.`);
-    const live = this.env.liveDescribe?.(this.id);
-    if (live) lines.push(live);
+    if (book?.enabled) {
+      const live = this.env.liveDescribe?.(this.id);
+      if (live) lines.push(live);
+      lines.push(book.trades === 0
+        ? 'No trades on your FTMO account yet today.'
+        : `On your FTMO account today I'm ${spokenPnl(book.day)} across ${book.trades} trade${book.trades === 1 ? '' : 's'}, and ${spokenPnl(book.total)} since you connected it.`);
+    } else if (book) {
+      lines.push(`I'm not switched on for your FTMO account, so I'm paper trading only. My paper book is ${spokenPnl(this.dayPnl())} today with ${tradesTxt}.`);
+    } else {
+      lines.push(`On the day I'm ${spokenPnl(this.dayPnl())} with ${tradesTxt}. Since inception the desk is ${spokenPnl(this.totalPnl())}.`);
+    }
     lines.push(this.#closer());
     return { greeting: 'Hello boss!', lines, text: lines.join(' ') };
   }

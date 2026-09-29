@@ -1,4 +1,5 @@
 import { money, nyTime, signClass, escapeHtml } from '../format.js';
+import { fundBook, deskBook, hasFtmo, bookMode, setBookPref } from '../book.js';
 
 // Top bar KPIs, the desk rail on the left and the scrolling event tape.
 export class Hud {
@@ -18,7 +19,20 @@ export class Hud {
       conn: document.getElementById('conn'),
       list: document.getElementById('desk-list'),
       tape: document.getElementById('tape-inner'),
+      navLabel: document.getElementById('kpi-nav-label'),
+      dayLabel: document.getElementById('kpi-day-label'),
+      totalLabel: document.getElementById('kpi-total-label'),
+      grossLabel: document.getElementById('kpi-gross-label'),
+      railSub: document.getElementById('rail-sub'),
+      bookSwitch: document.getElementById('book-switch'),
     };
+    this.el.bookSwitch.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-book]');
+      if (!b) return;
+      setBookPref(b.dataset.book);
+      this.update();
+      this.onBookChange?.();
+    });
     this.rows = new Map();
     store.on('conn', (s) => this.setConn(s));
   }
@@ -60,20 +74,32 @@ export class Hud {
     const s = this.store;
     const f = s.fund;
     if (!f) return;
-    this.el.nav.textContent = money(f.nav);
-    this.el.day.textContent = money(f.dayPnl, { sign: true });
-    this.el.day.className = `kpi-value ${signClass(f.dayPnl)}`;
-    this.el.total.textContent = money(f.totalPnl, { sign: true, compact: true });
-    this.el.total.className = `kpi-value ${signClass(f.totalPnl)}`;
-    this.el.gross.textContent = money(f.grossExposure, { compact: true });
-    this.el.open.textContent = String(f.openPositions);
+    const b = fundBook(s);
+    const ftmo = b.mode === 'ftmo';
+    this.el.bookSwitch.hidden = !hasFtmo(s);
+    this.el.bookSwitch.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.book === bookMode(s))));
+    this.el.navLabel.textContent = b.navLabel;
+    this.el.dayLabel.textContent = ftmo ? 'Today' : 'Day P&L';
+    this.el.totalLabel.textContent = b.totalLabel;
+    this.el.grossLabel.textContent = b.exposureLabel;
+    this.el.railSub.textContent = ftmo ? 'FTMO today' : 'Paper today';
+    // The FTMO/Paper switch takes room in the top bar, so the paper NAV goes compact beside it.
+    this.el.nav.textContent = money(b.nav, { compact: hasFtmo(s) && b.nav >= 1e6 });
+    this.el.day.textContent = money(b.day, { sign: true });
+    this.el.day.className = `kpi-value ${signClass(b.day)}`;
+    this.el.total.textContent = money(b.total, { sign: true, compact: Math.abs(b.total) >= 1e5 });
+    this.el.total.className = `kpi-value ${signClass(b.total)}`;
+    this.el.gross.textContent = money(b.exposure, { compact: !ftmo });
+    this.el.open.textContent = String(b.open);
     this.el.clock.textContent = nyTime(f.marketTime, true);
     this.el.session.textContent = f.session;
     for (const [id, row] of this.rows) {
       const a = s.agents[id];
       if (!a) continue;
-      row.pnl.textContent = money(a.pnl.day, { sign: true, compact: Math.abs(a.pnl.day) >= 1e5 });
-      row.pnl.className = `pnl num ${signClass(a.pnl.day)}`;
+      const d = deskBook(s, id);
+      row.pnl.textContent = d.na ? 'paper' : money(d.day, { sign: true, compact: Math.abs(d.day) >= 1e5 });
+      row.pnl.className = `pnl num ${d.na ? 'na' : signClass(d.day)}`;
+      row.pnl.title = d.na ? 'Not switched on for the FTMO account' : ftmo ? 'P&L on your FTMO account today' : 'Paper P&L today';
       const color = { 'IN TRADE': '#3987e5', ARMED: '#fab219', HALTED: '#d03b3b', PAUSED: '#7d8594', COOLDOWN: '#ec835a' }[a.status] || '#0ca30c';
       row.st.innerHTML = `<i class="st-dot" style="background:${color}"></i>${escapeHtml(a.status)}`;
       row.li.classList.toggle('active', s.selected === id);

@@ -154,6 +154,7 @@ export class Session {
     const m = nyMinuteOfDay(ms);
     if (this.isFlattenWindow(ms)) return 'Close';
     if (m >= 9 * 60 + 30 && m < 16 * 60) return 'New York';
+    if (m >= 16 * 60 && m < 18 * 60) return 'After hours';
     if (m >= 3 * 60 && m < 9 * 60 + 30) return 'London';
     return 'Asia';
   }

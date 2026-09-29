@@ -210,3 +210,31 @@ test('profit target reached locks the account', () => {
   assert.equal(live.resetHalt().ok, true);
   assert.equal(live.halt, null);
 });
+
+test('switching to the broker feed does not create fake P&L on open positions', async () => {
+  const { fund, chen } = setup();
+  chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 });
+  const plan = chen.plans.get('XAUUSD');
+  const stopBefore = plan.stop;
+  const before = chen.unrealized();
+  // Broker prices sit $55 higher than the public feed (different contract / basis).
+  const bars = Array.from({ length: 60 }, (_, i) => ({ time: 1_000_000 + i * 60, open: 3855, high: 3856, low: 3854, close: 3855.1, volume: 10 }));
+  fund.md.claim('XAUUSD', 'mt5', bars);
+  assert.ok(Math.abs(chen.unrealized() - before) < 1e-6, `unrealized jumped from ${before} to ${chen.unrealized()}`);
+  assert.ok(Math.abs(plan.stop - (stopBefore + 55)) < 1e-9);
+  // Updates from the old feed are now ignored.
+  fund.md.applyTick('XAUUSD', 3700, 1, Date.now(), 'yahoo');
+  assert.equal(fund.md.price('XAUUSD'), 3855.1);
+});
+
+test('briefings talk about the FTMO account once it is connected', () => {
+  const { live, sync, chen, fund } = setup();
+  sync();
+  live.setup({ type: 'trial', size: 10_000 });
+  live.setDesk('chen', true);
+  const text = chen.briefing().text;
+  assert.match(text, /FTMO/);
+  assert.match(text, /No trades on your FTMO account yet today/);
+  assert.doesNotMatch(text, /Since inception the desk/);
+  assert.match(fund.byId.get('kenji').briefing().text, /paper trading only/);
+});

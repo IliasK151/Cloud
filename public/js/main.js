@@ -189,7 +189,13 @@ store.on('live', (v) => {
   }
   hud.setLive(v);
   panel.setLive(v);
+  hud.update();
+  floor?.sync();
 });
+hud.onBookChange = () => {
+  floor?.sync();
+  panel.update();
+};
 
 // Handy for tinkering from the browser console: floorApp.select('amara')
 window.floorApp = { store, floor, panel, select, deselect, setView };

@@ -2,6 +2,7 @@ import { api, command } from '../net.js';
 import { voice } from '../voice.js';
 import { candleChart } from './charts.js';
 import { money, price as fmtPrice, qty as fmtQty, signClass, initials, nyTime, escapeHtml } from '../format.js';
+import { deskBook } from '../book.js';
 
 // Right-hand drawer: the selected trader greets the boss, explains the setup and P&L.
 export class AgentPanel {
@@ -276,12 +277,36 @@ export class AgentPanel {
       el.textContent = money(v, opts);
       el.className = `val num ${signClass(v)}`;
     };
-    setVal(this.el.day, a.pnl.day, { sign: true });
-    setVal(this.el.unreal, a.pnl.unrealized, { sign: true });
-    setVal(this.el.total, a.pnl.total, { sign: true, compact: true });
-    const used = a.pnl.day < 0 ? -a.pnl.day / a.lossLimit : 0;
-    this.el.limit.textContent = `${Math.round(used * 100)}%`;
-    this.el.limit.className = `val num ${used > 0.75 ? 'neg' : ''}`;
+    const b = deskBook(this.store, this.id);
+    const lbl = (id, text) => { document.getElementById(id).textContent = text; };
+    if (b.mode === 'ftmo') {
+      lbl('ap-day-lbl', 'FTMO today');
+      lbl('ap-unreal-lbl', 'FTMO open');
+      lbl('ap-total-lbl', 'FTMO total');
+      lbl('ap-limit-lbl', 'FTMO trades');
+      if (b.na) {
+        for (const el of [this.el.day, this.el.unreal, this.el.total]) { el.textContent = '—'; el.className = 'val num muted'; }
+        this.el.limit.textContent = 'Paper only';
+        this.el.limit.className = 'val muted';
+      } else {
+        setVal(this.el.day, b.day, { sign: true });
+        setVal(this.el.unreal, b.unrealized, { sign: true });
+        setVal(this.el.total, b.total, { sign: true });
+        this.el.limit.textContent = String(b.trades);
+        this.el.limit.className = 'val num';
+      }
+    } else {
+      lbl('ap-day-lbl', 'Paper day');
+      lbl('ap-unreal-lbl', 'Unrealized');
+      lbl('ap-total-lbl', 'Paper total');
+      lbl('ap-limit-lbl', 'Limit used');
+      setVal(this.el.day, a.pnl.day, { sign: true, compact: Math.abs(a.pnl.day) >= 1e5 });
+      setVal(this.el.unreal, a.pnl.unrealized, { sign: true, compact: Math.abs(a.pnl.unrealized) >= 1e5 });
+      setVal(this.el.total, a.pnl.total, { sign: true, compact: true });
+      const used = a.pnl.day < 0 ? -a.pnl.day / a.lossLimit : 0;
+      this.el.limit.textContent = `${Math.round(used * 100)}%`;
+      this.el.limit.className = `val num ${used > 0.75 ? 'neg' : ''}`;
+    }
 
     const st = a.setup;
     this.el.bias.textContent = st.bias;
@@ -292,6 +317,9 @@ export class AgentPanel {
     this.el.conf.textContent = `${st.confidence}%`;
     this.el.checklist.innerHTML = (st.checklist || []).map((c) => `<li class="${c.ok ? 'ok' : ''}">${escapeHtml(c.label)}</li>`).join('');
     const dec = (s) => this.store.symbols[s]?.decimals ?? 2;
+    // In FTMO view the P&L tiles are the account's; the cards below stay the paper book.
+    lbl('ap-pos-h', b.mode === 'ftmo' ? 'Paper book positions' : 'Positions');
+    lbl('ap-perf-h', b.mode === 'ftmo' ? 'Paper book performance' : 'Performance');
     this.el.positions.innerHTML = a.positions.length
       ? a.positions.map((p) => `
         <div class="pos-card">

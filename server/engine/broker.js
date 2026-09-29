@@ -173,6 +173,16 @@ export class Broker extends EventEmitter {
     return total;
   }
 
+  // Shift open positions to a new price level (data feed switch) without booking P&L.
+  rebase(symbol, offset) {
+    for (const book of this.books.values()) {
+      const pos = book.positions.get(symbol);
+      if (!pos) continue;
+      pos.avg += offset;
+      pos.trade.entryNotional += offset * pos.trade.entryQty;
+    }
+  }
+
   flatten(agentId, reason = 'Flatten') {
     const out = [];
     for (const pos of [...this.book(agentId).positions.values()]) {

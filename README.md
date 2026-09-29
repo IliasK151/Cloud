@@ -145,6 +145,10 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 
 ![New FTMO account detected](docs/ftmo-connect.jpg)
 
+**Which P&L you're looking at.** Every desk also keeps paper trading with the fund's practice money, which runs to millions per desk. Once an FTMO account is connected, the top bar, desk list, desk signs, video wall and trader panels show **your FTMO account**: its equity, today's P&L and each desk's P&L on it. A desk that isn't switched on for the account says **paper**. The **FTMO / Paper** switch at the top left flips the floor back to the paper fund. The Dashboard tab is always the paper fund, and it has a **Reset paper P&L** button.
+
+**Why a desk hasn't traded yet.** A desk only trades when its setup appears, and some setups only appear at certain times (the opening-range breakout needs the New York open). No new trades open between 16:50 and 18:00 New York time, around the daily roll-over.
+
 **No MT5 handy?** Run `npm run mock-mt5` next to `npm start`. It pretends to be an FTMO Free Trial terminal, so you can try the whole connect → set up → arm → trade flow.
 
 **Before you arm a paid Challenge, read this**
@@ -169,7 +173,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 
 ## Dashboard
 
-The **Dashboard** tab shows:
+The **Dashboard** tab shows the paper fund. Your FTMO account lives in the FTMO tab. It shows:
 
 - NAV, day P&L, P&L since inception, unrealized P&L, gross exposure, trades and win rate
 - The fund equity curve and desk P&L bars

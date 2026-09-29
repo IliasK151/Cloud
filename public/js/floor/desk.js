@@ -164,7 +164,8 @@ export class Desk {
     this.drawSign(null);
   }
 
-  drawSign(agent) {
+  // book: { label, value, na } — the P&L to show (FTMO or paper).
+  drawSign(agent, book = null) {
     const ctx = this.signCtx;
     const W = 1024;
     const H = 240;
@@ -190,14 +191,14 @@ export class Desk {
     ctx.font = '500 28px system-ui, -apple-system, sans-serif';
     ctx.fillText(p.strategy, 44, 198);
     if (agent) {
-      const v = agent.pnl.day;
+      const v = book ? book.value : agent.pnl.day;
       ctx.textAlign = 'right';
       ctx.fillStyle = '#6b7383';
       ctx.font = '600 26px system-ui, -apple-system, sans-serif';
-      ctx.fillText('DAY P&L', W - 40, 70);
-      ctx.fillStyle = v > 0.5 ? '#2fbf4f' : v < -0.5 ? '#ff6b6b' : '#e6e9ef';
-      ctx.font = '800 64px system-ui, -apple-system, sans-serif';
-      ctx.fillText(money(v, { sign: true, compact: Math.abs(v) >= 1e6 }), W - 40, 140);
+      ctx.fillText(book?.label ?? 'DAY P&L', W - 40, 70);
+      ctx.fillStyle = book?.na ? '#6b7383' : v > 0.5 ? '#2fbf4f' : v < -0.5 ? '#ff6b6b' : '#e6e9ef';
+      ctx.font = `800 ${book?.na ? 44 : 64}px system-ui, -apple-system, sans-serif`;
+      ctx.fillText(book?.na ? 'PAPER ONLY' : money(v, { sign: true, compact: Math.abs(v) >= 1e6 }), W - 40, 140);
       ctx.fillStyle = '#9aa3b2';
       ctx.font = '600 28px system-ui, -apple-system, sans-serif';
       ctx.fillText(agent.status, W - 40, 196);
@@ -260,12 +261,12 @@ export class Desk {
   }
 
   // Called with fresh agent snapshots from the server.
-  sync(agent) {
+  sync(agent, book = null) {
     if (!agent) return;
-    const signKey = `${Math.round(agent.pnl.day)}|${agent.status}`;
+    const signKey = `${Math.round(book ? book.value : agent.pnl.day)}|${agent.status}|${book?.label}|${book?.na}`;
     if (signKey !== this.lastSign) {
       this.lastSign = signKey;
-      this.drawSign(agent);
+      this.drawSign(agent, book);
     }
     if (agent.status !== this.lastStatus) {
       this.lastStatus = agent.status;

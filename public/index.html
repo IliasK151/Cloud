@@ -31,10 +31,14 @@
         </div>
       </div>
       <div class="kpis" id="kpis">
-        <div class="kpi"><span class="kpi-label">NAV</span><span class="kpi-value" id="kpi-nav">—</span></div>
-        <div class="kpi"><span class="kpi-label">Day P&amp;L</span><span class="kpi-value" id="kpi-day">—</span></div>
-        <div class="kpi"><span class="kpi-label">Since inception</span><span class="kpi-value" id="kpi-total">—</span></div>
-        <div class="kpi hide-sm"><span class="kpi-label">Gross exposure</span><span class="kpi-value" id="kpi-gross">—</span></div>
+        <div class="book-switch" id="book-switch" role="group" aria-label="Which P&amp;L to show" hidden>
+          <button data-book="ftmo" aria-pressed="true">FTMO</button>
+          <button data-book="paper" aria-pressed="false">Paper</button>
+        </div>
+        <div class="kpi"><span class="kpi-label" id="kpi-nav-label">NAV</span><span class="kpi-value" id="kpi-nav">—</span></div>
+        <div class="kpi"><span class="kpi-label" id="kpi-day-label">Day P&amp;L</span><span class="kpi-value" id="kpi-day">—</span></div>
+        <div class="kpi"><span class="kpi-label" id="kpi-total-label">Since inception</span><span class="kpi-value" id="kpi-total">—</span></div>
+        <div class="kpi hide-sm"><span class="kpi-label" id="kpi-gross-label">Gross exposure</span><span class="kpi-value" id="kpi-gross">—</span></div>
         <div class="kpi hide-sm"><span class="kpi-label">Open positions</span><span class="kpi-value" id="kpi-open">—</span></div>
       </div>
       <div class="clock">
@@ -58,7 +62,7 @@
     </header>
 
     <aside id="desk-rail" aria-label="Desks">
-      <div class="rail-head"><span>Desks</span><span class="rail-sub">Today</span></div>
+      <div class="rail-head"><span>Desks</span><span class="rail-sub" id="rail-sub">Today</span></div>
       <ol id="desk-list"></ol>
     </aside>
 
@@ -80,10 +84,10 @@
         <button class="link-btn" id="ap-replay">▶ Ask for another briefing</button>
       </div>
       <div class="ap-pnl">
-        <div><span class="lbl">Day P&amp;L</span><span class="val" id="ap-day">—</span></div>
-        <div><span class="lbl">Unrealized</span><span class="val" id="ap-unreal">—</span></div>
-        <div><span class="lbl">Since inception</span><span class="val" id="ap-total">—</span></div>
-        <div><span class="lbl">Loss limit used</span><span class="val" id="ap-limit">—</span></div>
+        <div><span class="lbl" id="ap-day-lbl">Day P&amp;L</span><span class="val" id="ap-day">—</span></div>
+        <div><span class="lbl" id="ap-unreal-lbl">Unrealized</span><span class="val" id="ap-unreal">—</span></div>
+        <div><span class="lbl" id="ap-total-lbl">Since inception</span><span class="val" id="ap-total">—</span></div>
+        <div><span class="lbl" id="ap-limit-lbl">Loss limit used</span><span class="val" id="ap-limit">—</span></div>
       </div>
       <p class="ap-live" id="ap-live" hidden></p>
       <nav class="ap-tabs" role="tablist">
@@ -102,11 +106,11 @@
           <p class="thesis" id="ap-thesis">—</p>
           <div class="confidence"><span>Setup quality</span><div class="meter"><i id="ap-conf-bar"></i></div><b id="ap-conf">—</b></div>
           <ul class="checklist" id="ap-checklist"></ul>
-          <h3>Positions</h3>
+          <h3 id="ap-pos-h">Positions</h3>
           <div id="ap-positions" class="positions"></div>
           <h3>Key levels</h3>
           <table class="levels" id="ap-levels"></table>
-          <h3>Performance</h3>
+          <h3 id="ap-perf-h">Performance</h3>
           <div class="stats-grid" id="ap-stats"></div>
           <div class="ap-actions">
             <button class="btn" id="ap-flatten">Flatten desk</button>
