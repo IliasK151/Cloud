@@ -8,7 +8,7 @@ A 3D institutional trading floor that runs in your browser, served by a small se
 | --- | --- |
 | ![Hello boss](docs/hello-boss.jpg) | ![Dashboard](docs/dashboard.jpg) |
 
-> **Paper trading only.** No real orders are ever sent anywhere. Market data comes from free public sources. This is a simulation and a learning tool, not financial advice.
+> **Paper trading by default.** Real orders only happen on a MetaTrader 5 account (such as your FTMO Free Trial or Challenge) that you connect **and** arm yourself in the FTMO tab. This is a learning tool, not financial advice, and automated trading can lose money.
 
 ---
 
@@ -50,7 +50,7 @@ If a live source can't be reached, that market automatically falls back to a rea
 - **The front wall** carries the LED video wall (NAV, day P&L, fund equity, desk P&L bars, markets), world clocks, and scrolling ticker tapes. Night-time city skyline windows run down both sides.
 - **The traders are animated.** They type, glance between screens, fist-pump a winner, facepalm a loser and slump when risk halts them. When they trade, a speech bubble pops up over their head.
 
-**Controls:** click a trader, or press keys `1`–`0`, to zoom in. Drag to orbit, scroll to zoom, right-drag to pan. `←`/`→` moves to the next trader, and `Esc` returns to the overview. `D` opens the dashboard, `T` the TradingView page, `F` the floor. `V` toggles voices and `Q` toggles glow effects.
+**Controls:** click a trader, or press keys `1`–`0`, to zoom in. Drag to orbit, scroll to zoom, right-drag to pan. `←`/`→` moves to the next trader, and `Esc` returns to the overview. `D` opens the dashboard, `T` the TradingView page, `L` the FTMO tab, `F` the floor. `V` toggles voices and `Q` toggles glow effects.
 
 ### "Hello boss!"
 
@@ -114,6 +114,56 @@ Webhook alerts need a TradingView plan that includes webhooks. You can try the w
 
 ---
 
+## Trade your FTMO account (MetaTrader 5)
+
+The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Account** through MetaTrader 5. A small Expert Advisor, [`mt5/MeridianBridge.mq5`](mt5/MeridianBridge.mq5), runs inside your MT5 terminal and links it to the floor on the same Mac. Your FTMO password stays in MT5; the floor never sees it.
+
+![FTMO tab](docs/ftmo.jpg)
+
+**How it works**
+
+- **The floor stays the brain.** When a desk you've enabled opens, scales out, moves its stop or closes a trade, the same action is sent to MT5.
+- **Every order carries a stop-loss.** Positions stay protected in MT5 even if the floor, the EA or your Mac stops.
+- **Your own risk sizing, not the paper desk's.** The default is **0.25% of balance per trade**, with at most 1.5% open risk and 5 live positions, all editable.
+- **Priced from MT5.** Once connected, the floor switches each mapped market to your broker's prices (US100.cash, XAUUSD, EURUSD and so on). The desks then analyse exactly the prices they trade.
+- **Your TradingView alerts can trade the account too.** Enable Chen's TradingView Signals desk (or any desk named in the alert). Each alert is executed on FTMO with the same sizing and stop rules.
+- **FTMO rule guard.** It watches the daily and maximum loss using FTMO's method (equity against the day's starting balance, and against the account size). At 80% of a limit it closes the floor's positions and stops trading: until the next server day for the daily limit, and until you clear it for the max loss. It can also stop when the profit target is hit, which is on by default.
+- **Arming is always your decision.** The floor starts disarmed after every restart. Paid accounts need you to type the account number to arm. **Close all & disarm** is always one click away.
+- **Two desks stay paper-only.** The stat-arb and market-making desks don't mirror onto a single prop account.
+
+**Set it up (once, about 5 minutes)**
+
+1. Start the floor with `npm start` (live mode; demo mode never trades live).
+2. In the FTMO Client Area, start a **Free Trial** on **MetaTrader 5**. Install MT5 and log in with the credentials FTMO shows you.
+3. In MT5, go to **Tools → Options → Expert Advisors**. Tick **Allow algorithmic trading** and **Allow WebRequest for listed URL**, then add `http://127.0.0.1:3000`.
+4. Download **MeridianBridge.mq5** from the floor's FTMO tab, or use the copy in `mt5/`. In MT5 choose **File → Open Data Folder → MQL5 → Experts**, copy the file there, open it in **MetaEditor** and press **Compile**.
+5. Drag **MeridianBridge** onto any chart. Paste the **bridge token** from the FTMO tab into the inputs, tick **Allow Algo Trading**, and switch on **Algo Trading** in the toolbar.
+6. The floor pops up **"New FTMO account detected"**. Pick the account type (Free Trial, Challenge, Verification or FTMO Account), check the limits against your Client Area, and save.
+7. Switch on the desks that may trade the account, then press **Arm live trading**.
+
+![New FTMO account detected](docs/ftmo-connect.jpg)
+
+**No MT5 handy?** Run `npm run mock-mt5` next to `npm start`. It pretends to be an FTMO Free Trial terminal, so you can try the whole connect → set up → arm → trade flow.
+
+**Before you arm a paid Challenge, read this**
+
+- Run it on the **Free Trial** first and watch it for a few days. The strategies were built and tuned on simulated markets and have no real-money track record.
+- **Check FTMO's current rules on algorithmic trading yourself.** FTMO generally allows Expert Advisors but prohibits some trading practices, and their terms change. Complying with them on your account is your responsibility.
+- **A stop-loss is not a guarantee.** Gaps, news spikes and slippage can fill beyond it. The guard acts at 80% of each limit to leave a buffer, but it cannot promise you'll never breach one. FTMO's funded accounts also have news-trading restrictions, which the floor doesn't track.
+- MT5 must stay open, and your Mac awake, while the desks trade.
+
+**Troubleshooting**
+
+| MT5 shows… | Fix |
+| --- | --- |
+| "WebRequest is blocked" (error 4014) | Add `http://127.0.0.1:3000` under Tools → Options → Expert Advisors → Allow WebRequest |
+| "Floor not reachable" | Start the floor (`npm start`). On a different port, set the EA's *Floor bridge URL* input to match |
+| "Floor refused the sync (HTTP 401)" | The bridge token is wrong: copy it again from the FTMO tab (it lives in `data/bridge-token.txt`) |
+| The FTMO tab says "Algo Trading is off" | Turn on the Algo Trading toolbar button and tick *Allow Algo Trading* in the EA's settings |
+| A market shows "not mapped" | Pick the matching MT5 symbol in **Edit setup → Symbols on your account** |
+
+---
+
 ## Dashboard
 
 The **Dashboard** tab shows:
@@ -142,7 +192,8 @@ Copy `.env.example` to `.env`. The most useful settings:
 Other commands:
 
 ```bash
-npm test               # unit tests: indicators, broker, risk, webhook parsing, a full simulated session
+npm test               # unit tests: indicators, broker, risk, webhooks, FTMO bridge + guard, a full simulated session
+npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow
 npm run backtest -- 5  # fast-forward 5 simulated sessions and print each desk's results
 npm run reset          # wipe the saved track record (keeps your webhook secret)
 ```
@@ -157,6 +208,8 @@ server/
   engine/               paper broker, risk manager (CRO), agent base class,
                         10 strategies, fund orchestration
   tradingview/          alert parsing + authentication
+  live/                 MT5 bridge protocol, FTMO rules + guard, live execution router
+mt5/                    MeridianBridge.mq5 Expert Advisor for MetaTrader 5
 public/
   js/floor/             Three.js floor: room, desks, six-screen workstations,
                         animated traders, video wall, camera director
@@ -168,4 +221,4 @@ No build step. The server serves ES modules straight to the browser (Three.js, T
 
 ---
 
-TradingView and Lightweight Charts are trademarks of TradingView, Inc. This project is not affiliated with TradingView, Binance or Yahoo. Market data from free public endpoints may be delayed or unavailable.
+TradingView and Lightweight Charts are trademarks of TradingView, Inc. FTMO is a trademark of FTMO. MetaTrader is a trademark of MetaQuotes. This project is not affiliated with TradingView, FTMO, MetaQuotes, Binance or Yahoo. Market data from free public endpoints may be delayed or unavailable.

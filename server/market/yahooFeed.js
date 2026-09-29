@@ -80,7 +80,7 @@ export class YahooFeed {
         if (bars.length < 30) throw new Error('not enough history');
         const forming = bars.pop();
         this.md.seed(s.id, bars);
-        this.md.applyBar(s.id, forming);
+        this.md.applyBar(s.id, forming, { source: 'yahoo' });
         this.#updateStatus(s.id);
         ok.push(s.id);
       } catch (err) {
@@ -103,7 +103,7 @@ export class YahooFeed {
     const now = Math.floor(Date.now() / 1000);
     try {
       const result = await fetchChart(s.source.ticker, `interval=1m&period1=${now - 900}&period2=${now + 60}&includePrePost=true`);
-      for (const bar of toBars(result)) this.md.applyBar(s.id, bar);
+      for (const bar of toBars(result)) this.md.applyBar(s.id, bar, { source: 'yahoo' });
       this.failures.set(s.id, 0);
       this.#updateStatus(s.id);
     } catch (err) {
@@ -116,6 +116,7 @@ export class YahooFeed {
 
   #updateStatus(id) {
     const s = this.md.get(id);
+    if (s.owner && s.owner !== 'yahoo') return;
     const lastBar = s.current?.time ?? s.lastBarTime;
     const ageMin = (Date.now() / 1000 - lastBar) / 60;
     const status = ageMin < 4 ? 'LIVE' : ageMin < 30 ? 'DELAYED' : 'CLOSED';

@@ -32,7 +32,9 @@ export class Fund extends EventEmitter {
       md, clock, session, broker, risk,
       allocation: this.allocation,
       emit: (e) => this.#event(e),
+      liveDescribe: null, // set by the live (FTMO) trader when it is running
     };
+    this.env = env;
     this.agents = ROSTER.map((p) => new p.Strategy(p, env));
     this.byId = new Map(this.agents.map((a) => [a.id, a]));
     for (const a of this.agents) this.dayCurves.set(a.id, []);
@@ -59,6 +61,11 @@ export class Fund extends EventEmitter {
 
   stop() {
     clearInterval(this.timer);
+  }
+
+  // Lets other modules (e.g. the FTMO live trader) post to the floor's event stream.
+  pushEvent(e) {
+    this.#event(e);
   }
 
   #event(e) {

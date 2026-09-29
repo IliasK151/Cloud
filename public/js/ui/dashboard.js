@@ -57,7 +57,7 @@ export class Dashboard {
         </div>
         <div class="card">
           <h2>Floor controls</h2>
-          <p class="sub">Paper trading only — commands go to the local engine</p>
+          <p class="sub">Paper desks — for your FTMO account use Close all &amp; disarm in the FTMO tab</p>
           <div class="test-row">
             <button class="btn" data-cmd="pause-all">Pause all desks</button>
             <button class="btn" data-cmd="resume-all">Resume all desks</button>

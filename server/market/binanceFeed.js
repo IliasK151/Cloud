@@ -46,7 +46,7 @@ export class BinanceFeed {
           // The last kline is still forming; feed it through applyBar so it keeps updating.
           const forming = bars.pop();
           this.md.seed(s.id, bars);
-          if (forming) this.md.applyBar(s.id, forming);
+          if (forming) this.md.applyBar(s.id, forming, { source: 'binance' });
           this.md.setStatus(s.id, 'LIVE', 'binance');
         }
         this.hostIndex = h;
@@ -67,7 +67,7 @@ export class BinanceFeed {
     this.ws = ws;
     ws.on('open', () => {
       this.retry = 0;
-      for (const s of this.symbols) this.md.setStatus(s.id, 'LIVE', 'binance');
+      for (const s of this.symbols) this.#status(s.id, 'LIVE');
     });
     ws.on('message', (buf) => {
       try {
@@ -79,7 +79,7 @@ export class BinanceFeed {
         this.md.applyBar(id, {
           time: Math.floor(k.t / 1000),
           open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v,
-        }, { closed: !!k.x });
+        }, { closed: !!k.x, source: 'binance' });
       } catch {
         /* ignore malformed frames */
       }
@@ -87,7 +87,7 @@ export class BinanceFeed {
     const reconnect = () => {
       if (this.stopped || this.ws !== ws) return;
       this.ws = null;
-      for (const s of this.symbols) this.md.setStatus(s.id, 'RECONNECTING', 'binance');
+      for (const s of this.symbols) this.#status(s.id, 'RECONNECTING');
       this.retry++;
       if (this.retry % 3 === 0) this.hostIndex++;
       const delay = Math.min(30_000, 1000 * 2 ** Math.min(this.retry, 5));
@@ -98,6 +98,12 @@ export class BinanceFeed {
       this.log.warn?.(`[binance] ${err.message}`);
       try { ws.close(); } catch { /* noop */ }
     });
+  }
+
+  // Leave symbols alone once another source (e.g. MT5) owns them.
+  #status(id, status) {
+    const owner = this.md.ownerOf(id);
+    if (!owner || owner === 'binance') this.md.setStatus(id, status, 'binance');
   }
 
   stop() {

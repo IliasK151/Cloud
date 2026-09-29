@@ -38,6 +38,26 @@ export class AgentPanel {
     });
   }
 
+  // One line about the desk's position on the FTMO account.
+  setLive(v) {
+    this.liveState = v;
+    this.#renderLive();
+  }
+
+  #renderLive() {
+    const el = document.getElementById('ap-live');
+    const d = this.liveState?.desks?.find((x) => x.id === this.id);
+    if (!el || !d || !d.enabled) {
+      if (el) el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    const armed = this.liveState.armed;
+    el.textContent = d.live
+      ? `FTMO live: ${d.live.side} ${d.live.volume} ${d.live.symbol} · ${money(d.live.profit, { sign: true })}${d.live.sl ? ` · SL ${d.live.sl}` : ''}`
+      : `FTMO: ${armed ? 'armed, flat on the account' : 'enabled, waiting for you to arm'}${d.pnlToday ? ` · today ${money(d.pnlToday, { sign: true })}` : ''}`;
+  }
+
   get isOpen() {
     return !!this.id;
   }
@@ -58,6 +78,7 @@ export class AgentPanel {
     this.el.tv.innerHTML = '';
     this.showTab(this.tab === 'trades' ? 'setup' : this.tab);
     this.update();
+    this.#renderLive();
     this.brief(false);
   }
 

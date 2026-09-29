@@ -32,7 +32,7 @@ export class TradingViewView {
     const symbols = i.symbols.map((s) => `<option value="${s.id}">${s.id}</option>`).join('');
     this.root.innerHTML = `
       <h1>TradingView connection</h1>
-      <p class="lede">Your TradingView alerts become orders for the desks. Each desk also has a live TradingView chart in its panel. Execution is paper-only, with house risk sizing.</p>
+      <p class="lede">Your TradingView alerts become orders for the desks. Each desk also has a live TradingView chart in its panel. Alerts trade on paper with house risk sizing, and also on your FTMO account if that desk is enabled and armed in the FTMO tab.</p>
       <div class="grid tv-grid">
         <div class="card">
           <h2>1 · Connect TradingView to the floor</h2>

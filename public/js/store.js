@@ -22,6 +22,7 @@ class Store extends EventTarget {
     this.alerts = [];
     this.blotter = [];
     this.selected = null;
+    this.live = null; // FTMO / MT5 live trading state
   }
 
   emit(type, detail) {
@@ -112,6 +113,12 @@ class Store extends EventTarget {
     this.alerts.push(alert);
     if (this.alerts.length > 40) this.alerts.shift();
     this.emit('alert', alert);
+  }
+
+  setLive(view) {
+    if (!view) return;
+    this.live = view;
+    this.emit('live', view);
   }
 
   select(id) {

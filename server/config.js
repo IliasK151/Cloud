@@ -21,6 +21,16 @@ function resolveWebhookSecret() {
   return secret;
 }
 
+// Shared secret between the MT5 bridge EA and the floor (data/bridge-token.txt).
+function resolveBridgeToken() {
+  if (process.env.BRIDGE_TOKEN) return process.env.BRIDGE_TOKEN;
+  const file = path.join(DATA_DIR, 'bridge-token.txt');
+  if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8').trim();
+  const token = crypto.randomBytes(12).toString('hex');
+  fs.writeFileSync(file, token + '\n', { mode: 0o600 });
+  return token;
+}
+
 const num = (value, fallback) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -39,6 +49,7 @@ export const config = {
   fundName: process.env.FUND_NAME || 'Meridian Capital',
   startingCapital: num(process.env.STARTING_CAPITAL, 100_000_000),
   webhookSecret: resolveWebhookSecret(),
+  bridgeToken: resolveBridgeToken(),
   openBrowser: process.env.OPEN_BROWSER !== '0',
   dataDir: DATA_DIR,
   risk: {

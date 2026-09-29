@@ -21,7 +21,8 @@ export function connect() {
       return;
     }
     switch (msg.type) {
-      case 'init': store.init(msg); break;
+      case 'init': store.init(msg); store.setLive(msg.live); break;
+      case 'live': store.setLive(msg.live); break;
       case 'snapshot': if (store.ready) store.snapshot(msg); break;
       case 'event': store.addEvent(msg.event); break;
       case 'equity': store.addEquity(msg.sample); break;

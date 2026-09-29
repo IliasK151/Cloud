@@ -401,6 +401,8 @@ export class TraderAgent {
     const d = this.day;
     const tradesTxt = d.trades === 0 ? 'no closed trades yet' : `${d.trades} closed trade${d.trades === 1 ? '' : 's'}, ${d.wins} winner${d.wins === 1 ? '' : 's'}`;
     lines.push(`On the day I'm ${spokenPnl(this.dayPnl())} with ${tradesTxt}. Since inception the desk is ${spokenPnl(this.totalPnl())}.`);
+    const live = this.env.liveDescribe?.(this.id);
+    if (live) lines.push(live);
     lines.push(this.#closer());
     return { greeting: 'Hello boss!', lines, text: lines.join(' ') };
   }

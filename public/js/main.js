@@ -6,7 +6,8 @@ import { Hud } from './ui/hud.js';
 import { AgentPanel } from './ui/agentPanel.js';
 import { Dashboard } from './ui/dashboard.js';
 import { TradingViewView } from './ui/tvView.js';
-import { escapeHtml } from './format.js';
+import { LiveView } from './ui/liveView.js';
+import { escapeHtml, money } from './format.js';
 
 const app = document.getElementById('app');
 const params = new URLSearchParams(location.search);
@@ -23,6 +24,7 @@ const hud = new Hud(store, { onSelect: (id) => select(id) });
 const panel = new AgentPanel(store, floor);
 const dashboard = new Dashboard(store, document.getElementById('dashboard-view'), { onSelect: (id) => select(id) });
 const tvView = new TradingViewView(store, document.getElementById('tv-view'));
+const liveView = new LiveView(store, document.getElementById('live-view'));
 let view = 'floor';
 
 // ---- selection -------------------------------------------------------------------------
@@ -50,7 +52,7 @@ document.getElementById('ap-close').addEventListener('click', deselect);
 floor?.on('select', (id) => select(id));
 
 // ---- views -----------------------------------------------------------------------------
-function setView(next) {
+function setView(next, opts = {}) {
   view = next;
   app.dataset.view = next;
   document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === next)));
@@ -59,6 +61,8 @@ function setView(next) {
   else dashboard.hide();
   if (next === 'tradingview') tvView.show();
   else tvView.hide();
+  if (next === 'ftmo') liveView.show(opts);
+  else liveView.hide();
   if (next !== 'floor' && store.selected) deselect();
 }
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
@@ -103,6 +107,7 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key.toLowerCase() === 'd') setView('dashboard');
   else if (e.key.toLowerCase() === 'f') setView('floor');
   else if (e.key.toLowerCase() === 't') setView('tradingview');
+  else if (e.key.toLowerCase() === 'l') setView('ftmo');
   else if (e.key.toLowerCase() === 'v') voiceBtn.click();
   else if (e.key.toLowerCase() === 'q') qualityBtn.click();
 });
@@ -139,13 +144,48 @@ store.on('event', (ev) => {
   hud.renderTape();
   if (!ev.agentId || !floor || view !== 'floor') return;
   if (ev.agentId === store.selected) return;
-  if (!['entry', 'exit', 'partial', 'halt', 'signal', 'alert'].includes(ev.kind)) return;
+  const liveFill = ev.kind === 'live' && /filled|closed/.test(ev.text);
+  if (!['entry', 'exit', 'partial', 'halt', 'signal', 'alert'].includes(ev.kind) && !liveFill) return;
   if (floor.bubbles.size >= 3 && !['halt', 'alert'].includes(ev.kind)) return;
   const p = store.profileById[ev.agentId];
   floor.showBubble(ev.agentId, `<b>${escapeHtml(p.name.split(' ')[0])}</b>${escapeHtml(ev.text)}`, { duration: 4500 });
 });
 
 store.on('equity', (sample) => dashboard.onEquity(sample));
+
+// ---- FTMO live trading: top-bar pill, new-account prompt, desk chips ------------------------
+const livePill = document.getElementById('live-pill');
+const liveModal = document.getElementById('live-modal');
+const promptedLogins = new Set();
+livePill.addEventListener('click', () => setView('ftmo'));
+document.getElementById('live-modal-later').addEventListener('click', () => { liveModal.hidden = true; });
+document.getElementById('live-modal-setup').addEventListener('click', () => {
+  liveModal.hidden = true;
+  setView('ftmo', { focusSetup: true });
+});
+
+store.on('live', (v) => {
+  const acc = v.account;
+  let cls = '';
+  let text = 'Connect FTMO';
+  if (v.halt) { cls = 'halted'; text = 'FTMO · halted'; }
+  else if (v.armed) { cls = 'armed'; text = `FTMO LIVE · ${money(acc?.equity)}`; }
+  else if (acc && v.connected && !v.profile) { cls = 'setup'; text = 'FTMO · set up'; }
+  else if (acc && v.connected) { cls = 'connected'; text = `FTMO · ${money(acc.equity)}`; }
+  else if (acc) { text = 'FTMO · MT5 offline'; }
+  livePill.className = `live-pill ${cls}`;
+  livePill.querySelector('span').textContent = text;
+  livePill.title = acc ? `Account ${acc.login} on ${acc.server}${v.armed ? ' — desks are trading it live' : ''}` : 'Connect your FTMO MetaTrader 5 account';
+
+  // "It asks me to connect": a newly seen MT5 account prompts for its setup.
+  if (acc && v.connected && !v.profile && !promptedLogins.has(acc.login) && view !== 'ftmo') {
+    promptedLogins.add(acc.login);
+    document.getElementById('live-modal-body').innerHTML = `Account <b>${escapeHtml(String(acc.login))}</b> on <b>${escapeHtml(acc.server)}</b> (${escapeHtml(acc.name || '')}, balance ${money(acc.balance)}) just connected through MetaTrader 5. Is it a Free Trial or a Challenge? Set it up, then pick which desks may trade it.`;
+    liveModal.hidden = false;
+  }
+  hud.setLive(v);
+  panel.setLive(v);
+});
 
 // Handy for tinkering from the browser console: floorApp.select('amara')
 window.floorApp = { store, floor, panel, select, deselect, setView };

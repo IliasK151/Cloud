@@ -15,7 +15,8 @@
     "dev": "node --watch server/index.js",
     "test": "node --test test/*.test.js",
     "reset": "node scripts/reset.js",
-    "backtest": "node scripts/backtest.js"
+    "backtest": "node scripts/backtest.js",
+    "mock-mt5": "node scripts/mock-mt5.js"
   },
   "license": "MIT",
   "dependencies": {

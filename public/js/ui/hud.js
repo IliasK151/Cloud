@@ -80,6 +80,27 @@ export class Hud {
     }
   }
 
+  // Mark desks that trade the FTMO account (red when a live position is open).
+  setLive(v) {
+    for (const d of v.desks || []) {
+      const row = this.rows.get(d.id);
+      if (!row) continue;
+      let chip = row.li.querySelector('.ftmo');
+      if (!d.enabled) {
+        chip?.remove();
+        continue;
+      }
+      if (!chip) {
+        chip = document.createElement('span');
+        chip.className = 'ftmo';
+        chip.textContent = 'FTMO';
+        row.li.querySelector('.sub').prepend(chip);
+      }
+      chip.classList.toggle('on', !!(d.live && v.armed));
+      chip.title = d.live ? `Live on FTMO: ${d.live.side} ${d.live.volume} ${d.live.symbol}` : 'Allowed to trade the FTMO account';
+    }
+  }
+
   renderTape() {
     const items = this.store.events.slice(-14).reverse();
     this.el.tape.innerHTML = items

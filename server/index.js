@@ -14,6 +14,8 @@ import { RiskManager } from './engine/risk.js';
 import { Fund } from './engine/fund.js';
 import { Store } from './store.js';
 import { parseBody, normalizeAlert, secretMatches, rateLimiter } from './tradingview/webhook.js';
+import { Mt5Bridge } from './live/bridge.js';
+import { LiveTrader } from './live/liveTrader.js';
 
 const log = {
   info: (...a) => console.log(...a),
@@ -29,6 +31,10 @@ const risk = new RiskManager(config.risk, session);
 const fund = new Fund({ config, md, clock, session, broker, risk });
 const store = new Store(config.dataDir, config.feed);
 const feeds = new FeedManager({ md, clock, mode: config.feed, log });
+
+// FTMO / MT5 live execution (idle until the MeridianBridge EA connects and you arm it).
+const bridge = new Mt5Bridge();
+const live = new LiveTrader({ fund, md, bridge, clock, mode: config.feed, dataDir: config.dataDir, token: config.bridgeToken, log });
 
 feeds.onSession({
   sessionClose: () => fund.flattenAll('Session close'),
@@ -48,6 +54,7 @@ const nm = (p) => path.join(ROOT, 'node_modules', p);
 app.use('/vendor/three', express.static(nm('three'), { maxAge: '1d' }));
 app.use('/vendor/lightweight-charts', express.static(nm('lightweight-charts/dist'), { maxAge: '1d' }));
 app.use('/tradingview', express.static(path.join(ROOT, 'tradingview')));
+app.use('/mt5', express.static(path.join(ROOT, 'mt5'), { setHeaders: (res) => res.setHeader('Content-Disposition', 'attachment') }));
 app.use(express.static(path.join(ROOT, 'public')));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, mode: config.feed, uptime: process.uptime(), notes: feeds.notes }));
@@ -64,6 +71,38 @@ app.get('/api/candles/:symbol', localOnly, (req, res) => {
 });
 app.post('/api/command', localOnly, express.json(), (req, res) => {
   res.json(fund.command(req.body?.cmd, req.body?.agentId));
+});
+
+// ---- MT5 bridge + FTMO live trading --------------------------------------------------------
+app.post('/api/bridge/sync', express.text({ type: '*/*', limit: '4mb' }), (req, res) => {
+  if (!isDirect(req)) return res.status(403).type('text').send('ERR local only');
+  let msg;
+  try {
+    msg = JSON.parse(req.body);
+  } catch {
+    return res.status(400).type('text').send('ERR bad json');
+  }
+  const token = req.headers['x-bridge-token'] || msg.token;
+  if (!secretMatches(token, config.bridgeToken)) return res.status(401).type('text').send('ERR bad bridge token — copy it from the FTMO tab');
+  res.type('text').send(bridge.handleSync(msg));
+});
+app.get('/api/live', localOnly, (req, res) => res.json(live.view()));
+app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
+  const b = req.body || {};
+  const actions = {
+    setup: () => live.setup(b),
+    desk: () => live.setDesk(b.agentId, b.enabled),
+    arm: () => live.arm(b),
+    disarm: () => live.disarm(),
+    kill: () => live.kill(),
+    close: () => live.closeTicket(b.ticket),
+    'reset-halt': () => live.resetHalt(),
+  };
+  const fn = actions[req.params.action];
+  if (!fn) return res.status(404).json({ ok: false, error: 'unknown action' });
+  const result = fn();
+  pushLive(true);
+  res.json(result);
 });
 
 const tvInfo = () => ({
@@ -125,7 +164,7 @@ function broadcast(msg) {
 }
 
 wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload() }));
+  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view() }));
   ws.on('message', (buf) => {
     try {
       const msg = JSON.parse(buf.toString());
@@ -145,6 +184,20 @@ fund.on('event', (event) => broadcast({ type: 'event', event }));
 fund.on('equity', (sample) => broadcast({ type: 'equity', sample }));
 fund.on('alert', (alert) => broadcast({ type: 'alert', alert }));
 broker.on('trade', (trade) => broadcast({ type: 'trade', trade }));
+
+// Push the FTMO panel state when it changes (and at least every few seconds).
+let lastLive = '';
+let lastLiveAt = 0;
+function pushLive(force = false) {
+  if (!wss.clients.size) return;
+  const view = live.view();
+  const key = JSON.stringify({ ...view, lastSync: 0 });
+  if (!force && key === lastLive && Date.now() - lastLiveAt < 5000) return;
+  lastLive = key;
+  lastLiveAt = Date.now();
+  broadcast({ type: 'live', live: view });
+}
+setInterval(() => pushLive(), 1000);
 
 setInterval(() => {
   if (!wss.clients.size) {
@@ -183,7 +236,8 @@ async function main() {
     for (const n of feeds.notes) log.info(`                      ${n}`);
     log.info(`  TradingView hook:   http://localhost:${config.webhookPort}/webhook   (tunnel this port, see README)`);
     log.info(`  Webhook secret:     ${config.webhookSecret}`);
-    log.info(`  Paper trading only — no real orders are ever sent.`);
+    log.info(`  FTMO / MT5 bridge:  http://127.0.0.1:${config.port}/api/bridge/sync  (token in the FTMO tab)`);
+    log.info(`  Paper trading unless you connect MT5 and arm live trading in the FTMO tab.`);
     log.info('');
     if (config.openBrowser && !process.env.CI) openBrowser(url);
   });
@@ -192,10 +246,15 @@ async function main() {
 }
 
 let shuttingDown = false;
-function shutdown() {
+async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info('\n  Flattening all desks and saving the track record…');
+  try {
+    if (await live.shutdown()) log.info('  Closed the floor\'s positions on the FTMO account.');
+  } catch (err) {
+    log.warn('  Could not close FTMO positions:', err.message);
+  }
   try {
     fund.flattenAll('Server shutdown');
     store.save(fund.serialize());

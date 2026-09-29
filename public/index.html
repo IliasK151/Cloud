@@ -45,7 +45,9 @@
         <button role="tab" data-view="floor" aria-selected="true">Floor</button>
         <button role="tab" data-view="dashboard" aria-selected="false">Dashboard</button>
         <button role="tab" data-view="tradingview" aria-selected="false">TradingView</button>
+        <button role="tab" data-view="ftmo" aria-selected="false">FTMO</button>
       </nav>
+      <button class="live-pill" id="live-pill" title="FTMO live trading"><i></i><span>Connect FTMO</span></button>
       <div class="toggles">
         <button class="icon-btn" id="btn-voice" title="Agent voices (V)" aria-pressed="true">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
@@ -83,6 +85,7 @@
         <div><span class="lbl">Since inception</span><span class="val" id="ap-total">—</span></div>
         <div><span class="lbl">Loss limit used</span><span class="val" id="ap-limit">—</span></div>
       </div>
+      <p class="ap-live" id="ap-live" hidden></p>
       <nav class="ap-tabs" role="tablist">
         <button role="tab" data-tab="setup" aria-selected="true">Setup</button>
         <button role="tab" data-tab="chart" aria-selected="false">Chart</button>
@@ -136,6 +139,19 @@
 
     <section id="dashboard-view" class="view" hidden aria-label="Dashboard"></section>
     <section id="tv-view" class="view" hidden aria-label="TradingView integration"></section>
+    <section id="live-view" class="view" hidden aria-label="FTMO live trading"></section>
+
+    <div id="live-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="live-modal-title">
+      <div class="modal-card">
+        <p class="modal-kicker">MetaTrader 5 connected</p>
+        <h2 id="live-modal-title">New FTMO account detected</h2>
+        <p id="live-modal-body"></p>
+        <div class="modal-actions">
+          <button class="btn primary" id="live-modal-setup">Set it up</button>
+          <button class="btn" id="live-modal-later">Later</button>
+        </div>
+      </div>
+    </div>
 
     <div id="loading">
       <div class="loading-card">

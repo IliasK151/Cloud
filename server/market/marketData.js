@@ -18,6 +18,7 @@ export class MarketData extends EventEmitter {
         id, bars: [], current: null, price: NaN,
         status: 'LOADING', source: SYMBOLS[id].source.type,
         lastUpdate: 0, lastBarTime: 0, dayRef: NaN,
+        owner: null, // when set, only updates from this source are accepted
       });
     }
   }
@@ -37,6 +38,21 @@ export class MarketData extends EventEmitter {
     if (source) s.source = source;
   }
 
+  // Hand a symbol to one data source exclusively (e.g. the broker's own MT5 prices),
+  // replacing its history so indicators run on the prices that will be traded.
+  claim(id, source, bars, status = 'LIVE') {
+    const s = this.series.get(id);
+    if (!s) return;
+    s.owner = source;
+    this.seed(id, bars);
+    s.dayRef = bars.length ? bars[0].open : s.dayRef;
+    this.setStatus(id, status, source);
+  }
+
+  ownerOf(id) {
+    return this.series.get(id)?.owner ?? null;
+  }
+
   // Load historical, closed bars (oldest first).
   seed(id, bars) {
     const s = this.series.get(id);
@@ -52,9 +68,10 @@ export class MarketData extends EventEmitter {
   }
 
   // Apply a (partial) bar from a bar-based feed. `closed` finalises it immediately.
-  applyBar(id, bar, { closed = false } = {}) {
+  applyBar(id, bar, { closed = false, source = null } = {}) {
     const s = this.series.get(id);
     if (!s || !Number.isFinite(bar.close)) return;
+    if (s.owner && source !== s.owner) return;
     const lastClosed = s.bars[s.bars.length - 1];
     if (lastClosed && bar.time <= lastClosed.time && !s.current) return;
 
@@ -76,9 +93,10 @@ export class MarketData extends EventEmitter {
   }
 
   // Apply a single trade/tick from a tick-based feed (simulator).
-  applyTick(id, price, volume, marketMs) {
+  applyTick(id, price, volume, marketMs, source = null) {
     const s = this.series.get(id);
     if (!s || !Number.isFinite(price)) return;
+    if (s.owner && source !== s.owner) return;
     const time = Math.floor(marketMs / 1000 / BAR_SECONDS) * BAR_SECONDS;
     if (s.current && time > s.current.time) this.#finalize(s);
     if (!s.current) {

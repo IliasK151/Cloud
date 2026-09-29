@@ -194,7 +194,7 @@ export class SimFeed {
         const sigmaStep = st.sigma * Math.sqrt(dtSec) || 1e-9;
         const activity = 1 + 2 * Math.min(4, Math.abs(ret) / sigmaStep);
         const volume = (st.sym.baseVolume / 60) * dtSec * sv * activity * Math.exp(0.5 * gaussian(this.rng) - 0.125);
-        this.md.applyTick(st.id, price, volume, t);
+        this.md.applyTick(st.id, price, volume, t, 'sim');
       }
     }
   }
