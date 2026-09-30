@@ -355,13 +355,14 @@ store.on('live', (v) => {
   let cls = '';
   let text = 'Connect FTMO';
   if (v.halt) { cls = 'halted'; text = 'FTMO · halted'; }
+  else if (acc && !v.connected) { cls = 'halted'; text = 'FTMO · MT5 offline'; }
   else if (v.armed) { cls = 'armed'; text = `FTMO LIVE · ${money(acc?.equity)}`; }
   else if (acc && v.connected && !v.profile) { cls = 'setup'; text = 'FTMO · set up'; }
   else if (acc && v.connected) { cls = 'connected'; text = `FTMO · ${money(acc.equity)}`; }
   else if (acc) { text = 'FTMO · MT5 offline'; }
   livePill.className = `live-pill ${cls}`;
   livePill.querySelector('span').textContent = text;
-  livePill.title = acc ? `Account ${acc.login} on ${acc.server}${v.armed ? ' — desks are trading it live' : ''}` : 'Connect your FTMO MetaTrader 5 account';
+  livePill.title = acc ? `Account ${acc.login} on ${acc.server}${!v.connected ? ' — MT5 is not talking to the floor: open the FTMO tab' : v.armed ? ' — armed: your alerts and cleared desks trade it live' : ''}` : 'Connect your FTMO MetaTrader 5 account';
 
   // "It asks me to connect": a newly seen MT5 account prompts for its setup.
   if (acc && v.connected && !v.profile && !promptedLogins.has(acc.login) && view !== 'ftmo') {

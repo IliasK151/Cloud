@@ -99,8 +99,12 @@ export class LiveView {
       await this.#post('disarm');
     } else if (act === 'kill') {
       if (confirm('Close every floor position on the FTMO account now and disarm?')) await this.#post('kill');
+    } else if (act === 'hide-connect') {
+      this.showConnect = false;
+      this.render(true);
     } else if (act === 'goto') {
       if (btn.dataset.target === 'setup') this.editing = true;
+      if (btn.dataset.target === 'connect') this.showConnect = true;
       this.render(true);
       this.root.querySelector(`#live-${btn.dataset.target}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
     } else if (act === 'edit') {
@@ -281,7 +285,7 @@ export class LiveView {
       <div class="btn-row">
         ${v.armed ? '<button class="btn" data-act="disarm">Disarm</button>' : `<button class="btn arm" data-act="arm" ${canArm ? '' : 'disabled'}>Arm live trading</button>`}
         <button class="btn danger" data-act="kill" ${v.connected ? '' : 'disabled'}>Close all & disarm</button>
-        ${acc ? '<button class="btn" data-act="edit">Edit setup</button>' : ''}
+        ${acc ? '<button class="btn" data-act="edit">Edit setup</button><button class="btn" data-act="goto" data-target="connect">MT5 bridge setup</button>' : ''}
       </div>
       ${!canArm && !v.armed && acc ? `<p class="fine">${!p ? 'Save the account setup below to continue.' : !v.desks.some((d) => d.enabled) ? 'Switch on at least one desk below, then arm.' : v.mode !== 'live' ? 'Restart the floor with npm start to trade live.' : ''}</p>` : ''}`;
 
@@ -317,13 +321,19 @@ export class LiveView {
       $('#live-rules').innerHTML = `<h2>Account vs FTMO rules</h2><p class="sub">Once MT5 is connected and the account is set up, balance, equity, profit target and the daily and max loss limits show here.</p>`;
     }
 
-    // Connect instructions: shown until MT5 has connected at least once.
+    // MT5 connection help: shown until MT5 first connects, whenever it stops talking to the
+    // floor, and on request ("Show the steps", "MT5 bridge setup").
     const origin = `http://127.0.0.1:${location.port || 80}`;
-    $('#live-connect').hidden = !!acc;
-    if (!acc) {
-      $('#live-connect').innerHTML = `
-        <h2>Connect your FTMO MetaTrader 5 account</h2>
-        <p class="sub">About 5 minutes, once. Do it with your Free Trial first.</p>
+    const connected = !!acc && v.connected;
+    if (!connected) this.showConnect = false; // shown anyway; "Hide" is only for the connected case
+    const showConnect = !connected || this.showConnect;
+    const conn = $('#live-connect');
+    conn.hidden = !showConnect;
+    const connKey = `${showConnect}|${!!acc}|${connected}|${v.token}|${origin}|${acc?.login}`;
+    if (showConnect && (force || conn.dataset.key !== connKey)) {
+      conn.dataset.key = connKey;
+      const token = `<span class="field" style="display:inline-flex"><span class="code">${escapeHtml(v.token)}</span><button class="mini-btn" data-act="copy-token">Copy</button></span>`;
+      const install = `
         <ol class="steps">
           <li>In your <b>FTMO Client Area</b>, start a Free Trial or Challenge on <b>MetaTrader 5</b>. Download MT5 for Mac and log in with the account number, password and server shown there.</li>
           <li>In MT5: <b>Tools → Options → Expert Advisors</b>. Tick <b>Allow algorithmic trading</b> and <b>Allow WebRequest for listed URL</b>, then add<div class="code-block">${origin}</div></li>
@@ -333,10 +343,32 @@ export class LiveView {
               <li><b>Or with one command:</b> quit MT5, then run <code>npm run install-ea</code> in Terminal inside the trading-floor folder. Reopen MT5, right-click <b>Expert Advisors → Refresh</b> in the Navigator, then right-click MeridianBridge → <b>Modify</b> → <b>Compile</b>.</li>
               <li>Or <a href="/mt5/MeridianBridge.mq5" download>download MeridianBridge.mq5</a> and copy it into <b>MQL5 → Experts</b> via <b>File → Open Data Folder</b>.</li>
             </ul></li>
-          <li>In the Navigator, drag <b>MeridianBridge</b> onto any chart.${origin.endsWith(':3000') ? '' : ` Set its <b>Floor bridge URL</b> input to <code>${origin}/api/bridge/sync</code>.`} On the <b>Inputs</b> tab, paste this bridge token: <span class="field" style="display:inline-flex"><span class="code">${escapeHtml(v.token)}</span><button class="mini-btn" data-act="copy-token">Copy</button></span> On the Common tab, tick <b>Allow Algo Trading</b>.</li>
+          <li>In the Navigator, drag <b>MeridianBridge</b> onto any chart.${origin.endsWith(':3000') ? '' : ` Set its <b>Floor bridge URL</b> input to <code>${origin}/api/bridge/sync</code>.`} On the <b>Inputs</b> tab, paste this bridge token: ${token} On the Common tab, tick <b>Allow Algo Trading</b>.</li>
           <li>Switch on the <b>Algo Trading</b> button in the MT5 toolbar. This page detects the account within a second.</li>
         </ol>
         <p class="fine">Keep MT5 open and your Mac awake while the desks trade. No MT5 at hand? Run <code>npm run mock-mt5</code> to try the whole flow with a pretend account.</p>`;
+      if (!acc) {
+        conn.innerHTML = `
+          <h2>Connect your FTMO MetaTrader 5 account</h2>
+          <p class="sub">About 5 minutes, once. Do it with your Free Trial first.</p>${install}`;
+      } else if (!connected) {
+        conn.innerHTML = `
+          <h2>Reconnect MetaTrader 5</h2>
+          <p class="sub">Account ${escapeHtml(String(acc.login))} was connected${v.lastSync ? ` until ${new Date(v.lastSync).toLocaleTimeString()}` : ''} and stopped talking to the floor. Check these in MT5, in order. This page reconnects by itself within a second of MT5 syncing again.</p>
+          <ol class="steps">
+            <li>MT5 is open and logged in: the bottom-right corner of MT5 shows a connection, not "No connection".</li>
+            <li>The <b>MeridianBridge</b> EA is on a chart, with a blue hat (or smiley) in the chart's top-right corner. If it isn't there, drag it from <b>Navigator → Expert Advisors</b> onto a chart.</li>
+            <li>Read the EA's message at the top-left of that chart: it says what's wrong, e.g. "WebRequest is blocked" or "Floor refused the sync".</li>
+            <li>The <b>Algo Trading</b> button in the MT5 toolbar is on (green).</li>
+            <li>Just updated the EA? In MetaEditor, <b>Compile</b> must finish with <b>0 errors</b> (bottom panel, "Errors" tab). If it shows errors, send a screenshot of them.</li>
+            <li>If you removed and re-added the EA, paste the bridge token into its <b>Inputs</b> again (right-click the chart → Expert list → MeridianBridge → Properties): ${token}</li>
+          </ol>
+          <p class="fine">Still stuck? Run <code>npm run doctor</code> in a second Terminal window: it checks every connection and says what to fix.</p>
+          <details class="tv-more"><summary>Full install steps</summary>${install}</details>`;
+      } else {
+        conn.innerHTML = `
+          <div class="plan-head"><div><h2>MT5 bridge setup</h2><p class="sub">MT5 is connected. The steps and your bridge token, for re-installing the EA or moving it to another chart.</p></div><button class="btn" data-act="hide-connect">Hide</button></div>${install}`;
+      }
     }
 
     // Setup form: when there is no profile yet or the boss is editing.
