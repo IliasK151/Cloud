@@ -121,6 +121,12 @@ class Store extends EventTarget {
     this.emit('live', view);
   }
 
+  setBrain(view) {
+    if (!view) return;
+    this.brain = view;
+    this.emit('brain', view);
+  }
+
   setNews(view) {
     if (!view) return;
     this.news = view;

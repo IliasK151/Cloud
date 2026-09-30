@@ -4,6 +4,7 @@ import { candleChart } from './charts.js';
 import { money, price as fmtPrice, qty as fmtQty, signClass, initials, nyTime, escapeHtml } from '../format.js';
 import { deskBook } from '../book.js';
 import { researchTab } from './research.js';
+import { agentBrainTab } from './brainView.js';
 import { deskNewsLine } from './news.js';
 
 // Right-hand drawer: the selected trader greets the boss, explains the setup and P&L.
@@ -227,6 +228,22 @@ export class AgentPanel {
     if (tab === 'trades') this.#loadTrades();
     if (tab === 'learn') this.#loadLearning();
     if (tab === 'research') this.#loadResearch();
+    if (tab === 'brain') this.#loadBrain();
+  }
+
+  async #loadBrain() {
+    if (!this.id) return;
+    const id = this.id;
+    this.brainLoadedAt = performance.now();
+    try {
+      this.detail = await api(`/api/agents/${id}`);
+    } catch {
+      return;
+    }
+    if (id !== this.id) return;
+    const html = agentBrainTab(this.detail.brain, this.store.profileById[id], this.store.brain?.edges?.[id]);
+    const el = document.getElementById('ap-brain');
+    if (el.innerHTML !== html) el.innerHTML = html;
   }
 
   async #loadResearch() {
@@ -374,9 +391,9 @@ export class AgentPanel {
     }
     const d = this.detail;
     const dec = (s) => this.store.symbols[s]?.decimals ?? 2;
-    this.el.trades.innerHTML = `<thead><tr><th>Closed</th><th>Side</th><th>Mkt</th><th class="r">Entry</th><th class="r">Exit</th><th class="r">P&amp;L</th><th class="r">R</th></tr></thead><tbody>${
-      d.trades.slice(0, 25).map((t) => `<tr title="${escapeHtml(t.exitReason || '')}"><td>${nyTime(t.closeTime)}</td><td>${t.side}</td><td>${t.symbol}</td><td class="r">${fmtPrice(t.entry, dec(t.symbol))}</td><td class="r">${fmtPrice(t.exit, dec(t.symbol))}</td><td class="r ${signClass(t.pnl)}">${money(t.pnl, { sign: true })}</td><td class="r">${t.r == null ? '—' : t.r.toFixed(2)}</td></tr>`).join('') ||
-      '<tr><td colspan="7" class="muted">No closed trades yet.</td></tr>'
+    this.el.trades.innerHTML = `<thead><tr><th>Closed</th><th>Side</th><th>Mkt</th><th class="r">Entry</th><th class="r">Exit</th><th class="r">P&amp;L</th><th class="r">R</th><th>Grade</th></tr></thead><tbody>${
+      d.trades.slice(0, 25).map((t) => `<tr title="${escapeHtml(`${t.thesis ? `Why: ${t.thesis}\n` : ''}Exit: ${t.exitReason || ''}`)}"><td>${nyTime(t.closeTime)}</td><td>${t.side}</td><td>${t.symbol}</td><td class="r">${fmtPrice(t.entry, dec(t.symbol))}</td><td class="r">${fmtPrice(t.exit, dec(t.symbol))}</td><td class="r ${signClass(t.pnl)}">${money(t.pnl, { sign: true })}</td><td class="r">${t.r == null ? '—' : t.r.toFixed(2)}</td><td>${t.grade ? `<span class="verdict ${t.grade === 'A' ? 'ok' : t.grade === 'B' ? 'warn' : 'paper'}">${t.grade}</span>` : '<span class="muted">—</span>'}</td></tr>${t.thesis ? `<tr class="thesis-row"><td colspan="8" class="thesis-cell">${escapeHtml(t.thesis)}</td></tr>` : ''}`).join('') ||
+      '<tr><td colspan="8" class="muted">No closed trades yet.</td></tr>'
     }</tbody>`;
     this.el.log.innerHTML = d.log.slice().reverse().slice(0, 40).map((l) => `<li class="k-${l.kind}"><time>${nyTime(l.time)}</time>${escapeHtml(l.text)}</li>`).join('');
   }
@@ -396,6 +413,7 @@ export class AgentPanel {
       newsEl.classList.toggle('hold', !!a.news?.hold);
     }
     if (this.tab === 'research' && (a.research?.researching || a.research?.progress) && performance.now() - (this.researchLoadedAt || 0) > 1500) this.#loadResearch();
+    if (this.tab === 'brain' && performance.now() - (this.brainLoadedAt || 0) > 4000) this.#loadBrain();
     if (this.chart && this.chartSymbol !== this.#sym()) {
       this.destroyChart();
       if (this.tab === 'chart') this.#ensureChart();

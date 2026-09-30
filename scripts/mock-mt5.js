@@ -78,7 +78,8 @@ const quote = (sym) => {
 };
 
 // Account state
-let balance = START_BALANCE;
+// MOCK_PNL rehearses a drawdown (or a profit) from the account's starting size, e.g. MOCK_PNL=-100.
+let balance = START_BALANCE + Number(process.env.MOCK_PNL || 0);
 let closedToday = 0;
 let ticketSeq = 50_000_000;
 const positions = new Map();

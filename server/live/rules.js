@@ -15,6 +15,11 @@ export const DEFAULTS = {
   maxOpenRiskPct: 1.5, // max total risk across open live positions
   maxPositions: 5,
   stopAtTarget: true,
+  // The account brain's plan (live/accountBrain.js).
+  minGrade: 'A', // only committee A-grade trades reach the account ('B' allows A and B)
+  dailyStopPct: 1.5, // stop for the day at this loss, far before FTMO's daily limit
+  maxTradesPerDay: 6,
+  streakStop: 3, // losses in a row that end the day
 };
 
 const clampNum = (v, lo, hi, fallback) => {
@@ -38,6 +43,10 @@ export function normalizeProfile(input = {}, account = {}) {
     maxOpenRiskPct: clampNum(input.maxOpenRiskPct ?? DEFAULTS.maxOpenRiskPct, 0.05, 10, DEFAULTS.maxOpenRiskPct),
     maxPositions: Math.round(clampNum(input.maxPositions ?? DEFAULTS.maxPositions, 1, 20, DEFAULTS.maxPositions)),
     stopAtTarget: input.stopAtTarget ?? DEFAULTS.stopAtTarget,
+    minGrade: ['A', 'B'].includes(input.minGrade) ? input.minGrade : DEFAULTS.minGrade,
+    dailyStopPct: clampNum(input.dailyStopPct ?? DEFAULTS.dailyStopPct, 0.25, 10, DEFAULTS.dailyStopPct),
+    maxTradesPerDay: Math.round(clampNum(input.maxTradesPerDay ?? DEFAULTS.maxTradesPerDay, 1, 50, DEFAULTS.maxTradesPerDay)),
+    streakStop: Math.round(clampNum(input.streakStop ?? DEFAULTS.streakStop, 2, 10, DEFAULTS.streakStop)),
   };
 }
 

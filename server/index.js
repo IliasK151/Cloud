@@ -83,6 +83,7 @@ app.post('/api/command', localOnly, express.json(), (req, res) => {
 
 // Economic calendar (news the desks stand aside for).
 app.get('/api/news', localOnly, (req, res) => res.json(news.view()));
+app.get('/api/brain', localOnly, (req, res) => res.json(brainView()));
 app.post('/api/news/settings', localOnly, express.json(), (req, res) => res.json(news.setSettings(req.body || {})));
 app.post('/api/news/refresh', localOnly, async (req, res) => {
   await news.refresh();
@@ -226,7 +227,7 @@ function broadcast(msg) {
 }
 
 wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view() }));
+  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view(), brain: brainView() }));
   ws.on('message', (buf) => {
     try {
       const msg = JSON.parse(buf.toString());
@@ -247,12 +248,16 @@ fund.on('equity', (sample) => broadcast({ type: 'equity', sample }));
 fund.on('alert', (alert) => broadcast({ type: 'alert', alert }));
 fund.on('reset', () => {
   store.save(fund.serialize());
-  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view() }));
+  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view(), brain: brainView() }));
 });
 broker.on('trade', (trade) => broadcast({ type: 'trade', trade }));
 tunnel.on('change', (view) => broadcast({ type: 'tunnel', tunnel: view }));
 voices.on('change', (st) => broadcast({ type: 'voices', voices: st }));
 const pushNews = () => broadcast({ type: 'news', news: news.view() });
+// The live brain: every agent's current thinking and the department debates.
+const brainView = () => fund.committee?.view() ?? null;
+setInterval(() => { if (wss.clients.size) broadcast({ type: 'brain', brain: brainView() }); }, 2000);
+fund.committee?.on('debate', () => setImmediate(() => broadcast({ type: 'brain', brain: brainView() })));
 news.on('change', pushNews);
 news.on('announce', () => setImmediate(pushNews));
 setInterval(pushNews, config.feed === 'sim' ? 5000 : 30_000);

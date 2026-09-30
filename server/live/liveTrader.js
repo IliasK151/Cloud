@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import { ACCOUNT_TYPES, DEFAULTS, normalizeProfile, guardMetrics, lotsForRisk, positionRisk } from './rules.js';
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS } from '../market/symbols.js';
+import { AccountBrain } from './accountBrain.js';
 import { fmtUsd } from '../util/format.js';
 
 export const MAGIC_BASE = 771000;
@@ -38,6 +39,7 @@ export class LiveTrader extends EventEmitter {
     this.events = [];
     this.links = new Map((this.state.links || []).map((l) => [l.key, { ...l, previousSession: true }]));
     this.agentIndex = new Map(fund.agents.map((a, i) => [a.id, i + 1]));
+    this.brain = new AccountBrain(this);
 
     bridge.on('account', (acc) => this.#onAccount(acc));
     bridge.on('ack', (ack) => this.#onAck(ack));
@@ -86,8 +88,10 @@ export class LiveTrader extends EventEmitter {
     return this.account ? String(this.account.login) : null;
   }
 
+  // Profiles saved before the account brain existed get its defaults.
   get profile() {
-    return this.login ? this.state.profiles[this.login] || null : null;
+    const p = this.login ? this.state.profiles[this.login] || null : null;
+    return p && p.minGrade == null ? Object.assign(p, { minGrade: DEFAULTS.minGrade, dailyStopPct: DEFAULTS.dailyStopPct, maxTradesPerDay: DEFAULTS.maxTradesPerDay, streakStop: DEFAULTS.streakStop }) : p;
   }
 
   get halt() {
@@ -476,7 +480,10 @@ export class LiveTrader extends EventEmitter {
     // Learning (or a new strategy on probation) may size a desk's trade down on the account, never up.
     const news = this.fund.env.news?.blackout(pos.symbol);
     if (news) return this.#skip(agent, pos, key, `news blackout (${news.event.title})`);
-    const riskMoney = acc.balance * (p.riskPerTradePct / 100) * (agent.profile.riskScale ?? 1) * Math.min(1, plan.riskMult ?? plan.learnMult ?? 1);
+    // The account brain: only proven desks' A-grade trades, sized by where the account stands.
+    const verdict = this.brain.allow(agent, pos, plan);
+    if (!verdict.ok) return this.#skip(agent, pos, key, verdict.reason);
+    const riskMoney = acc.balance * (p.riskPerTradePct / 100) * (agent.profile.riskScale ?? 1) * Math.min(1, plan.riskMult ?? plan.learnMult ?? 1) * verdict.riskMult;
     const lots = lotsForRisk(riskMoney, plan.risk, spec);
     if (!lots) return this.#skip(agent, pos, key, `position would be below the ${spec.volMin} lot minimum`);
     const actualRisk = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue) * lots;
@@ -495,7 +502,8 @@ export class LiveTrader extends EventEmitter {
       key, agentId: agent.id, floorSymbol: pos.symbol, brokerSymbol, side, state: 'pending', login: this.login,
       comment, magic: this.magicFor(agent.id), paperEntry: plan.entry, paperQty0: Math.abs(pos.qty),
       stopDistance: plan.risk, volume0: lots, volumeNow: lots, liveEntry: side === 'BUY' ? spec.ask : spec.bid,
-      risk: actualRisk, createdAt: Date.now(), reason: plan.reason,
+      risk: actualRisk, createdAt: Date.now(), reason: plan.reason, openedDay: this.bridge.serverDay,
+      thesis: plan.thesis ?? null, grade: plan.grade ?? null, riskMult: verdict.riskMult,
     };
     this.links.set(key, link);
     link.cmdId = this.bridge.open({
@@ -580,6 +588,7 @@ export class LiveTrader extends EventEmitter {
         .map((l) => ({
           agentId: l.agentId, symbol: l.brokerSymbol, side: l.side, volume: l.volume0, state: l.state,
           pnl: l.state === 'closed' ? l.pnl : l.profit ?? 0, entry: l.liveEntry, openedAt: l.createdAt, closedAt: l.closedAt || null, reason: l.reason || '',
+          thesis: l.thesis || null, grade: l.grade || null,
         })),
     };
   }
@@ -615,6 +624,7 @@ export class LiveTrader extends EventEmitter {
       halt: this.halt,
       metrics: this.metrics(),
       openRisk: this.openRisk(),
+      plan: this.brain.state(),
       types: ACCOUNT_TYPES,
       defaults: DEFAULTS,
       brokerSymbolCount: brokerSymbols.length,

@@ -16,22 +16,22 @@ import { fmtUsd } from '../server/util/format.js';
 const quietLog = { info() {}, warn() {} };
 
 // Synchronous run without the research lab (research desks stay flat).
-export function runBacktest({ sessions = 3, seed = 42, quiet = false } = {}) {
-  const env = setup({ seed });
+export function runBacktest({ sessions = 3, seed = 42, quiet = false, committee = 'on' } = {}) {
+  const env = setup({ seed, committee });
   loop(env, { sessions, quiet });
   return env.fund;
 }
 
 // The whole floor, research lab included: the lab researches in between market steps.
-export async function runFloor({ sessions = 1, seed = 42, quiet = true } = {}) {
-  const env = setup({ seed, research: true });
+export async function runFloor({ sessions = 1, seed = 42, quiet = true, committee = 'on' } = {}) {
+  const env = setup({ seed, research: true, committee });
   await env.history.load();
   env.lab.start();
   await loop(env, { sessions, quiet, yieldEvery: 30 });
   return env.fund;
 }
 
-function setup({ seed, research = false }) {
+function setup({ seed, research = false, committee = 'on' }) {
   const clock = new MarketClock('sim', 1);
   const session = new Session(clock);
   const md = new MarketData(clock);
@@ -42,7 +42,7 @@ function setup({ seed, research = false }) {
   sim.warmup(420);
   const history = research ? new HistoryStore({ md, mode: 'sim', calendar: news, log: quietLog }) : null;
   const lab = research ? new ResearchLab({ history, calendar: news, mode: 'sim', inline: true, log: quietLog }) : null;
-  const fund = new Fund({ config: { ...config, feed: 'sim' }, md, clock, session, broker, risk, news, lab });
+  const fund = new Fund({ config: { ...config, feed: 'sim' }, md, clock, session, broker, risk, news, lab, committee });
   fund.trading = true;
   return { clock, sim, fund, history, lab, news };
 }

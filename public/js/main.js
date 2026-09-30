@@ -7,6 +7,7 @@ import { AgentPanel } from './ui/agentPanel.js';
 import { Dashboard } from './ui/dashboard.js';
 import { TradingViewView } from './ui/tvView.js';
 import { LiveView } from './ui/liveView.js';
+import { BrainView } from './ui/brainView.js';
 import { escapeHtml, money } from './format.js';
 import { nextHigh, until } from './ui/news.js';
 
@@ -30,6 +31,7 @@ const dashboard = new Dashboard(store, document.getElementById('dashboard-view')
 });
 const tvView = new TradingViewView(store, document.getElementById('tv-view'));
 const liveView = new LiveView(store, document.getElementById('live-view'));
+const brainView = new BrainView(store, document.getElementById('brain-view'), { onSelect: (id, opts) => select(id, opts) });
 let view = 'floor';
 
 // ---- selection -------------------------------------------------------------------------
@@ -69,6 +71,8 @@ function setView(next, opts = {}) {
   else tvView.hide();
   if (next === 'ftmo') liveView.show(opts);
   else liveView.hide();
+  if (next === 'brain') brainView.show();
+  else brainView.hide();
   if (next !== 'floor' && store.selected) deselect();
 }
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
@@ -190,6 +194,7 @@ function updateNewsPill() {
   newsPill.querySelector('span').textContent = text;
 }
 store.on('news', updateNewsPill);
+store.on('brain', () => brainView.render(true));
 
 // ---- first-run welcome ----------------------------------------------------------------------
 const welcome = (() => {
@@ -260,6 +265,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.key.toLowerCase() === 'f') setView('floor');
   else if (e.key.toLowerCase() === 't') setView('tradingview');
   else if (e.key.toLowerCase() === 'l') setView('ftmo');
+  else if (e.key.toLowerCase() === 'b') setView('brain');
   else if (e.key.toLowerCase() === 'v') {
     let last = 'system';
     try { last = localStorage.getItem('floor.voiceLast') || 'system'; } catch { /* ignore */ }
@@ -297,10 +303,28 @@ store.on('snapshot', () => {
   updateNewsPill();
 });
 
+// A committee debate plays out on the floor: the desk pitches, colleagues answer.
+let lastDebateAt = 0;
+function playDebate(ev) {
+  if (!ev.messages?.length || performance.now() - lastDebateAt < 9000) return;
+  lastDebateAt = performance.now();
+  const short = (t) => (t.length > 150 ? `${t.slice(0, 147).replace(/\s\S*$/, '')}…` : t);
+  ev.messages.forEach((m, i) => {
+    setTimeout(() => {
+      if (view !== 'floor' || m.from === store.selected) return;
+      const p = store.profileById[m.from];
+      if (!p) return;
+      const tag = i === 0 ? ' · pitches' : m.from === 'elena' ? ` · ${ev.verdict.toLowerCase()}` : ` · ${m.stance}`;
+      floor.showBubble(m.from, `<b>${escapeHtml(p.name.split(' ')[0])}${tag}</b>${escapeHtml(short(m.text))}`, { duration: 5200 });
+    }, i * 1700);
+  });
+}
+
 // Floor chatter: short bubbles over a trader's head when they trade.
 store.on('event', (ev) => {
   hud.renderTape();
   if (!ev.agentId || !floor || view !== 'floor') return;
+  if (ev.kind === 'committee') return playDebate(ev);
   if (ev.agentId === store.selected) return;
   const liveFill = ev.kind === 'live' && /filled|closed/.test(ev.text);
   const researched = ev.kind === 'research' && /^(Deployed|Replaced|Retiring|Tested)/.test(ev.text);
@@ -326,6 +350,7 @@ document.getElementById('live-modal-setup').addEventListener('click', () => {
 });
 
 store.on('live', (v) => {
+  brainView.render();
   const acc = v.account;
   let cls = '';
   let text = 'Connect FTMO';

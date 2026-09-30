@@ -99,6 +99,15 @@ export class TraderAgent {
     if (!Number.isFinite(entry) || !Number.isFinite(stop) || (long ? stop >= entry : stop <= entry)) return false;
     if (target != null && (long ? target <= entry : target >= entry)) target = null;
 
+    // No trade on the desk's say-so alone: the department committee reviews the idea.
+    const review = this.env.committee?.review({ agent: this, symbol, side, entry, stop, target, reason, external: tag === 'TV' }) ?? null;
+    if (review && !review.ok) {
+      this.lastReject = `the committee said no (${review.reason})`;
+      this.setStage(`Committee said no: ${review.reason}`, review.silent ? 'quiet' : 'setup');
+      return false;
+    }
+    if (review) riskMultiplier *= review.sizeMult;
+
     // What the desk has learned from its own trades: sit out losing situations, size by
     // proven edge, and adjust stop / target / profit-taking.
     const learn = this.learner.beforeEntry({ symbol, side, entry, stop, target, partialAt, trail, external: tag === 'TV' });
@@ -113,7 +122,8 @@ export class TraderAgent {
     const qty = this.risk.size(this, symbol, entry, stop, { riskMultiplier });
     if (!qty) return false;
     const initialRisk = qty * Math.abs(entry - stop) * usdPerQuote(symbol, entry);
-    const res = this.broker.execute(this.id, symbol, long ? qty : -qty, { reason, tag, stop, target, initialRisk });
+    const meta = review ? { thesis: review.thesis, grade: review.grade, score: Math.round(review.score * 100) / 100, verdict: review.shadowVerdict ?? null, debate: review.debate?.id ?? null, f: review.debate ? Object.fromEntries(Object.entries(review.debate.factors).map(([k, v]) => [k, v ? Math.round(v.value * 100) / 100 : null])) : null } : null;
+    const res = this.broker.execute(this.id, symbol, long ? qty : -qty, { reason, tag, stop, target, initialRisk, meta });
     if (!res) return false;
     const fillPx = res.fill.price;
     const plan = {
@@ -121,6 +131,7 @@ export class TraderAgent {
       risk: Math.abs(fillPx - stop), partialAt, partialDone: false, trail, timeStopBars,
       barsHeld: 0, reason, tag, extreme: fillPx, worst: fillPx, openedAt: this.env.clock.now(),
       learnMult: learn.sizeMult, riskMult: riskMultiplier, probe: learn.probe,
+      thesis: review?.thesis ?? null, grade: review?.grade ?? null, score: review?.score ?? null,
     };
     this.plans.set(symbol, plan);
     this.learner.onOpened(res.position?.trade?.id, learn, plan);
@@ -130,6 +141,7 @@ export class TraderAgent {
     this.note(
       `${long ? 'Bought' : 'Sold'} ${fmtQty(qty)} ${symbol} @ ${this.px(fillPx, symbol)} · stop ${this.px(stop, symbol)}` +
         (target != null ? ` · target ${this.px(target, symbol)} (${rr.toFixed(1)}R)` : '') +
+        (review ? ` · committee grade ${review.grade}` : '') +
         (learn.probe ? ' · small test trade' : learn.sizeMult !== 1 ? ` · size ×${learn.sizeMult} from experience` : ''),
       'entry',
       { symbol, side, price: fillPx, qty },
@@ -461,6 +473,12 @@ export class TraderAgent {
     }
     const newsLine = this.newsLine();
     if (newsLine) lines.push(newsLine);
+    const plan = this.plans.get(this.symbol);
+    if (plan?.thesis) lines.push(`Why I'm in: ${plan.thesis.replace(/^[^.]*\. Why: /, '')} The committee graded it ${plan.grade}.`);
+    else if (this.env.committee && !this.book.positions.size) {
+      const t = this.env.committee.thought(this.id, this.symbol);
+      if (t) lines.push(`My read: ${t.text.replace(`${this.symbol}: `, '')}`);
+    }
     // With an FTMO account connected, desks on the account talk about the real position
     // (below) and paper-only desks say plainly that theirs is paper.
     const book = this.env.liveBook?.(this.id);

@@ -167,6 +167,10 @@ export class LiveView {
       maxOpenRiskPct: Number(q('#lv-openrisk').value),
       maxPositions: Number(q('#lv-maxpos').value),
       stopAtTarget: q('#lv-stop-target').checked,
+      minGrade: q('#lv-grade').value,
+      dailyStopPct: Number(q('#lv-daystop').value),
+      maxTradesPerDay: Number(q('#lv-maxtrades').value),
+      streakStop: Number(q('#lv-streak').value),
       symbolMap,
     };
   }
@@ -318,6 +322,14 @@ export class LiveView {
           <label>Max open risk %<input type="number" id="lv-openrisk" min="0.05" max="10" step="0.25" value="${cur.maxOpenRiskPct}"></label>
           <label>Max live positions<input type="number" id="lv-maxpos" min="1" max="20" step="1" value="${cur.maxPositions}"></label>
           <label class="check"><input type="checkbox" id="lv-stop-target" ${cur.stopAtTarget ? 'checked' : ''}> Stop trading when the target is hit</label>
+        </div>
+        <h3 style="margin-top:18px">The account plan</h3>
+        <p class="fine">How the account brain protects this account. The desks keep trading on paper either way; these rules decide what reaches real money.</p>
+        <div class="form-grid">
+          <label>Trades on the account<select id="lv-grade"><option value="A" ${cur.minGrade !== 'B' ? 'selected' : ''}>Committee A-grade only (recommended)</option><option value="B" ${cur.minGrade === 'B' ? 'selected' : ''}>A and B-grade</option></select></label>
+          <label>Daily stop %<input type="number" id="lv-daystop" min="0.25" max="10" step="0.25" value="${cur.dailyStopPct ?? 1.5}"><span class="hint">Done for the day at this loss, far before FTMO's daily limit</span></label>
+          <label>Max trades per day<input type="number" id="lv-maxtrades" min="1" max="50" step="1" value="${cur.maxTradesPerDay ?? 6}"></label>
+          <label>Stop after losses in a row<input type="number" id="lv-streak" min="2" max="10" step="1" value="${cur.streakStop ?? 3}"><span class="hint">Two in a row already halves the risk</span></label>
         </div>
         <h3 style="margin-top:18px">Symbols on your account</h3>
         <p class="fine">The floor's markets matched to your MT5 symbols (${v.brokerSymbolCount} available). Markets set to "Not traded" stay paper only.</p>

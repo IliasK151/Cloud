@@ -24,7 +24,8 @@ function setup({ mode = 'live' } = {}) {
   const md = new MarketData(clock);
   const broker = new Broker(md, clock);
   const risk = new RiskManager({ riskPerTradePct: 0.005, deskDailyLossPct: 0.02, fundDailyLossPct: 0.012, maxLeverage: 4 }, session);
-  const fund = new Fund({ config: { startingCapital: 100_000_000, feed: mode, fundName: 'Test' }, md, clock, session, broker, risk });
+  // These tests cover the mirroring mechanics; the committee and account plan have their own tests.
+  const fund = new Fund({ config: { startingCapital: 100_000_000, feed: mode, fundName: 'Test' }, md, clock, session, broker, risk, committee: 'off' });
   const bridge = new Mt5Bridge();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
   const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} } });

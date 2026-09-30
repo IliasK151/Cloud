@@ -1,6 +1,6 @@
 # Meridian Trading Floor
 
-A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Fifteen AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
+A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Fifteen AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. No desk trades on its own say-so: every trade idea is **argued by its department** and graded, and an **account brain** decides what, if anything, reaches your prop account. You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
 
 ![The trading floor](docs/floor.jpg)
 
@@ -51,7 +51,7 @@ If a live source can't be reached, that market automatically falls back to a rea
 - **The front wall** carries the LED video wall (NAV, day P&L, fund equity, the next market-moving news, desk P&L bars, markets), world clocks and a ticker tape.
 - **The traders are real characters,** each with their own look: faces with eyes that blink and follow what they're reading, hairstyles, suits, blazers and knitwear, glasses and trading headsets. Their hands work the keyboard and mouse (the arms use inverse kinematics), and between trades they sit back to read, rest their chin on a hand, take calls on the headset or sip their coffee. They fist-pump a winner, put their hands on their head after a loser and slump when risk halts them. When they trade, a speech bubble pops up over their head.
 
-**Controls:** click a trader, or press keys `1`–`0` for the ten trading desks, to zoom in (the research lab is marked `Q`: click them or use the arrow keys). Drag to orbit, scroll to zoom, right-drag to pan. `←`/`→` moves to the next trader, and `Esc` returns to the overview. `D` opens the dashboard, `T` the TradingView page, `L` the FTMO tab, `F` the floor. `V` turns voices on and off, and `Q` switches graphics quality. The gear icon (top right) holds the voice and graphics settings and can replay the welcome tour.
+**Controls:** click a trader, or press keys `1`–`0` for the ten trading desks, to zoom in (the research lab is marked `Q`: click them or use the arrow keys). Drag to orbit, scroll to zoom, right-drag to pan. `←`/`→` moves to the next trader, and `Esc` returns to the overview. `D` opens the dashboard, `B` the Brain, `T` the TradingView page, `L` the FTMO tab, `F` the floor. `V` turns voices on and off, and `Q` switches graphics quality. The gear icon (top right) holds the voice and graphics settings and can replay the welcome tour.
 
 ### "Hello boss!"
 
@@ -146,6 +146,62 @@ Only a strategy that passes every gate trades. If nothing passes, the researcher
 
 ---
 
+## The Brain: every trade is argued before it's taken
+
+![The Brain](docs/brain.jpg)
+
+**Departments.** The fifteen agents work in four departments, each covering its markets with at least two traders and a researcher: **Equity Indices** (Marcus, James, Arjun), **FX & Macro** (Sofia, Priya, Hannah), **Metals & Energy** (Amara, Lucas, Omar) and **Digital Assets** (Viktor, Isabella, Kenji, Chen, Mei). Elena, head of research, chairs every decision as the risk manager.
+
+**The market brain.** One shared, multi-timeframe read of every market that everybody reasons from: the higher-timeframe and 15-minute trend, swing structure (higher highs and lows or not), momentum, distance from session VWAP, the levels that matter (session high/low, prior day, 5 and 15-minute swings, VWAP), the volatility regime, the market condition and the news clock. Each piece of evidence comes with a sentence explaining it.
+
+**Each agent's own brain.** Every agent weighs that evidence their own way: a trend follower lives by the trend, a mean-reversion trader cares about location and hates chasing, a quant trusts measured edge and the regime, and the risk manager watches news, volatility and room. Everyone weighs the **measured edge** first: the desk's real track record, shrunk toward zero until there's enough of it (for a research desk, its validated results). The same market therefore gets genuinely different opinions.
+
+**The debate.** When a desk wants to trade, it pitches the idea with its thesis, entry, stop, target and the evidence behind it. Two colleagues from the department that covers the market answer honestly ("Not here: price is 2.9σ below VWAP, which is chasing, and the swing low is only 0.4R away"), and Elena decides. You can watch it: the debate plays out in speech bubbles on the floor, and live in the **Brain** tab.
+
+**The decision.**
+- **Vetoed, never traded:** high-impact news within 45 minutes (medium within 20), extreme or dead-quiet volatility, or a target smaller than the risk.
+- **A-grade:** full size, and the only grade that can reach your prop account.
+- **B-grade:** smaller, paper only.
+- **C-grade:** the committee isn't convinced, so a quarter size on paper only, just to keep measuring. That's how a desk earns its way back.
+
+Every trade keeps its thesis and grade: in the trader's Trades tab, the FTMO blotter and the briefing ("Why I'm in: …").
+
+**Does the logic actually help? It was tested, not assumed.** Every rule was checked against simulated trades before it was kept:
+- Entries shortly before news averaged −0.30R.
+- Entries in extreme volatility averaged −0.24R.
+- Entries in a dead-quiet market averaged −0.21R.
+- Everything else averaged −0.05R.
+
+Rules that only *sound* smart were left out. "Always trade with the hourly trend" and "only with 1R of room" made no measurable difference, so they stay as opinions and never block a trade. With the committee switched on, across 72 simulated sessions on nine random seeds:
+- The fund's worst drawdown was **29–36% smaller**.
+- Fund profit was **18–62% higher**.
+- A-grade trades averaged about **+0.07 to +0.08R** each.
+
+Run `npm run backtest -- 5` to fast-forward five sessions and see the results yourself.
+
+**The live brain.** The **Brain** tab shows each department as a live graph. The market evidence (green bullish, red bearish) feeds each agent's own brain, and each brain feeds the department's call (BUY, SELL or WAIT). Beneath the graph are every agent's current thinking in plain English and the latest debates, with lines lighting up between agents while they argue. A trader's panel has a **Brain** tab too: what they weigh, how their market looks to them right now, their measured edge and the debates they took part in.
+
+![A department debate](docs/brain-debate.jpg)
+
+## Protecting the prop account (the account brain)
+
+The paper desks can experiment; the account only gets the best ideas, sized by where the account stands. This is the plan a professional prop trader follows to pass a challenge and keep getting paid:
+
+- **Only A-grade trades from proven desks.** A desk needs 10+ paper trades and a positive measured edge (or a validated research strategy) before it risks real money. The Brain tab lists who is cleared and who is still proving themselves.
+- **Drawdown shrinks risk.** Below the starting balance, risk scales down (for example −$100 on a $10,000 trial: 0.25% → 0.20% per trade) until the loss is won back. It never grows past the base risk you set.
+- **Daily stop at −1.5%**, far before FTMO's 5%. At half of that, risk halves for the rest of the day.
+- **Losing streaks:** two in a row halve the risk until the next winner; three in a row end the day.
+- **At most 6 trades a day.** Overtrading is how accounts die.
+- **One position per correlated group.** NAS100 and SPX500 are one bet, and so are the three coins.
+- **Near the target, smaller risk**, so one loss can't undo the progress. **Funded accounts trade 20% lighter** to protect the payouts.
+- The FTMO rule guard, news blackouts and stop-losses on every order still apply underneath.
+
+The Brain tab shows the account's phase and goal, its status (NORMAL, CAUTIOUS or STOPPED FOR TODAY), the risk per trade right now and why, how many clean 2R winners it is from the target, trading days (FTMO asks for at least 4) and every rule. All of it is editable under **Edit setup → The account plan** in the FTMO tab. To rehearse a drawdown without risking anything, run `MOCK_PNL=-100 npm run mock-mt5` next to `npm run demo`.
+
+**Honestly:** none of this can guarantee a pass or a payout. What it does is make every trade explain itself, keep the account out of the situations that measurably lose, and size the account down exactly when losses tempt people to size up.
+
+---
+
 ## TradingView integration
 
 1. **Charts.** Every trader's panel has a **TradingView** tab with the official TradingView Advanced Chart for their market (for example `OANDA:XAUUSD` or `BINANCE:BTCUSDT`), plus an "Open on TradingView" link. The floor's own charts are drawn with TradingView Lightweight Charts™.
@@ -222,11 +278,12 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 - **Every order carries a stop-loss.** Positions stay protected in MT5 even if the floor, the EA or your Mac stops.
 - **Your own risk sizing, not the paper desk's.** The default is **0.25% of balance per trade**, with at most 1.5% open risk and 5 live positions, all editable.
 - **Priced from MT5.** Once connected, the floor switches each mapped market to your broker's prices (US100.cash, XAUUSD, EURUSD and so on). The desks then analyse exactly the prices they trade.
-- **Your TradingView alerts can trade the account too.** Enable Chen's TradingView Signals desk (or any desk named in the alert). Each alert is executed on FTMO with the same sizing and stop rules.
+- **Your TradingView alerts can trade the account too.** Enable Chen's TradingView Signals desk (or any desk named in the alert). Each alert is debated by the committee like any other idea and executed on FTMO with the same sizing and stop rules (only A-grade alerts reach the account).
 - **FTMO rule guard.** It watches the daily and maximum loss using FTMO's method (equity against the day's starting balance, and against the account size). At 80% of a limit it closes the floor's positions and stops trading: until the next server day for the daily limit, and until you clear it for the max loss. It can also stop when the profit target is hit, which is on by default.
 - **Arming is always your decision.** The floor starts disarmed after every restart. Paid accounts need you to type the account number to arm. **Close all & disarm** is always one click away.
 - **Two desks stay paper-only.** The stat-arb and market-making desks don't mirror onto a single prop account.
 - **Research desks can trade it too,** once you switch them on: they trade only validated strategies, at half size while a new strategy is on probation.
+- **The account brain decides what reaches the account** (above): only committee A-grade trades from desks with a proven edge, sized down in drawdown and after losses, with a daily stop, a daily trade cap and one position per correlated group.
 - **News.** Nothing is sent to MT5 inside a news blackout, and the floor's positions are closed 5 minutes before high-impact news.
 
 **Set it up (once, about 5 minutes)**
@@ -297,8 +354,9 @@ Other commands:
 
 ```bash
 npm test               # tests: indicators, broker, risk, webhooks, FTMO, news calendar, backtester (no look-ahead),
-                       # research validation (rejects pure noise), research desks, a full floor session
-npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow
+                       # research validation (rejects pure noise), research desks, committee + account brain,
+                       # a full floor session
+npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow (MOCK_PNL=-100 rehearses a drawdown)
 npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
 npm run backtest -- 5  # fast-forward 5 simulated sessions (news + research lab included) and print each desk's results
 npm run reset          # wipe the saved track record (keeps your webhook secret)
@@ -315,15 +373,17 @@ server/
                         11 strategies incl. research desks, fund orchestration, learning.js
   research/             strategy grammar, backtester, walk-forward validation search,
                         long history store, research lab (worker thread)
+  brain/                market brain (shared analysis), personas (each agent's own brain),
+                        committee (department debates, vetoes, grades, live thoughts)
   tradingview/          alert parsing + authentication, one-click public address (tunnel)
-  live/                 MT5 bridge protocol, FTMO rules + guard, live execution router
+  live/                 MT5 bridge protocol, FTMO rules + guard, account brain, live execution router
   voices/               realistic voices: Kokoro text-to-speech in a worker thread
 mt5/                    MeridianBridge.mq5 Expert Advisor for MetaTrader 5
 public/
   js/floor/             Three.js floor: room, desks, six-screen workstations,
                         animated traders (avatar/: head, hair, body, IK), video wall, camera
-  js/ui/                HUD, trader panel + briefing + learning + research, dashboard,
-                        economic calendar, TradingView, FTMO
+  js/ui/                HUD, trader panel + briefing + learning + research + brain, dashboard,
+                        Brain view (live department graphs), economic calendar, TradingView, FTMO
   js/voice.js           voices: realistic (from the server) or system, lip-sync level
 tradingview/            Pine Script alert bridge
 ```

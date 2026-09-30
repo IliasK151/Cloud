@@ -40,6 +40,7 @@
       <nav class="tabs" role="tablist" aria-label="Views">
         <button role="tab" data-view="floor" aria-selected="true">Floor</button>
         <button role="tab" data-view="dashboard" aria-selected="false">Dashboard</button>
+        <button role="tab" data-view="brain" aria-selected="false">Brain</button>
         <button role="tab" data-view="tradingview" aria-selected="false">TradingView</button>
         <button role="tab" data-view="ftmo" aria-selected="false">FTMO</button>
       </nav>
@@ -71,7 +72,7 @@
       <label class="set-row"><span>High quality<small>Soft shadows, ambient light and glow. Turns itself off on slow machines.</small></span><span class="switch accent"><input type="checkbox" id="set-hq"><span></span></span></label>
       <h3>Help</h3>
       <button class="link-btn" id="set-tour">Show the welcome tour again</button>
-      <p class="set-keys"><kbd>1</kbd>–<kbd>0</kbd> talk to a trader · <kbd>Esc</kbd> back to the floor · <kbd>D</kbd> dashboard · <kbd>V</kbd> voices on/off</p>
+      <p class="set-keys"><kbd>1</kbd>–<kbd>0</kbd> talk to a trader · <kbd>Esc</kbd> back to the floor · <kbd>D</kbd> dashboard · <kbd>B</kbd> brain · <kbd>V</kbd> voices on/off</p>
     </div>
 
     <aside id="desk-rail" aria-label="Desks">
@@ -111,6 +112,7 @@
         <button role="tab" data-tab="trades" aria-selected="false">Trades</button>
         <button role="tab" data-tab="learn" aria-selected="false">Learning</button>
         <button role="tab" data-tab="research" aria-selected="false" hidden>Research</button>
+        <button role="tab" data-tab="brain" aria-selected="false">Brain</button>
       </nav>
       <div class="ap-body">
         <div class="ap-tab" data-tab="setup">
@@ -153,6 +155,9 @@
         <div class="ap-tab" data-tab="research" hidden>
           <div id="ap-research"><p class="muted">Loading…</p></div>
         </div>
+        <div class="ap-tab" data-tab="brain" hidden>
+          <div id="ap-brain"><p class="muted">Loading…</p></div>
+        </div>
       </div>
     </section>
 
@@ -164,6 +169,7 @@
     <div id="floor-hint">Click any trader to talk to them · drag to look around · scroll to zoom</div>
 
     <section id="dashboard-view" class="view" hidden aria-label="Dashboard"></section>
+    <section id="brain-view" class="view" hidden aria-label="Brain"></section>
     <section id="tv-view" class="view" hidden aria-label="TradingView integration"></section>
     <section id="live-view" class="view" hidden aria-label="FTMO live trading"></section>
 
@@ -189,6 +195,7 @@
           <ul class="wc-list">
             <li><b>Click any trader</b> (or press 1–0) to hear their setup and P&amp;L.</li>
             <li><b>The research lab</b> (back row) shows every strategy it tested and why it trusts, or rejects, it.</li>
+            <li><b>Brain</b> shows every trade idea being argued by its department before it's taken.</li>
             <li><b>Dashboard</b> shows the whole book at a glance.</li>
             <li><b>TradingView</b> sends your chart alerts to the desks.</li>
             <li><b>FTMO</b> lets the desks trade your prop account — only when you say so.</li>

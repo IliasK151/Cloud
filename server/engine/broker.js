@@ -49,7 +49,7 @@ export class Broker extends EventEmitter {
 
   // qty > 0 buys, qty < 0 sells. Market orders cross half the spread plus slippage;
   // passing `price` with maker=true fills passively at that price (market making).
-  execute(agentId, symbol, qty, { price, maker = false, tag = '', reason = '', stop = null, target = null, initialRisk = 0 } = {}) {
+  execute(agentId, symbol, qty, { price, maker = false, tag = '', reason = '', stop = null, target = null, initialRisk = 0, meta = null } = {}) {
     if (!qty || !Number.isFinite(qty)) return null;
     const sym = SYMBOLS[symbol];
     const mark = this.md.price(symbol);
@@ -124,7 +124,7 @@ export class Broker extends EventEmitter {
           entryQty: Math.abs(remaining), entryNotional: Math.abs(remaining) * fillPrice,
           exitQty: 0, exitNotional: 0, realized: 0,
           fees: fee * (Math.abs(remaining) / Math.abs(qty)),
-          initialRisk, stop, target, entryReason: reason, exitReason: '',
+          initialRisk, stop, target, entryReason: reason, exitReason: '', meta,
         },
       };
       book.positions.set(symbol, pos);
@@ -147,6 +147,7 @@ export class Broker extends EventEmitter {
       gross: t.realized, fees: t.fees, pnl: net,
       r: t.initialRisk > 0 ? net / t.initialRisk : null,
       entryReason: t.entryReason, exitReason: t.exitReason,
+      ...(t.meta ? { thesis: t.meta.thesis, grade: t.meta.grade, score: t.meta.score, verdict: t.meta.verdict, f: t.meta.f } : {}),
     };
     book.trades.push(trade);
     if (book.trades.length > MAX_TRADES_KEPT) book.trades.shift();

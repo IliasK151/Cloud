@@ -4,6 +4,8 @@ import { publicSymbolInfo } from '../market/symbols.js';
 import { fmtUsd } from '../util/format.js';
 import { eventLabel } from '../market/calendar.js';
 import { fmtNyTime } from '../market/session.js';
+import { MarketBrain } from '../brain/market.js';
+import { Committee } from '../brain/committee.js';
 
 const EVENT_BUFFER = 150;
 const EQUITY_POINTS = 3000;
@@ -12,7 +14,8 @@ const DAY_CURVE_POINTS = 1500;
 // The fund: owns the desks (and the research lab desks), routes market data to them, enforces fund-level
 // risk, samples the equity curve and produces the snapshots the UI renders.
 export class Fund extends EventEmitter {
-  constructor({ config, md, clock, session, broker, risk, news = null, lab = null }) {
+  // committee: 'on' (every trade is reviewed), 'shadow' (reviewed but never blocked) or 'off'.
+  constructor({ config, md, clock, session, broker, risk, news = null, lab = null, committee = 'on' }) {
     super();
     this.news = news;
     this.lab = lab;
@@ -44,6 +47,14 @@ export class Fund extends EventEmitter {
     this.agents = ROSTER.map((p) => new p.Strategy(p, env));
     this.byId = new Map(this.agents.map((a) => [a.id, a]));
     env.labDesks = () => this.agents.filter((a) => a.profile.lab);
+    this.brain = new MarketBrain({ md, session, clock, news, history: lab?.history ?? null });
+    this.committee = committee === 'off' ? null : new Committee({ brain: this.brain, agents: this.byId, clock, shadow: committee === 'shadow' });
+    env.committee = this.committee;
+    this.committee?.on('debate', (d) => {
+      const who = this.byId.get(d.proposer)?.firstName ?? d.proposer;
+      const reviewers = d.messages.filter((m) => m.role === 'reviews').map((m) => `${this.byId.get(m.from)?.firstName}: ${m.stance}`).join(', ');
+      this.#event({ agentId: d.proposer, kind: 'committee', debate: d.id, verdict: d.verdict, grade: d.grade, messages: d.messages.map((m) => ({ from: m.from, stance: m.stance, text: m.text })), text: `Committee ${d.verdict} ${who}'s ${d.symbol} ${d.side.toLowerCase()}${d.grade !== '—' ? ` (grade ${d.grade})` : ''}: ${d.why}${reviewers ? ` · ${reviewers}` : ''}` });
+    });
     for (const a of this.agents) this.dayCurves.set(a.id, []);
     lab?.on('result', (r) => this.byId.get(r.agentId)?.onResearch?.(r));
 
@@ -389,6 +400,7 @@ export class Fund extends EventEmitter {
       briefing: a.briefing(),
       learning: a.learner.view(),
       research: a.researchView?.(true) ?? null,
+      brain: this.committee?.agentView(id) ?? null,
       trades: book.trades.slice(-60).reverse(),
       fills: book.fills.slice(-40).reverse(),
       log: a.log.slice(-60),
