@@ -115,7 +115,7 @@ export class TradingViewView {
         </div>
         <div class="card">
           <h2>Try it without TradingView</h2>
-          <p class="sub">Sends an alert through the same pipeline TradingView uses, straight from this page.</p>
+          <p class="sub">Sends an alert through the same pipeline TradingView uses, straight from this page. Test alerts trade on paper only, never on your FTMO account.</p>
           <div class="test-row">
             <select id="tv-test-agent">${agents}</select>
             <select id="tv-test-action"><option value="buy">Buy</option><option value="sell">Sell</option><option value="close">Close</option></select>

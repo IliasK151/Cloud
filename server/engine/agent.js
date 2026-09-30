@@ -88,7 +88,7 @@ export class TraderAgent {
   pitch() { return `I'm running ${this.constructor.strategyName} on ${this.symbol}.`; }
 
   // ---- trading API -------------------------------------------------------------------
-  openTrade({ side, stop, target = null, reason, symbol = this.symbol, tag = '', partialAt = 1, trail = null, timeStopBars = null, riskMultiplier = 1 }) {
+  openTrade({ side, stop, target = null, reason, symbol = this.symbol, tag = '', partialAt = 1, trail = null, timeStopBars = null, riskMultiplier = 1, testAlert = false }) {
     const check = this.risk.canOpen(this, symbol);
     if (!check.ok) {
       this.lastReject = check.reason;
@@ -134,6 +134,7 @@ export class TraderAgent {
       barsHeld: 0, reason, tag, extreme: fillPx, worst: fillPx, openedAt: this.env.clock.now(),
       learnMult: learn.sizeMult, riskMult: riskMultiplier, probe: learn.probe,
       thesis: review?.thesis ?? null, grade: review?.grade ?? null, score: review?.score ?? null,
+      testAlert: !!testAlert, // from the TradingView tab's test button: paper only
     };
     this.plans.set(symbol, plan);
     this.learner.onOpened(res.position?.trade?.id, learn, plan);
@@ -239,7 +240,7 @@ export class TraderAgent {
   }
 
   // External signal (TradingView webhook).
-  handleSignal({ action, symbol = this.symbol, stop, target, comment }) {
+  handleSignal({ action, symbol = this.symbol, stop, target, comment, test = false }) {
     const label = `TradingView alert${comment ? ` (${comment})` : ''}`;
     if (!this.md.get(symbol)) return { ok: false, reason: `Unknown symbol ${symbol}` };
     if (action === 'close') {
@@ -258,7 +259,7 @@ export class TraderAgent {
     const t = Number.isFinite(target) && (long ? target > price : target < price) ? target : long ? price + 2 * (price - s) : price - 2 * (s - price);
     this.note(`${label}: ${side} ${symbol}`, 'signal');
     this.lastReject = null;
-    const ok = this.openTrade({ side, stop: s, target: t, reason: label, symbol, tag: 'TV', trail: 2 });
+    const ok = this.openTrade({ side, stop: s, target: t, reason: label, symbol, tag: 'TV', trail: 2, testAlert: test });
     return ok ? { ok: true, text: `${side} ${symbol} executed` } : { ok: false, reason: this.lastReject ? `Rejected: ${this.lastReject}` : 'Rejected by risk checks' };
   }
 
@@ -482,13 +483,14 @@ export class TraderAgent {
       const t = this.env.committee.thought(this.id, this.symbol);
       if (t) lines.push(`My read: ${t.text.replace(`${this.symbol}: `, '')}`);
     }
-    // With an FTMO account connected, desks on the account talk about the real position
-    // (below) and paper-only desks say plainly that theirs is paper.
+    // With an FTMO account connected, a position that is live on the account is described
+    // from MT5 (below); anything else is said plainly to be paper.
     const book = this.env.liveBook?.(this.id);
     for (const p of this.positionsView()) {
-      if (this.profile.customPositionPitch || book?.enabled) break;
+      if (this.profile.customPositionPitch) break;
+      if (book?.enabled && book.liveSymbols?.includes(p.symbol)) continue;
       const plan = this.plans.get(p.symbol);
-      let s = `${book ? 'On paper, ' : ''}I'm ${p.side.toLowerCase()} ${fmtQty(p.qty)} ${p.symbol} from ${this.px(p.avg, p.symbol)}`;
+      let s = `${book ? (book.enabled ? 'On paper only, ' : 'On paper, ') : ''}I'm ${p.side.toLowerCase()} ${fmtQty(p.qty)} ${p.symbol} from ${this.px(p.avg, p.symbol)}`;
       if (plan) {
         s += `, stop at ${this.px(plan.stop, p.symbol)}`;
         if (plan.target != null) s += `, target ${this.px(plan.target, p.symbol)}`;

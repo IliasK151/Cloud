@@ -77,10 +77,12 @@ export class AgentPanel {
       return;
     }
     el.hidden = false;
-    const armed = this.liveState.armed;
+    const st = d.status || { state: 'proving', text: '' };
+    const skip = d.lastSkip && st.state !== 'live' ? ` Last trade not sent (${d.lastSkip.symbol}): ${d.lastSkip.reason}.` : '';
+    el.classList.toggle('paper', !['live', 'cleared', 'ready'].includes(st.state));
     el.textContent = d.live
       ? `FTMO live: ${d.live.side} ${d.live.volume} ${d.live.symbol} · ${money(d.live.profit, { sign: true })}${d.live.sl ? ` · SL ${d.live.sl}` : ''}`
-      : `FTMO: ${armed ? 'armed, flat on the account' : 'enabled, waiting for you to arm'}${d.pnlToday ? ` · today ${money(d.pnlToday, { sign: true })}` : ''}`;
+      : `FTMO · ${st.label}: ${st.text}${skip}${d.pnlToday ? ` · today ${money(d.pnlToday, { sign: true })}` : ''}`;
   }
 
   #flash(text) {

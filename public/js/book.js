@@ -1,3 +1,5 @@
+import { escapeHtml } from './format.js';
+
 // Which P&L the floor displays: the connected FTMO account (real) or the paper fund.
 // With an FTMO account set up and connected, FTMO is the default; the boss can flip to Paper.
 
@@ -68,4 +70,14 @@ export function deskBook(store, id) {
   }
   const a = store.agents[id];
   return { mode: 'paper', na: false, day: a?.pnl.day ?? 0, total: a?.pnl.total ?? 0, unrealized: a?.pnl.unrealized ?? 0, trades: a?.stats.tradesDay ?? 0 };
+}
+
+// A desk's real standing with the FTMO account (from the account brain), never just "switched on".
+export function ftmoStatus(d, { detail = false } = {}) {
+  const st = d.status;
+  if (!st || st.state === 'off' || st.state === 'paper') return `<span class="muted" title="${escapeHtml(st?.text || '')}">${d.eligible ? 'off' : 'paper only'}</span>`;
+  const cls = { live: 'no', cleared: 'ok', ready: 'ok', proving: 'paper', stopped: 'warn', halted: 'warn' }[st.state] || 'paper';
+  const skip = d.lastSkip && st.state !== 'live' ? `Last trade not sent (${d.lastSkip.symbol}): ${d.lastSkip.reason}` : '';
+  const tip = [st.text, skip].filter(Boolean).join('\n');
+  return `<span class="pill ${cls}" title="${escapeHtml(tip)}">${escapeHtml(st.label.toUpperCase())}</span>${detail ? `<div class="fine ftmo-why">${escapeHtml(st.text)}${skip ? `<br><span class="muted">${escapeHtml(skip)}</span>` : ''}</div>` : ''}`;
 }

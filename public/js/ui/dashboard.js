@@ -1,7 +1,7 @@
 import { command, api } from '../net.js';
 import { equityChart } from './charts.js';
 import { money, price as fmtPrice, qty as fmtQty, pct, signClass, nyTime, escapeHtml } from '../format.js';
-import { bookMode, hasFtmo, setBookPref, deskBook } from '../book.js';
+import { bookMode, hasFtmo, setBookPref, deskBook, ftmoStatus } from '../book.js';
 import { labRows } from './research.js';
 import { newsTable, sourceText, blackoutChips } from './news.js';
 
@@ -321,7 +321,7 @@ export class Dashboard {
           <td><span class="desk-cell"><i style="background:${pr.accent}"></i><span>${escapeHtml(pr.desk)}<small>${escapeHtml(pr.strategy)}</small></span></span></td>
           <td>${escapeHtml(pr.name)}</td>
           <td>${escapeHtml(d.symbols[0])} → ${d.brokerSymbol ? escapeHtml(d.brokerSymbol) : '<span class="muted">not mapped</span>'}</td>
-          <td>${d.enabled ? `<span class="pill ${v.armed ? 'no' : 'ok'}">${v.armed ? 'LIVE' : 'ON'}</span>` : `<span class="muted">${d.eligible ? 'off' : 'paper only'}</span>`}</td>
+          <td>${ftmoStatus(d)}</td>
           <td>${d.live ? `${d.live.side} ${d.live.volume} ${escapeHtml(d.live.symbol)}` : '<span class="muted">Flat</span>'}</td>
           <td class="r ${signClass(d.live?.profit ?? 0)}">${d.live ? money(d.live.profit, { sign: true }) : '<span class="muted">—</span>'}</td>
           <td class="r ${signClass(d.pnlToday)}"><b>${d.enabled || d.pnlToday ? money(d.pnlToday, { sign: true }) : '<span class="muted">—</span>'}</b></td>
@@ -454,3 +454,4 @@ function sparkline(points, w = 110, h = 26) {
   const color = last >= 0 ? '#0ca30c' : '#d03b3b';
   return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="Today's P&L path"><line x1="0" x2="${w}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/><path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
+

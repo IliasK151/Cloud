@@ -1,6 +1,7 @@
 import { api } from '../net.js';
 import { money, escapeHtml, signClass } from '../format.js';
 import { dailyStopSwitch, onPlanSwitch } from './planSwitch.js';
+import { ftmoStatus } from '../book.js';
 
 // FTMO tab: connect MT5, set the account up, pick desks, arm, and watch the rules.
 export class LiveView {
@@ -41,7 +42,7 @@ export class LiveView {
       <div class="card" id="live-setup" style="margin-top:14px"></div>
       <div class="card" id="live-desks-card" style="margin-top:14px">
         <h2>Desks on the account</h2>
-        <p class="sub">Switch on the desks that may trade FTMO. Everyone keeps paper trading either way. Your TradingView alerts reach the account through Chen's TradingView Signals desk, or through any desk named in the alert.</p>
+        <p class="sub">Switch on the desks that may trade FTMO. Everyone keeps paper trading either way. Switched on isn't the same as trading the account: a desk's own trades only go to MT5 once the account brain has cleared it (10+ trades on real prices with a positive edge, and A-grade trades). "Status on the account" shows where each desk stands. Your own TradingView alerts go to the account through Chen's TradingView Signals desk, or any desk named in the alert, straight away. The committee can still veto them, and every risk rule applies.</p>
         <div class="table-wrap" style="max-height:none"><table class="table" id="live-desks"></table></div>
       </div>
       <div class="grid dash-row-3" style="margin-top:14px">
@@ -345,13 +346,14 @@ export class LiveView {
     // Desks
     const desksTable = $('#live-desks');
     if (!desksTable.contains(document.activeElement) || force) {
-      desksTable.innerHTML = `<thead><tr><th>Desk</th><th>Market → MT5</th><th>Trade FTMO</th><th>Live position</th><th class="r">Live P&amp;L today</th></tr></thead><tbody>${
+      desksTable.innerHTML = `<thead><tr><th>Desk</th><th>Market → MT5</th><th>Trade FTMO</th><th>Status on the account</th><th>Live position</th><th class="r">Live P&amp;L today</th></tr></thead><tbody>${
         v.desks.map((d) => {
           const prof = this.store.profileById[d.id];
           return `<tr>
             <td><span class="desk-cell"><i style="background:${prof?.accent ?? '#888'}"></i><span>${escapeHtml(d.name)}<small>${escapeHtml(d.desk)}</small></span></span></td>
             <td>${escapeHtml(d.symbols[0])} → ${d.brokerSymbol ? `<b>${escapeHtml(d.brokerSymbol)}</b>` : '<span class="muted">not mapped</span>'}${d.id === 'chen' ? '<br><span class="muted">+ your TradingView alerts</span>' : ''}${prof?.lab ? '<br><span class="muted">market follows its research · half size while on probation</span>' : ''}</td>
             <td>${d.eligible ? `<label class="switch" title="${d.enabled ? 'Trading FTMO' : 'Paper only'}"><input type="checkbox" data-desk="${d.id}" ${d.enabled ? 'checked' : ''} ${p ? '' : 'disabled'} aria-label="${escapeHtml(d.name)} trades FTMO"><span></span></label>` : `<span class="muted" title="${escapeHtml(d.reason)}">Paper only ⓘ</span>`}</td>
+            <td class="ftmo-status">${d.enabled && d.eligible ? ftmoStatus(d, { detail: true }) : '<span class="muted">—</span>'}</td>
             <td>${d.live ? `${d.live.side} ${d.live.volume} ${escapeHtml(d.live.symbol)}` : '<span class="muted">—</span>'}</td>
             <td class="r ${signClass(d.pnlToday)}">${d.pnlToday ? money(d.pnlToday, { sign: true }) : '<span class="muted">—</span>'}</td>
           </tr>`;

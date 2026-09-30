@@ -101,12 +101,16 @@ export class Hud {
       row.pnl.textContent = d.na ? 'paper' : money(d.day, { sign: true, compact: Math.abs(d.day) >= 1e5 });
       row.pnl.className = `pnl num ${d.na ? 'na' : signClass(d.day)}`;
       row.pnl.title = d.na ? 'Not switched on for the FTMO account' : ftmo ? 'P&L on your FTMO account today' : 'Paper P&L today';
-      const color = STATUS_COLORS[a.status] || '#3fb950';
-      const stKey = `${a.status}|${a.news?.hold?.label || ''}`;
+      // In FTMO view a paper position is called what it is, unless it is live on MT5.
+      const ld = ftmo ? s.live?.desks?.find((x) => x.id === id) : null;
+      const paperTrade = ftmo && a.status === 'IN TRADE' && ld?.status?.state !== 'live';
+      const stText = paperTrade ? 'paper trade' : ld?.status?.state === 'live' ? 'live on ftmo' : a.status.toLowerCase();
+      const color = paperTrade ? '#8b93a1' : STATUS_COLORS[a.status] || '#3fb950';
+      const stKey = `${stText}|${a.news?.hold?.label || ''}`;
       if (row.stKey !== stKey) {
         row.stKey = stKey;
-        row.st.innerHTML = `<i class="st-dot" style="background:${color}"></i>${escapeHtml(a.status.toLowerCase())}`;
-        row.st.title = a.news?.hold ? `Standing aside for ${a.news.hold.label}` : '';
+        row.st.innerHTML = `<i class="st-dot" style="background:${color}"></i>${escapeHtml(stText)}`;
+        row.st.title = a.news?.hold ? `Standing aside for ${a.news.hold.label}` : paperTrade ? 'This trade is on paper only, not on your FTMO account' : '';
       }
       if (row.lab) {
         const act = a.research?.active;
@@ -133,8 +137,11 @@ export class Hud {
         chip.textContent = 'FTMO';
         row.li.querySelector('.sub').prepend(chip);
       }
-      chip.classList.toggle('on', !!(d.live && v.armed));
-      chip.title = d.live ? `Live on FTMO: ${d.live.side} ${d.live.volume} ${d.live.symbol}` : 'Allowed to trade the FTMO account';
+      const state = d.status?.state || 'proving';
+      chip.classList.toggle('on', state === 'live');
+      chip.classList.toggle('wait', !['live', 'cleared', 'ready'].includes(state));
+      chip.textContent = state === 'live' ? 'FTMO LIVE' : ['cleared', 'ready'].includes(state) ? 'FTMO' : 'FTMO · PAPER';
+      chip.title = [d.status?.text || 'Switched on for the FTMO account', d.lastSkip && state !== 'live' ? `Last trade not sent (${d.lastSkip.symbol}): ${d.lastSkip.reason}` : ''].filter(Boolean).join('\n');
     }
   }
 

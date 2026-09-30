@@ -17,7 +17,7 @@ import { autoMap } from '../server/live/symbolMap.js';
 const GOLD = { bid: 3800, ask: 3800.2, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
 const tick = () => new Promise((r) => setImmediate(r));
 
-function setup({ mode = 'live' } = {}) {
+function setup({ mode = 'live', committee = 'off' } = {}) {
   const clock = new MarketClock('live');
   const session = new Session(clock);
   session.isFlattenWindow = () => false; // tests must not depend on the time of day
@@ -25,7 +25,7 @@ function setup({ mode = 'live' } = {}) {
   const broker = new Broker(md, clock);
   const risk = new RiskManager({ riskPerTradePct: 0.005, deskDailyLossPct: 0.02, fundDailyLossPct: 0.012, maxLeverage: 4 }, session);
   // These tests cover the mirroring mechanics; the committee and account plan have their own tests.
-  const fund = new Fund({ config: { startingCapital: 100_000_000, feed: mode, fundName: 'Test' }, md, clock, session, broker, risk, committee: 'off' });
+  const fund = new Fund({ config: { startingCapital: 100_000_000, feed: mode, fundName: 'Test' }, md, clock, session, broker, risk, committee });
   const bridge = new Mt5Bridge();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
   const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} } });
@@ -290,4 +290,47 @@ test('the daily stop switch is saved on the account and noted in the live log', 
   assert.equal(live.profile.dailyStopOn, false);
   live.setPlan({ dailyStopOn: true });
   assert.equal(live.profile.dailyStopOn, true);
+});
+
+test('the floor never says a desk is on FTMO while its trades stay on paper; the boss\'s alerts do go', async () => {
+  const { fund, live, sync, chen } = setup({ committee: 'on' });
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  live.setDesk('amara', true);
+  live.setDesk('chen', true);
+  assert.equal(live.arm().ok, true);
+
+  // Amara's own trade: switched on, but no record on real prices yet.
+  const amara = fund.byId.get('amara');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'test setup', symbol: 'XAUUSD' }), true);
+  await tick();
+  live.reconcile();
+  assert.equal(sync().filter((c) => c[0] === 'open').length, 0, 'not sent to MT5');
+  const row = live.view().desks.find((d) => d.id === 'amara');
+  assert.equal(row.status.state, 'proving');
+  assert.ok(row.lastSkip?.reason, 'the reason is shown');
+  const says = live.describeFor('amara');
+  assert.match(says, /haven't earned real money yet/);
+  assert.match(says, /XAUUSD trade is on paper only/);
+  assert.doesNotMatch(says, /cleared to trade/);
+  assert.match(amara.briefing().text, /On paper only, I'm long/);
+
+  // The boss's own TradingView alert through Chen goes to MT5 straight away.
+  assert.equal(live.view().desks.find((d) => d.id === 'chen').status.state, 'proving');
+  assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
+  await tick();
+  live.reconcile();
+  const open = sync().filter((c) => c[0] === 'open');
+  assert.equal(open.length, 1, 'the alert reached MT5');
+  assert.equal(live.view().desks.find((d) => d.id === 'chen').status.state, 'live');
+  assert.match(live.describeFor('chen'), /sent a buy order/);
+
+  // The TradingView tab's test button never trades the account.
+  chen.closeTrade('XAUUSD', 'test exit');
+  chen.cooldownBars = 0;
+  assert.equal(chen.handleSignal({ action: 'sell', symbol: 'XAUUSD', stop: 3810, target: 3790, test: true }).ok, true);
+  await tick();
+  live.reconcile();
+  assert.equal(sync().filter((c) => c[0] === 'open').length, 0);
+  assert.match([...live.links.values()].at(-1).reason, /test alert/);
 });

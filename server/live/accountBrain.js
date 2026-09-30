@@ -12,6 +12,8 @@ import { fmtUsd } from '../util/format.js';
 //     daily guard still applies), a cap on trades per day, and a stop for the day after a
 //     losing streak;
 //   - one position per correlated group (both US indices are one bet, so are the coins);
+//   - the boss's own TradingView alerts are the boss's decision: they skip the proven-desk
+//     and grade gates (the committee can still veto them) but every risk rule above applies;
 //   - near the profit target the risk shrinks so one loss can't undo the progress, and on a
 //     funded account risk is lighter to protect the payouts.
 
@@ -130,23 +132,58 @@ export class AccountBrain {
     };
   }
 
+  // Has this desk earned real money with its own trades? (Its measured edge on real prices,
+  // or for a research desk a strategy validated on real data.)
+  clearance(agent) {
+    const committee = agent.env.committee;
+    if (!committee) return { ok: true, text: 'cleared' };
+    if (agent.profile.lab) {
+      const act = agent.active;
+      if (!act) return { ok: false, text: 'no validated strategy yet, so it researches on paper first' };
+      const ed = committee.edge(agent, act.symbol, 'LONG');
+      if (ed.e <= 0) return { ok: false, text: ed.text };
+      return { ok: true, text: ed.text };
+    }
+    const ed = committee.edge(agent, agent.symbol, 'LONG');
+    if (ed.n < 10) return { ok: false, n: ed.n, text: `it needs 10 or more paper trades on real market prices before it risks real money (${ed.n} so far)` };
+    if (ed.e <= 0) return { ok: false, text: `its measured edge is negative (${ed.text}); it earns its way back on paper first` };
+    return { ok: true, text: ed.text };
+  }
+
   // May this desk's trade go to the account, and at what size?
   allow(agent, pos, plan) {
     const st = this.state();
     if (!st) return { ok: true, riskMult: 1 };
     if (st.blocked) return { ok: false, reason: st.blocked };
-    if (plan.grade != null && (GRADE_RANK[plan.grade] || 0) < (GRADE_RANK[st.minGrade] || 3)) {
-      return { ok: false, reason: `committee grade ${plan.grade}: the account only takes ${st.minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades` };
-    }
-    const committee = agent.env.committee;
-    if (committee) {
-      const ed = committee.edge(agent, pos.symbol, pos.qty > 0 ? 'LONG' : 'SHORT');
-      if (!agent.profile.lab && ed.n < 10) return { ok: false, reason: `the desk needs 10 or more paper trades on real market prices before it risks real money (${ed.n} so far)` };
-      if (ed.e <= 0) return { ok: false, reason: `the desk's measured edge is negative (${ed.text}); it earns its way back on paper first` };
+    // The boss's own TradingView alert: not held back by the desk's paper record or grade.
+    const boss = plan.tag === 'TV';
+    if (!boss) {
+      if (plan.grade != null && (GRADE_RANK[plan.grade] || 0) < (GRADE_RANK[st.minGrade] || 3)) {
+        return { ok: false, reason: `committee grade ${plan.grade}: the account only takes ${st.minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades` };
+      }
+      const c = this.clearance(agent);
+      if (!c.ok) return { ok: false, reason: c.n != null ? `the desk ${c.text.replace(/^it /, '')}` : `the desk isn't cleared yet: ${c.text}` };
     }
     const group = GROUPS[pos.symbol];
     const busy = this.#links().some((l) => !l.previousSession && ['pending', 'open', 'closing'].includes(l.state) && GROUPS[l.floorSymbol] === group);
     if (group && busy) return { ok: false, reason: `the account already has a ${group} position (one per correlated group)` };
-    return { ok: true, riskMult: st.mult, reasons: st.reasons };
+    return { ok: true, riskMult: st.mult, reasons: st.reasons, boss };
+  }
+
+  // Where a desk stands with the account right now, in one line the whole floor can show.
+  deskStatus(agent, st = this.state()) {
+    const lt = this.live;
+    const p = lt.profile;
+    if (!p?.desks?.[agent.id]) return { state: 'off', label: 'Off', text: 'Not switched on for the FTMO account: paper only' };
+    if (!lt.eligible(agent.id)) return { state: 'paper', label: 'Paper only', text: lt.ineligibleReason(agent.id) };
+    const open = this.#links().find((l) => l.agentId === agent.id && !l.previousSession && ['open', 'closing', 'pending'].includes(l.state));
+    if (open) return { state: 'live', label: 'LIVE', text: `Live on MT5: ${open.side} ${open.volumeNow ?? open.volume0} ${open.brokerSymbol}` };
+    if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };
+    const c = this.clearance(agent);
+    const alerts = agent.profile.tvDesk ? ' Your TradingView alerts through this desk still go to the account.' : '';
+    if (!c.ok) return { state: 'proving', label: 'Proving on paper', text: `Paper only for now: ${c.text}.${alerts}` };
+    if (!lt.armed) return { state: 'ready', label: 'Cleared · not armed', text: 'Cleared for the account. Arm live trading in the FTMO tab to start.' };
+    if (st?.blocked) return { state: 'stopped', label: 'Stopped today', text: st.blocked };
+    return { state: 'cleared', label: 'Cleared', text: `Cleared: its ${st?.minGrade === 'B' ? 'A and B-grade' : 'A-grade'} trades go to MT5.` };
   }
 }

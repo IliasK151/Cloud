@@ -279,7 +279,8 @@ app.post('/api/tradingview/test', localOnly, express.json(), (req, res) => {
   const { agent = 'chen', action = 'buy', symbol } = req.body || {};
   const parsed = normalizeAlert({ agent, action, symbol: symbol || fund.byId.get(agent)?.symbol, comment: 'UI test alert' });
   if (!parsed.ok) return res.status(400).json(parsed);
-  const result = fund.handleAlert(parsed.alert);
+  // A test from this page trades paper only, never the FTMO account.
+  const result = fund.handleAlert({ ...parsed.alert, test: true });
   res.json({ ok: result.ok, result: result.ok ? result.text : result.reason });
 });
 

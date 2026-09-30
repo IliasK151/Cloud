@@ -659,3 +659,9 @@ details.how p { color: var(--text-3); }
 .fw-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 0; }
 .fw-bans { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .fw-ban { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--hairline); font-size: 12px; }
+.pill.warn { background: rgba(242, 176, 30, 0.16); color: var(--warn); }
+.pill.paper { background: rgba(139, 147, 161, 0.18); color: #b3b9c4; }
+.desk-item .ftmo.wait { background: rgba(139, 147, 161, 0.16); color: #aab1bd; }
+.table td.ftmo-status { white-space: normal; min-width: 240px; max-width: 380px; }
+.ftmo-status .ftmo-why { margin: 4px 0 0; line-height: 1.35; white-space: normal; max-width: 380px; }
+.ap-live.paper { color: var(--text-2); border-color: var(--hairline); background: var(--surface-2); }

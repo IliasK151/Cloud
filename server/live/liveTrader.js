@@ -40,6 +40,7 @@ export class LiveTrader extends EventEmitter {
     this.events = [];
     this.links = new Map((this.state.links || []).map((l) => [l.key, { ...l, previousSession: true }]));
     this.agentIndex = new Map(fund.agents.map((a, i) => [a.id, i + 1]));
+    this.lastSkipNote = new Map();
     this.brain = new AccountBrain(this);
 
     bridge.on('account', (acc) => this.#onAccount(acc));
@@ -102,6 +103,10 @@ export class LiveTrader extends EventEmitter {
 
   eligible(agentId) {
     return !INELIGIBLE[agentId];
+  }
+
+  ineligibleReason(agentId) {
+    return INELIGIBLE[agentId] || null;
   }
 
   magicFor(agentId) {
@@ -436,6 +441,7 @@ export class LiveTrader extends EventEmitter {
       total: closed.reduce((s, l) => s + (l.pnl || 0), 0) + openProfit,
       trades: closedToday.length + (openLink ? 1 : 0),
       open: openLink ? { side: openLink.side, volume: openLink.volumeNow, symbol: openLink.brokerSymbol, profit: openProfit, sl: openLink.sl, tp: openLink.tp } : null,
+      liveSymbols: mine.filter((l) => !l.previousSession && ['open', 'closing', 'pending'].includes(l.state)).map((l) => l.floorSymbol),
     };
   }
 
@@ -479,7 +485,12 @@ export class LiveTrader extends EventEmitter {
       key, agentId: agent.id, floorSymbol: pos.symbol, brokerSymbol: this.profile.symbolMap[pos.symbol],
       side: pos.qty > 0 ? 'BUY' : 'SELL', state: 'skipped', reason, createdAt: Date.now(), login: this.login,
     });
-    this.#note(`${agent.profile.name.split(' ')[0]} ${pos.symbol} trade not sent to FTMO: ${reason}`, 'live', agent.id);
+    // Say it on the floor, but not again for the same reason within 20 minutes.
+    const last = this.lastSkipNote.get(agent.id);
+    if (last && last.reason === reason && Date.now() - last.at < 20 * 60_000) return this.emit('change');
+    this.lastSkipNote.set(agent.id, { reason, at: Date.now() });
+    this.#note(`${agent.profile.name.split(' ')[0]}'s ${pos.symbol} trade stays on paper, not sent to FTMO: ${reason}`, 'live', agent.id);
+    return undefined;
   }
 
   #openLive(agent, pos, key) {
@@ -495,6 +506,7 @@ export class LiveTrader extends EventEmitter {
     if (feed?.source === 'sim' || feed?.status === 'SIM') return this.#skip(agent, pos, key, `${pos.symbol} is on simulated prices right now (its live feed is down); only real prices trade real money`);
     if (pos.trade?.simFeed) return this.#skip(agent, pos, key, `the desk decided this ${pos.symbol} trade on simulated prices`);
     if (!plan || !(plan.risk > 0)) return this.#skip(agent, pos, key, 'no stop-loss on the desk trade');
+    if (plan.testAlert) return this.#skip(agent, pos, key, 'it was a test alert from the TradingView tab (tests never trade the account)');
     if (!spec) return this.#skip(agent, pos, key, `no MT5 price for ${brokerSymbol} yet`);
     if (!acc.algoAllowed || !acc.tradeAllowed) return this.#skip(agent, pos, key, 'Algo Trading is switched off in MT5');
     const ours = this.bridge.positions.filter((x) => this.#ours(x)).length
@@ -507,7 +519,10 @@ export class LiveTrader extends EventEmitter {
     // The account brain: only proven desks' A-grade trades, sized by where the account stands.
     const verdict = this.brain.allow(agent, pos, plan);
     if (!verdict.ok) return this.#skip(agent, pos, key, verdict.reason);
-    const riskMoney = acc.balance * (p.riskPerTradePct / 100) * (agent.profile.riskScale ?? 1) * Math.min(1, plan.riskMult ?? plan.learnMult ?? 1) * verdict.riskMult;
+    // The boss's own alerts go at the account plan's risk; a desk's own trades may be sized
+    // down further by its committee grade and what it has learned (never up).
+    const deskMult = verdict.boss ? 1 : Math.min(1, plan.riskMult ?? plan.learnMult ?? 1);
+    const riskMoney = acc.balance * (p.riskPerTradePct / 100) * (agent.profile.riskScale ?? 1) * deskMult * verdict.riskMult;
     const lots = lotsForRisk(riskMoney, plan.risk, spec);
     if (!lots) return this.#skip(agent, pos, key, `position would be below the ${spec.volMin} lot minimum`);
     const actualRisk = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue) * lots;
@@ -579,14 +594,34 @@ export class LiveTrader extends EventEmitter {
   // ---- presentation -----------------------------------------------------------------------------
   describeFor(agentId) {
     const p = this.profile;
-    if (!p?.desks?.[agentId] || !this.eligible(agentId)) return null;
+    const agent = this.fund.byId.get(agentId);
+    if (!agent || !p?.desks?.[agentId] || !this.eligible(agentId)) return null;
     const open = [...this.links.values()].find((l) => l.agentId === agentId && l.state === 'open' && !l.previousSession);
     if (open) {
       const pnl = open.profit ?? 0;
-      return `I'm also live on your FTMO account: ${open.side === 'BUY' ? 'long' : 'short'} ${open.volumeNow} lots of ${open.brokerSymbol}, ${pnl >= 0 ? 'up' : 'down'} ${fmtUsd(Math.abs(pnl))}.`;
+      return `I'm live on your FTMO account: ${open.side === 'BUY' ? 'long' : 'short'} ${open.volumeNow} lots of ${open.brokerSymbol}, ${pnl >= 0 ? 'up' : 'down'} ${fmtUsd(Math.abs(pnl))}.`;
     }
+    const pending = [...this.links.values()].find((l) => l.agentId === agentId && (l.state === 'pending' || l.state === 'closing') && !l.previousSession);
+    if (pending) return pending.state === 'pending'
+      ? `I've just sent a ${pending.side === 'BUY' ? 'buy' : 'sell'} order for ${pending.volume0} lots of ${pending.brokerSymbol} to your FTMO account and I'm waiting for MT5 to fill it.`
+      : `I'm closing my ${pending.brokerSymbol} position on your FTMO account now.`;
     if (this.halt) return `Your FTMO account is on hold: ${this.halt.reason}.`;
-    return this.armed ? `I'm cleared to trade your FTMO account and flat there right now.` : `I'm set up for your FTMO account, waiting for you to arm live trading.`;
+    const st = this.brain.deskStatus(agent);
+    // A paper trade that is running right now but isn't on the account: say so, and why.
+    const paper = [...agent.book.positions.values()].map((pos) => {
+      const link = this.links.get(this.#paperKey(agent, pos));
+      return { pos, link };
+    }).find(({ link }) => !link || link.state === 'skipped' || link.state === 'failed');
+    const why = paper?.link?.reason;
+    const paperLine = paper ? ` My ${paper.pos.symbol} trade is on paper only${why ? `: it wasn't sent to FTMO because ${why}` : ''}.` : '';
+    if (st.state === 'proving') {
+      const alerts = agent.profile.tvDesk ? ' Your own TradingView alerts through me still go to the account.' : '';
+      const need = st.text.replace(/^Paper only for now: /, '').replace(/ Your TradingView.*$/, '').replace(/^it needs/, 'I need').replace(/^its /, 'my ').replace(/^no validated/, 'I have no validated');
+      return `I'm switched on for your FTMO account, but I haven't earned real money yet: ${need} Until then my own trades stay on paper.${alerts}${paperLine}`;
+    }
+    if (st.state === 'stopped') return `The account plan has stopped trading for today: ${st.text}.${paperLine}`;
+    if (!this.armed) return `I'm cleared for your FTMO account, waiting for you to arm live trading.${paperLine}`;
+    return `I'm cleared to trade your FTMO account and flat there right now.${paperLine}`;
   }
 
   // Floor trades on this account for the dashboard: blotter rows and simple stats.
@@ -642,6 +677,7 @@ export class LiveTrader extends EventEmitter {
       const how = !p ? ' Set up the account below and MT5 will price the mapped ones with your broker\'s feed.' : '';
       warnings.push(`${simulated.join(', ')} ${simulated.length === 1 ? 'is' : 'are'} on simulated prices because the live feed is down. Desks keep practising on paper there, but nothing on those markets is sent to FTMO until real prices are back.${how}`);
     }
+    const plan = this.brain.state();
     const orphans = this.bridge.positions.filter((x) => this.#ours(x) && !links.some((l) => l.ticket === x.ticket && !l.previousSession && ['open', 'closing'].includes(l.state)));
     if (orphans.length) warnings.push(`${orphans.length} floor position(s) on MT5 are from a previous session. They keep their stop-loss; close them below if you like.`);
     return {
@@ -660,7 +696,7 @@ export class LiveTrader extends EventEmitter {
       halt: this.halt,
       metrics: this.metrics(),
       openRisk: this.openRisk(),
-      plan: this.brain.state(),
+      plan,
       types: ACCOUNT_TYPES,
       defaults: DEFAULTS,
       brokerSymbolCount: brokerSymbols.length,
@@ -668,6 +704,7 @@ export class LiveTrader extends EventEmitter {
       candidates: Object.fromEntries(SYMBOL_IDS.map((id) => [id, candidatesFor(id, brokerSymbols).slice(0, 12)])),
       desks: this.fund.agents.map((a) => {
         const b = this.deskBook(a.id);
+        const skip = links.filter((l) => l.agentId === a.id && !l.previousSession && (l.state === 'skipped' || l.state === 'failed')).at(-1);
         return {
           id: a.id, name: a.profile.name, desk: a.profile.desk, symbols: a.symbols,
           eligible: this.eligible(a.id), reason: INELIGIBLE[a.id] || null,
@@ -677,6 +714,8 @@ export class LiveTrader extends EventEmitter {
           pnlToday: b.day,
           pnlTotal: b.total,
           tradesToday: b.trades,
+          status: p ? this.brain.deskStatus(a, plan) : null,
+          lastSkip: skip ? { reason: skip.reason, symbol: skip.floorSymbol, at: skip.createdAt, state: skip.state } : null,
         };
       }),
       equityHistory: this.equityHistory.slice(-240),

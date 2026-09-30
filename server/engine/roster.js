@@ -82,7 +82,7 @@ export const ROSTER = [
   },
   {
     id: 'chen', name: 'Chen Wei', title: 'Systematic Signals PM', desk: 'TradingView Signals',
-    Strategy: TradingViewSignals, symbols: ['ETHUSD'], gender: 'female',
+    Strategy: TradingViewSignals, symbols: ['ETHUSD'], gender: 'female', tvDesk: true,
     appearance: { skin: '#efcca6', hair: '#101012', hairStyle: 'bob', eyes: '#2a1a10', outfit: 'turtleneck', jacket: '#15181d', glasses: '#1a1a1a', headset: true },
     accent: '#2962ff',
     voice: { neural: 'af_sarah', lang: 'en-US', prefer: ['Susan', 'Nicky', 'Allison', 'Samantha', 'Ava'] },
