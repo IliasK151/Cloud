@@ -235,8 +235,10 @@ test('the running floor refuses the attacks end to end', { timeout: 90_000 }, as
     assert.equal((await request(base + 1, { path: '/api/live' })).status, 404);
     assert.equal((await hook('198.51.100.7', { secret, action: 'buy', agent: 'chen' })).status, 403, 'right secret, not TradingView');
     assert.equal((await hook(TRADINGVIEW_IPS[1], { secret, action: 'ping' })).status, 200);
-    const trade = JSON.parse((await hook(TRADINGVIEW_IPS[1], { secret, action: 'buy', agent: 'chen' })).body);
-    assert.equal(trade.ok, true);
+    // Through the firewall to the desk (whether the desk trades it depends on the market).
+    const fromTv = await hook(TRADINGVIEW_IPS[1], { secret, action: 'buy', agent: 'chen' });
+    assert.equal(fromTv.status, 200);
+    assert.equal(typeof JSON.parse(fromTv.body).result, 'string', 'answered by the desk, not refused by the firewall');
     for (let i = 0; i < 5; i++) await hook('203.0.113.9', { secret: 'guess', action: 'buy' });
     assert.equal((await hook('203.0.113.9', { secret, action: 'ping' })).status, 403, 'banned');
     const big = await request(base + 1, { method: 'POST', path: '/webhook', headers: { 'CF-Connecting-IP': TRADINGVIEW_IPS[0], 'Content-Type': 'text/plain' }, body: 'x'.repeat(20_000) });
