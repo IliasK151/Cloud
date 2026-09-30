@@ -673,3 +673,6 @@ details.how p { color: var(--text-3); }
 .ea-card.done h2 { color: var(--pos-text); }
 .ea-steps li { margin-bottom: 8px; }
 .ea-steps .btn { vertical-align: middle; margin-right: 8px; }
+.plan-switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 4px; }
+.plan-switches .plan-switch { margin: 0; }
+@media (max-width: 900px) { .plan-switches { grid-template-columns: 1fr; } }

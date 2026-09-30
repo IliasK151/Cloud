@@ -1,6 +1,6 @@
 import { api } from '../net.js';
 import { money, escapeHtml, signClass } from '../format.js';
-import { dailyStopSwitch, onPlanSwitch } from './planSwitch.js';
+import { planSwitches, onPlanSwitch } from './planSwitch.js';
 import { ftmoStatus } from '../book.js';
 
 // FTMO tab: connect MT5, set the account up, pick desks, arm, and watch the rules.
@@ -63,7 +63,7 @@ export class LiveView {
       const t = e.target;
       if (t.matches('[data-desk]')) this.#post('desk', { agentId: t.dataset.desk, enabled: t.checked });
       if (t.id === 'lv-type') this.#applyPreset(t.value);
-      if (t.matches('[data-plan-switch]')) onPlanSwitch(t);
+      if (t.matches('[data-plan-switch]')) onPlanSwitch(t, this.store.live?.plan);
     });
     this.built = true;
   }
@@ -316,7 +316,7 @@ export class LiveView {
           ${meter('Daily loss used', m.dailyUsed, `${money(-m.dailyLoss)} of ${money(-m.dailyLimit)} · ${pct(m.dailyUsed)}`, `Measured from today's starting balance ${money(m.dayStartBalance)}. Stops at ${money(-m.dailyGuard)}.`)}
           ${meter('Max loss used', m.maxUsed, `${money(-m.totalLoss)} of ${money(-m.maxLimit)} · ${pct(m.maxUsed)}`, `Account may not fall below ${money(p.size - m.maxLimit)}. Stops at ${money(p.size - m.maxGuard)}.`)}
         </div>
-        ${dailyStopSwitch(v.plan)}`;
+        ${planSwitches(v.plan)}`;
     } else {
       $('#live-rules').innerHTML = `<h2>Account vs FTMO rules</h2><p class="sub">Once MT5 is connected and the account is set up, balance, equity, profit target and the daily and max loss limits show here.</p>`;
     }

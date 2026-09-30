@@ -19,9 +19,16 @@ export const DEFAULTS = {
   minGrade: 'A', // only committee A-grade trades reach the account ('B' allows A and B)
   dailyStopPct: 1.5, // stop for the day at this loss, far before FTMO's daily limit
   dailyStopOn: true, // the boss can switch the daily stop off (FTMO's own daily guard still applies)
+  tradeCapOn: true, // stop taking new trades after maxTradesPerDay
+  streakStopOn: true, // stop for the day after streakStop losses in a row
+  provenOnly: true, // only desks with a proven edge on real prices (off: unproven desks at half risk)
   maxTradesPerDay: 6,
   streakStop: 3, // losses in a row that end the day
 };
+
+// The account plan's on/off switches (see the Brain and FTMO tabs).
+export const PLAN_SWITCHES = ['dailyStopOn', 'tradeCapOn', 'streakStopOn', 'provenOnly'];
+const flag = (v, fallback) => (v == null ? fallback : v !== false && v !== 'false');
 
 const clampNum = (v, lo, hi, fallback) => {
   const n = Number(v);
@@ -46,7 +53,10 @@ export function normalizeProfile(input = {}, account = {}) {
     stopAtTarget: input.stopAtTarget ?? DEFAULTS.stopAtTarget,
     minGrade: ['A', 'B'].includes(input.minGrade) ? input.minGrade : DEFAULTS.minGrade,
     dailyStopPct: clampNum(input.dailyStopPct ?? DEFAULTS.dailyStopPct, 0.25, 10, DEFAULTS.dailyStopPct),
-    dailyStopOn: input.dailyStopOn == null ? DEFAULTS.dailyStopOn : input.dailyStopOn !== false && input.dailyStopOn !== 'false',
+    dailyStopOn: flag(input.dailyStopOn, DEFAULTS.dailyStopOn),
+    tradeCapOn: flag(input.tradeCapOn, DEFAULTS.tradeCapOn),
+    streakStopOn: flag(input.streakStopOn, DEFAULTS.streakStopOn),
+    provenOnly: flag(input.provenOnly, DEFAULTS.provenOnly),
     maxTradesPerDay: Math.round(clampNum(input.maxTradesPerDay ?? DEFAULTS.maxTradesPerDay, 1, 50, DEFAULTS.maxTradesPerDay)),
     streakStop: Math.round(clampNum(input.streakStop ?? DEFAULTS.streakStop, 2, 10, DEFAULTS.streakStop)),
   };

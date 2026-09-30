@@ -361,3 +361,47 @@ test('an outdated EA gets a doable update: one click copies it into MT5, then it
   assert.ok(live.events.some((e) => /EA updated to/.test(e.text)));
   assert.equal(live.view().warnings.some((w) => /older version/.test(w)), false);
 });
+
+test('plan switches save together, survive the setup form, and ghost orders stop counting', async () => {
+  const { live, sync, mt5, chen } = setup();
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  assert.equal(live.setPlan({ tradeCapOn: false, provenOnly: false }).ok, true);
+  assert.equal(live.profile.tradeCapOn, false);
+  assert.equal(live.profile.provenOnly, false);
+  assert.ok(live.events.some((e) => /Trade cap switched OFF/.test(e.text)));
+  live.setup({ type: 'trial', size: 100_000 }); // saving the form keeps them
+  assert.equal(live.profile.tradeCapOn, false);
+  assert.equal(live.profile.provenOnly, false);
+
+  // An order MT5 never confirmed: after two minutes it no longer counts or blocks anything.
+  live.setDesk('chen', true);
+  live.arm();
+  assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
+  await tick();
+  live.reconcile();
+  const link = [...live.links.values()].find((l) => l.agentId === 'chen');
+  assert.equal(link.state, 'pending');
+  mt5.acks = [];
+  live.bridge.pending.clear(); // the command itself was lost
+  link.createdAt -= 3 * 60_000;
+  sync();
+  assert.equal(link.state, 'failed');
+  assert.match(link.reason, /never confirmed/);
+  assert.equal(live.brain.state().tradesToday, 0);
+});
+
+test('a trade below the broker minimum goes at the minimum lot only within the base risk', async () => {
+  const { live, sync, chen } = setup();
+  sync();
+  live.setup({ type: 'trial', size: 100_000, riskPerTradePct: 0.01 }); // $10 per trade
+  live.setDesk('chen', true);
+  live.arm();
+  // Gold, a $5 stop: 0.01 lot risks $5 → within $10, so it goes at the minimum.
+  assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3830 }).ok, true);
+  await tick();
+  live.reconcile();
+  const open = sync().filter((c) => c[0] === 'open');
+  assert.equal(open.length, 1);
+  assert.equal(open[0][4], '0.01');
+});

@@ -190,8 +190,11 @@ test('account brain: daily stop, losing streaks and the trade cap stop the day',
   assert.ok(two.reasons.some((r) => /2 losses in a row: half risk/.test(r)));
   const three = account({ links: [loss(1), loss(2), loss(3)] }).brain.state();
   assert.match(three.blocked, /3 losses in a row/);
-  const busy = account({ links: Array.from({ length: 6 }, () => ({ state: 'closed', pnl: 10, closedAt: Date.now(), closedDay: '2026.10.14', openedDay: '2026.10.14' })) }).brain.state();
+  const busy = account({ links: Array.from({ length: 6 }, (_, i) => ({ state: 'closed', ticket: 100 + i, pnl: 10, closedAt: Date.now(), closedDay: '2026.10.14', openedDay: '2026.10.14' })) }).brain.state();
   assert.match(busy.blocked, /6 trades today/);
+  // Orders MT5 never confirmed (no ticket) are not trades.
+  const ghosts = account({ links: Array.from({ length: 9 }, () => ({ state: 'closed', pnl: 0, closedAt: Date.now(), openedDay: '2026.10.14' })) }).brain.state();
+  assert.equal(ghosts.tradesToday, 0);
 });
 
 test('account brain: the daily stop can be switched off; risk still halves and the FTMO guard remains', () => {
@@ -208,6 +211,31 @@ test('account brain: the daily stop can be switched off; risk still halves and t
   // Default and form round-trips keep the setting.
   assert.equal(normalizeProfile({}).dailyStopOn, true);
   assert.equal(normalizeProfile({ dailyStopOn: false }).dailyStopOn, false);
+});
+
+test('account brain: every day-ender has its own switch, and unproven desks can be let in at half risk', () => {
+  const trades = Array.from({ length: 15 }, (_, i) => ({ state: 'closed', ticket: 500 + i, pnl: 5, closedAt: Date.now(), openedDay: '2026.10.14' }));
+  assert.match(account({ links: trades }).brain.state().blocked, /15 trades today.*switched off/);
+  const capOff = account({ links: trades, profile: { tradeCapOn: false } }).brain.state();
+  assert.equal(capOff.blocked, null);
+  assert.ok(capOff.rules.some((r) => /Trade cap is OFF/.test(r.text)));
+  const loss = (i) => ({ state: 'closed', ticket: 900 + i, pnl: -30, closedAt: Date.now() - (5 - i) * 60_000, closedDay: '2026.10.14', openedDay: '2026.10.14' });
+  assert.equal(account({ links: [loss(1), loss(2), loss(3)], profile: { streakStopOn: false } }).brain.state().blocked, null);
+
+  // Proven desks only: an unproven desk's committee-approved trade goes at half risk when it's off.
+  const { fund } = floor('on');
+  const marcus = fund.byId.get('marcus');
+  const pos = { symbol: 'NAS100', qty: 1 };
+  assert.equal(account().brain.allow(marcus, pos, { grade: 'A' }).ok, false);
+  const open = account({ profile: { provenOnly: false } }).brain;
+  const a = open.allow(marcus, pos, { grade: 'A' });
+  assert.equal(a.ok, true);
+  assert.equal(a.probation, true);
+  assert.equal(a.riskMult, 0.5);
+  assert.equal(open.allow(marcus, pos, { grade: 'B' }).ok, true, 'B-grade too while proving');
+  assert.match(open.allow(marcus, pos, { grade: 'C' }).reason, /grade C/);
+  assert.equal(normalizeProfile({}).provenOnly, true);
+  assert.equal(normalizeProfile({ tradeCapOn: 'false' }).tradeCapOn, false);
 });
 
 test('account brain: only proven desks, A-grade, one position per correlated group', () => {

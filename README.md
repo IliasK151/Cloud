@@ -212,9 +212,17 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
   - the desk's own briefing, which gives the reason when a trade wasn't sent.
 - **Starting fresh.** The real-only record began with this version. Your desks' earlier paper records can't be split into real and simulated trades, so every desk earns its 10 real trades again before it risks the account. Crypto desks on Binance get there fastest.
 - **Drawdown shrinks risk.** Below the starting balance, risk scales down (for example −$100 on a $10,000 trial: 0.25% → 0.20% per trade) until the loss is won back. It never grows past the base risk you set.
-- **Daily stop at −1.5%**, far before FTMO's 5%. At half of that, risk halves for the rest of the day. The **Daily stop** switch on the Brain and FTMO tabs turns the stop off, for example while you watch how the desks perform through a losing day. With it off, the desks keep trading after −1.5% (risk still halves). FTMO's daily loss guard still closes everything at 80% of the daily limit.
+- **Daily stop at −1.5%**, far before FTMO's 5%. At half of that, risk halves for the rest of the day.
 - **Losing streaks:** two in a row halve the risk until the next winner; three in a row end the day.
-- **At most 6 trades a day.** Overtrading is how accounts die.
+- **At most 6 trades a day.** Overtrading is how accounts die. Only trades MT5 actually confirmed count; an order it never confirmed doesn't.
+- **Every rule that can hold trades back has its own switch** on the Brain and FTMO tabs, for when you want to let the desks run and watch the performance:
+  - **Daily stop:** when it's off, desks keep trading after −1.5%. Risk still halves.
+  - **Trade cap:** when it's off, there's no daily limit on trades.
+  - **Losing-streak stop:** when it's off, desks keep trading after 3 losses in a row. Risk still halves after 2.
+  - **Proven desks only:** when it's off, unproven desks send their committee-approved A and B-grade trades to the account at half risk.
+
+  FTMO's own loss guard (80% of each limit) always stays on.
+- **The broker's minimum lot.** When a trade sizes below MT5's minimum lot, it goes at the minimum only if that still risks no more than your base risk per trade. Otherwise it stays on paper and says why.
 - **One position per correlated group.** NAS100 and SPX500 are one bet, and so are the three coins.
 - **Near the target, smaller risk**, so one loss can't undo the progress. **Funded accounts trade 20% lighter** to protect the payouts.
 - The FTMO rule guard, news blackouts and stop-losses on every order still apply underneath.

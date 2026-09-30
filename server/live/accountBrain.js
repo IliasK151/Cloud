@@ -50,7 +50,9 @@ export class AccountBrain {
     for (let i = closed.length - 1; i >= 0 && closed[i].pnl < 0; i--) streak++;
     const lastClosed = closed[closed.length - 1];
     const lastToday = lastClosed && (lastClosed.closedDay ? lastClosed.closedDay === day : Date.now() - lastClosed.closedAt < 12 * 3_600_000);
-    const traded = links.filter((l) => ['pending', 'open', 'closing', 'closed'].includes(l.state));
+    // Trades that really reached MT5 (a ticket), or an order still in flight right now.
+    // Orders MT5 never confirmed don't count.
+    const traded = links.filter((l) => (['open', 'closing', 'closed'].includes(l.state) && l.ticket) || (l.state === 'pending' && !l.previousSession && Date.now() - l.createdAt < 120_000));
     const tradesToday = traded.filter((l) => (l.openedDay ? l.openedDay === day : Date.now() - l.createdAt < 12 * 3_600_000)).length;
     const tradingDays = new Set(traded.map((l) => l.openedDay).filter(Boolean)).size;
 
@@ -78,12 +80,12 @@ export class AccountBrain {
       mult *= 0.5;
       reasons.push(`Down ${fmtUsd(dayPnl)} today: half risk for the rest of the day`);
     }
-    if (streak >= p.streakStop && lastToday) blocked = blocked || `${streak} losses in a row today: done for the day, fresh start tomorrow`;
+    if (p.streakStopOn !== false && streak >= p.streakStop && lastToday) blocked = blocked || `${streak} losses in a row today: done for the day, fresh start tomorrow (the losing-streak stop can be switched off below)`;
     else if (streak >= 2) {
       mult *= 0.5;
       reasons.push(`${streak} losses in a row: half risk until the next winner`);
     }
-    if (tradesToday >= p.maxTradesPerDay) blocked = blocked || `${tradesToday} trades today, the plan's daily cap. Overtrading is how accounts die`;
+    if (p.tradeCapOn !== false && tradesToday >= p.maxTradesPerDay) blocked = blocked || `${tradesToday} trades today, the plan's daily cap of ${p.maxTradesPerDay} (the trade cap can be switched off below)`;
 
     let remaining = null;
     if (m.targetEquity) {
@@ -116,15 +118,22 @@ export class AccountBrain {
       equity: acc.equity, size, profit, dayPnl, streak, tradesToday, tradingDays, minTradingDays: 4,
       remaining, winsToTarget,
       dailyStopPct: p.dailyStopPct, dailyStopOn: p.dailyStopOn !== false, dailyLossPct: p.dailyLossPct, guardPct: p.guardPct, maxTradesPerDay: p.maxTradesPerDay, streakStop: p.streakStop, minGrade,
+      tradeCapOn: p.tradeCapOn !== false, streakStopOn: p.streakStopOn !== false, provenOnly: p.provenOnly !== false,
       rules: [
-        { text: `Only committee ${minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades from desks with a proven edge on real prices`, ok: true },
+        p.provenOnly !== false
+          ? { text: `Only committee ${minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades from desks with a proven edge on real prices`, ok: true }
+          : { text: 'Proven desks only is OFF: unproven desks trade the account at half risk (committee-approved A and B-grade trades)', ok: false },
         { text: 'Never a trade on simulated prices (a market whose live feed is down)', ok: true },
         { text: `Risk ${riskPct.toFixed(2)}% per trade now (base ${base}%)`, ok: mult >= 0.99 },
         p.dailyStopOn !== false
           ? { text: `Daily stop at −${p.dailyStopPct}% (today ${fmtUsd(dayPnl, { sign: true })})`, ok: dayLoss < stop / 2 }
           : { text: `Daily stop is OFF: trading continues after a −${p.dailyStopPct}% day (today ${fmtUsd(dayPnl, { sign: true })}). FTMO's daily guard still closes everything at ${p.guardPct}% of the ${p.dailyLossPct}% limit`, ok: false },
-        { text: `At most ${p.maxTradesPerDay} trades a day (${tradesToday} so far)`, ok: tradesToday < p.maxTradesPerDay },
-        { text: `Stop for the day after ${p.streakStop} losses in a row (streak ${streak})`, ok: streak < 2 },
+        p.tradeCapOn !== false
+          ? { text: `At most ${p.maxTradesPerDay} trades a day (${tradesToday} so far)`, ok: tradesToday < p.maxTradesPerDay }
+          : { text: `Trade cap is OFF: no limit on trades a day (${tradesToday} so far)`, ok: false },
+        p.streakStopOn !== false
+          ? { text: `Stop for the day after ${p.streakStop} losses in a row (streak ${streak})`, ok: streak < 2 }
+          : { text: `Losing-streak stop is OFF (streak ${streak}; risk still halves after 2 losses)`, ok: false },
         { text: 'One position per correlated group', ok: true },
         { text: 'Flat before high-impact news, no trades in a blackout', ok: true },
         { text: `FTMO guard closes everything at ${p.guardPct}% of a limit`, ok: !lt.halt },
@@ -157,16 +166,28 @@ export class AccountBrain {
     if (st.blocked) return { ok: false, reason: st.blocked };
     // The boss's own TradingView alert: not held back by the desk's paper record or grade.
     const boss = plan.tag === 'TV';
+    let probation = false;
     if (!boss) {
-      if (plan.grade != null && (GRADE_RANK[plan.grade] || 0) < (GRADE_RANK[st.minGrade] || 3)) {
-        return { ok: false, reason: `committee grade ${plan.grade}: the account only takes ${st.minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades` };
-      }
       const c = this.clearance(agent);
-      if (!c.ok) return { ok: false, reason: c.n != null ? `the desk ${c.text.replace(/^it /, '')}` : `the desk isn't cleared yet: ${c.text}` };
+      if (!c.ok && st.provenOnly) {
+        if (plan.grade != null && (GRADE_RANK[plan.grade] || 0) < (GRADE_RANK[st.minGrade] || 3)) {
+          return { ok: false, reason: `committee grade ${plan.grade}: the account only takes ${st.minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades` };
+        }
+        return { ok: false, reason: c.n != null ? `the desk ${c.text.replace(/^it /, '')}` : `the desk isn't cleared yet: ${c.text}` };
+      }
+      // "Proven desks only" is off: an unproven desk trades the account at half risk. Its
+      // measured edge counts zero, so A-grades are rare: any committee-approved trade (A or
+      // B) goes; "not convinced" (C) stays on paper.
+      probation = !c.ok;
+      const need = probation ? Math.min(GRADE_RANK[st.minGrade] || 3, GRADE_RANK.B) : GRADE_RANK[st.minGrade] || 3;
+      if (plan.grade != null && (GRADE_RANK[plan.grade] || 0) < need) {
+        return { ok: false, reason: `committee grade ${plan.grade}: the account only takes ${need >= 3 ? 'A-grade' : 'A and B-grade'} trades` };
+      }
     }
     const group = GROUPS[pos.symbol];
     const busy = this.#links().some((l) => !l.previousSession && ['pending', 'open', 'closing'].includes(l.state) && GROUPS[l.floorSymbol] === group);
     if (group && busy) return { ok: false, reason: `the account already has a ${group} position (one per correlated group)` };
+    if (probation) return { ok: true, riskMult: st.mult * 0.5, reasons: [...st.reasons, 'Unproven desk: half risk'], probation, boss };
     return { ok: true, riskMult: st.mult, reasons: st.reasons, boss };
   }
 
@@ -181,6 +202,11 @@ export class AccountBrain {
     if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };
     const c = this.clearance(agent);
     const alerts = agent.profile.tvDesk ? ' Your TradingView alerts through this desk still go to the account.' : '';
+    if (!c.ok && p.provenOnly === false) {
+      if (!lt.armed) return { state: 'ready', label: 'Unproven · not armed', text: 'Will trade the account at half risk while unproven ("Proven desks only" is off). Arm live trading to start.' };
+      if (st?.blocked) return { state: 'stopped', label: 'Stopped today', text: st.blocked };
+      return { state: 'probation', label: 'Unproven · half risk', text: `Trades the account at half risk while it proves itself ("Proven desks only" is off): ${c.text}.` };
+    }
     if (!c.ok) return { state: 'proving', label: 'Proving on paper', text: `Paper only for now: ${c.text}.${alerts}` };
     if (!lt.armed) return { state: 'ready', label: 'Cleared · not armed', text: 'Cleared for the account. Arm live trading in the FTMO tab to start.' };
     if (st?.blocked) return { state: 'stopped', label: 'Stopped today', text: st.blocked };

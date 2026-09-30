@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
-import { ACCOUNT_TYPES, DEFAULTS, normalizeProfile, guardMetrics, lotsForRisk, positionRisk } from './rules.js';
+import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, normalizeProfile, guardMetrics, lotsForRisk, positionRisk } from './rules.js';
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
@@ -35,7 +35,13 @@ export function eaOutdated(version, latest = LATEST_EA) {
 }
 const ENTRY_WINDOW_MS = 90_000; // never chase a desk's paper entry older than this
 const MISSING_SYNCS_TO_CLOSE = 3;
-const PLAN_KEYS = ['minGrade', 'dailyStopPct', 'dailyStopOn', 'maxTradesPerDay', 'streakStop'];
+const PLAN_KEYS = ['minGrade', 'dailyStopPct', 'maxTradesPerDay', 'streakStop', ...PLAN_SWITCHES];
+const SWITCH_NOTES = {
+  dailyStopOn: [(p) => `Daily stop switched ON: no new trades on the account after a −${p.dailyStopPct}% day`, (p) => `Daily stop switched OFF by the boss: desks keep trading after a −${p.dailyStopPct}% day. FTMO's daily loss guard (${p.guardPct}% of the ${p.dailyLossPct}% limit) still applies`],
+  tradeCapOn: [(p) => `Trade cap switched ON: at most ${p.maxTradesPerDay} trades a day on the account`, () => 'Trade cap switched OFF by the boss: no limit on trades a day'],
+  streakStopOn: [(p) => `Losing-streak stop switched ON: done for the day after ${p.streakStop} losses in a row`, () => 'Losing-streak stop switched OFF by the boss (risk still halves after 2 losses in a row)'],
+  provenOnly: [() => 'Proven desks only switched ON: only desks with a proven edge on real prices trade the account', () => 'Proven desks only switched OFF by the boss: unproven desks trade the account at half risk'],
+};
 
 // Desks whose trades can't be mirrored 1:1 onto a single prop account.
 const INELIGIBLE = {
@@ -62,7 +68,8 @@ export class LiveTrader extends EventEmitter {
     this.armed = false;
     this.armedAt = null;
     this.events = [];
-    this.links = new Map((this.state.links || []).map((l) => [l.key, { ...l, previousSession: true }]));
+    // Orders from an earlier run that MT5 never confirmed didn't happen.
+    this.links = new Map((this.state.links || []).map((l) => [l.key, { ...l, previousSession: true, ...(l.state === 'pending' ? { state: 'failed', reason: 'never confirmed by MT5 before the floor restarted' } : {}) }]));
     this.agentIndex = new Map(fund.agents.map((a, i) => [a.id, i + 1]));
     this.lastSkipNote = new Map();
     this.brain = new AccountBrain(this);
@@ -183,7 +190,9 @@ export class LiveTrader extends EventEmitter {
   setup(body = {}) {
     if (!this.account) return { ok: false, error: 'No MT5 account connected yet' };
     const prev = this.profile;
-    const profile = normalizeProfile(body, this.account);
+    // Switches set on the Brain / FTMO tabs survive saving the setup form.
+    const kept = prev ? Object.fromEntries(PLAN_SWITCHES.map((k) => [k, prev[k]])) : {};
+    const profile = normalizeProfile({ ...kept, ...body }, this.account);
     const suggested = autoMap(this.bridge.symbols);
     const symbolMap = {};
     for (const id of SYMBOL_IDS) {
@@ -246,15 +255,16 @@ export class LiveTrader extends EventEmitter {
   setPlan(body = {}) {
     const p = this.profile;
     if (!p) return { ok: false, error: 'Set up the account first' };
-    if (body.dailyStopOn == null) return { ok: false, error: 'Nothing to change' };
-    const on = body.dailyStopOn !== false && body.dailyStopOn !== 'false';
-    if (p.dailyStopOn === on) return { ok: true };
-    p.dailyStopOn = on;
+    const keys = PLAN_SWITCHES.filter((k) => body[k] != null);
+    if (!keys.length) return { ok: false, error: 'Nothing to change' };
+    for (const k of keys) {
+      const on = body[k] !== false && body[k] !== 'false';
+      if (p[k] === on) continue;
+      p[k] = on;
+      this.#note(SWITCH_NOTES[k][on ? 0 : 1](p), 'risk');
+    }
     p.updatedAt = Date.now();
     this.save();
-    this.#note(on
-      ? `Daily stop switched ON: no new trades on the account after a −${p.dailyStopPct}% day`
-      : `Daily stop switched OFF by the boss: desks keep trading after a −${p.dailyStopPct}% day. FTMO's daily loss guard (${p.guardPct}% of the ${p.dailyLossPct}% limit) still applies`, 'risk');
     return { ok: true };
   }
 
@@ -397,7 +407,15 @@ export class LiveTrader extends EventEmitter {
         link.liveEntry = pos.open;
         link.profit = pos.profit;
         link.missing = 0;
-      } else if (link.state !== 'pending') {
+      } else if (link.state === 'pending') {
+        // MT5 never confirmed this order (and it isn't on the account): it didn't happen.
+        if (Date.now() - link.createdAt > 120_000 && !this.#busy(link)) {
+          link.state = 'failed';
+          link.reason = 'MT5 never confirmed the order';
+          this.#note(`${this.#who(link)} ${link.brokerSymbol} order was never confirmed by MT5, so it doesn't count`, 'risk', link.agentId);
+          this.save();
+        }
+      } else {
         link.missing = (link.missing || 0) + 1;
         if (link.missing >= MISSING_SYNCS_TO_CLOSE) {
           const pnl = this.bridge.deals.filter((d) => d.position === link.ticket && d.entry !== 0).reduce((s, d) => s + d.pnl, 0);
@@ -586,8 +604,15 @@ export class LiveTrader extends EventEmitter {
     // down further by its committee grade and what it has learned (never up).
     const deskMult = verdict.boss ? 1 : Math.min(1, plan.riskMult ?? plan.learnMult ?? 1);
     const riskMoney = acc.balance * (p.riskPerTradePct / 100) * (agent.profile.riskScale ?? 1) * deskMult * verdict.riskMult;
-    const lots = lotsForRisk(riskMoney, plan.risk, spec);
-    if (!lots) return this.#skip(agent, pos, key, `position would be below the ${spec.volMin} lot minimum`);
+    let lots = lotsForRisk(riskMoney, plan.risk, spec);
+    if (!lots) {
+      // Below the broker's minimum lot: trade the minimum if that still risks no more than
+      // the base risk per trade you set; otherwise skip.
+      const perLot = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue);
+      const minRisk = perLot * (spec.volMin || 0.01);
+      if (Number.isFinite(minRisk) && minRisk > 0 && minRisk <= acc.balance * (p.riskPerTradePct / 100)) lots = spec.volMin || 0.01;
+      else return this.#skip(agent, pos, key, `even the ${spec.volMin} lot minimum would risk ${fmtUsd(minRisk)}, more than your ${p.riskPerTradePct}% per trade`);
+    }
     const actualRisk = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue) * lots;
     const openRisk = this.openRisk();
     const m = guardMetrics(p, acc, openRisk);
@@ -683,6 +708,7 @@ export class LiveTrader extends EventEmitter {
       return `I'm switched on for your FTMO account, but I haven't earned real money yet: ${need} Until then my own trades stay on paper.${alerts}${paperLine}`;
     }
     if (st.state === 'stopped') return `The account plan has stopped trading for today: ${st.text}.${paperLine}`;
+    if (st.state === 'probation') return `I'm trading your FTMO account at half risk while I prove myself, because you switched off "Proven desks only". I'm flat there right now.${paperLine}`;
     if (!this.armed) return `I'm cleared for your FTMO account, waiting for you to arm live trading.${paperLine}`;
     return `I'm cleared to trade your FTMO account and flat there right now.${paperLine}`;
   }
