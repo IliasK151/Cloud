@@ -24,6 +24,7 @@ export const DEFAULTS = {
   provenOnly: true, // only desks with a proven edge on real prices (off: unproven desks at half risk)
   maxTradesPerDay: 6,
   streakStop: 3, // losses in a row that end the day
+  stayArmed: false, // re-arm on its own after a restart if it was armed (the boss opts in)
 };
 
 // The account plan's on/off switches (see the Brain and FTMO tabs).
@@ -59,6 +60,7 @@ export function normalizeProfile(input = {}, account = {}) {
     provenOnly: flag(input.provenOnly, DEFAULTS.provenOnly),
     maxTradesPerDay: Math.round(clampNum(input.maxTradesPerDay ?? DEFAULTS.maxTradesPerDay, 1, 50, DEFAULTS.maxTradesPerDay)),
     streakStop: Math.round(clampNum(input.streakStop ?? DEFAULTS.streakStop, 2, 10, DEFAULTS.streakStop)),
+    stayArmed: flag(input.stayArmed, DEFAULTS.stayArmed),
   };
 }
 

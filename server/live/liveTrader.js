@@ -7,6 +7,7 @@ import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, normalizeProfile, guardMetrics,
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
+import { DailyReports } from './dailyReport.js';
 import { locateExpertsFolders } from '../../scripts/install-ea.js';
 import { fmtUsd } from '../util/format.js';
 
@@ -34,8 +35,9 @@ export function eaOutdated(version, latest = LATEST_EA) {
   return false;
 }
 const ENTRY_WINDOW_MS = 90_000; // never chase a desk's paper entry older than this
+const DISCONNECT_ALERT_MS = 60_000; // MT5 silent this long → tell the boss
 const MISSING_SYNCS_TO_CLOSE = 3;
-const PLAN_KEYS = ['minGrade', 'dailyStopPct', 'maxTradesPerDay', 'streakStop', ...PLAN_SWITCHES];
+const PLAN_KEYS = ['minGrade', 'dailyStopPct', 'maxTradesPerDay', 'streakStop', 'stayArmed', ...PLAN_SWITCHES];
 const SWITCH_NOTES = {
   dailyStopOn: [(p) => `Daily stop switched ON: no new trades on the account after a −${p.dailyStopPct}% day`, (p) => `Daily stop switched OFF by the boss: desks keep trading after a −${p.dailyStopPct}% day. FTMO's daily loss guard (${p.guardPct}% of the ${p.dailyLossPct}% limit) still applies`],
   tradeCapOn: [(p) => `Trade cap switched ON: at most ${p.maxTradesPerDay} trades a day on the account`, () => 'Trade cap switched OFF by the boss: no limit on trades a day'],
@@ -73,6 +75,11 @@ export class LiveTrader extends EventEmitter {
     this.agentIndex = new Map(fund.agents.map((a, i) => [a.id, i + 1]));
     this.lastSkipNote = new Map();
     this.brain = new AccountBrain(this);
+    // The daily report card, and the moments worth a message on the boss's phone ('alert').
+    this.reports = new DailyReports({ dataDir, log });
+    this.reports.onFinal = (sum) => this.#alert('daily', dailyAlertText(sum));
+    this.lastSnapshot = 0;
+    this.linkDown = null; // { since, alerted } while MT5 is silent
 
     // A problem in one of these must never break MT5's connection or stop the floor.
     const safe = (label, fn) => (...args) => {
@@ -116,7 +123,7 @@ export class LiveTrader extends EventEmitter {
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       const links = [...this.links.values()].slice(-200).map(({ previousSession, ...l }) => l);
-      const data = { profiles: this.state.profiles, halts: this.state.halts, links };
+      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, links };
       try {
         fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(data, null, 1));
         fs.renameSync(`${this.file}.tmp`, this.file);
@@ -178,6 +185,21 @@ export class LiveTrader extends EventEmitter {
     this.emit('change');
   }
 
+  // Something the boss would want on their phone. kind: trade | guard | connection | arming | daily
+  #alert(kind, text) {
+    this.emit('alert', { kind, text, at: Date.now() });
+  }
+
+  // The report's day: the FTMO server day (its daily loss limit resets with it).
+  reportDay() {
+    return this.bridge.serverDay || this.fund.session.tradingDay();
+  }
+
+  #deskInfo(agentId) {
+    const a = this.fund.byId.get(agentId);
+    return { name: a?.profile.name ?? agentId, desk: a?.profile.desk ?? '' };
+  }
+
   // ---- setup & controls -----------------------------------------------------------------
   #onAccount(acc) {
     this.armed = false;
@@ -191,7 +213,7 @@ export class LiveTrader extends EventEmitter {
     if (!this.account) return { ok: false, error: 'No MT5 account connected yet' };
     const prev = this.profile;
     // Switches set on the Brain / FTMO tabs survive saving the setup form.
-    const kept = prev ? Object.fromEntries(PLAN_SWITCHES.map((k) => [k, prev[k]])) : {};
+    const kept = prev ? Object.fromEntries([...PLAN_SWITCHES, 'stayArmed'].map((k) => [k, prev[k]])) : {};
     const profile = normalizeProfile({ ...kept, ...body }, this.account);
     const suggested = autoMap(this.bridge.symbols);
     const symbolMap = {};
@@ -268,7 +290,7 @@ export class LiveTrader extends EventEmitter {
     return { ok: true };
   }
 
-  arm({ confirm } = {}) {
+  arm({ confirm, auto = false } = {}) {
     const acc = this.account;
     const p = this.profile;
     if (this.mode !== 'live') return { ok: false, error: 'Live execution needs live market data. Restart with npm start (not npm run demo).' };
@@ -284,23 +306,79 @@ export class LiveTrader extends EventEmitter {
     }
     this.armed = true;
     this.armedAt = Date.now();
-    this.#note(`ARMED — desks now trade ${ACCOUNT_TYPES[p.type].label} ${this.login}`, 'risk');
+    // Remembered, so "Stay armed after a restart" knows the boss left it armed.
+    this.state.armed ||= {};
+    this.state.armed[this.login] = { at: this.armedAt };
+    this.save();
+    const label = `${ACCOUNT_TYPES[p.type].label} ${this.login}`;
+    this.#note(auto ? `ARMED again automatically after the restart (Stay armed is on) — desks trade ${label}` : `ARMED — desks now trade ${label}`, 'risk');
+    this.reports.event(this.reportDay(), 'arm', auto ? 'Re-armed automatically after a restart' : 'Armed: the desks trade the account');
+    this.#alert('arming', auto ? `🟢 Re-armed automatically after a restart: the desks trade ${label} again.` : `🟢 Armed: the desks now trade ${label}.`);
+    return { ok: true };
+  }
+
+  // The boss's choice to be disarmed (or a guard stop) sticks across restarts.
+  #forgetArmed() {
+    if (this.state.armed?.[this.login]) {
+      delete this.state.armed[this.login];
+      this.save();
+    }
+  }
+
+  // "Stay armed after a restart": once MT5 is back and everything arm() checks is fine,
+  // arm again, but only if the boss had left this same account armed and opted in.
+  #maybeRearm() {
+    const p = this.profile;
+    if (this.armed || this.mode !== 'live' || !p?.stayArmed || !this.state.armed?.[this.login]) return;
+    if (this.rearmRetryAt && Date.now() < this.rearmRetryAt) return;
+    const res = this.arm({ confirm: this.login, auto: true });
+    if (res.ok) {
+      this.rearmIssue = null;
+      return;
+    }
+    this.rearmRetryAt = Date.now() + 30_000;
+    if (this.rearmIssue !== res.error) {
+      this.rearmIssue = res.error;
+      this.#note(`Stay armed: can't arm again yet — ${res.error}`, 'risk');
+    }
+  }
+
+  setStayArmed(on) {
+    const p = this.profile;
+    if (!p) return { ok: false, error: 'Set up the account first' };
+    p.stayArmed = on === true || on === 'true';
+    p.updatedAt = Date.now();
+    // Switching it on while armed: this is the state to come back to.
+    if (p.stayArmed && this.armed) {
+      this.state.armed ||= {};
+      this.state.armed[this.login] = { at: this.armedAt || Date.now() };
+    }
+    this.save();
+    this.#note(p.stayArmed
+      ? 'Stay armed after a restart switched ON: if the floor or MT5 restarts while armed, it arms again once MT5 is back and every check passes'
+      : 'Stay armed after a restart switched OFF: after a restart, arm again yourself', 'risk');
     return { ok: true };
   }
 
   disarm(reason = 'Disarmed by the boss') {
+    this.#forgetArmed();
     if (!this.armed) return { ok: true };
     this.armed = false;
     this.#note(`DISARMED — ${reason}. Open FTMO positions keep their stop-loss.`, 'risk');
+    this.reports.event(this.reportDay(), 'disarm', `Disarmed: ${reason}`);
+    this.#alert('arming', `⏸ Disarmed: ${reason}. Open positions keep their stop-loss.`);
     return { ok: true };
   }
 
   kill() {
     this.armed = false;
+    this.#forgetArmed();
     if (!this.bridge.connected) return { ok: false, error: 'MT5 bridge is not connected' };
     this.bridge.closeAll({ kind: 'kill' });
     for (const l of this.links.values()) if (l.state === 'open' || l.state === 'pending') l.state = 'closing';
     this.#note('KILL SWITCH — closing every floor position on the FTMO account and disarming', 'risk');
+    this.reports.event(this.reportDay(), 'kill', 'Close all & disarm');
+    this.#alert('arming', '⛔ Close all & disarm: every floor position on the account is being closed.');
     return { ok: true };
   }
 
@@ -330,10 +408,14 @@ export class LiveTrader extends EventEmitter {
         link.liveEntry = ack.price || link.liveEntry;
         if (ack.volume) link.volume0 = link.volumeNow = ack.volume;
         this.#note(`${this.#who(link)} filled ${link.side} ${link.volume0} ${link.brokerSymbol} @ ${ack.price}`, 'live', link.agentId);
+        this.reports.opened(this.reportDay(), { key: link.key, agentId: link.agentId, ...this.#deskInfo(link.agentId), symbol: link.brokerSymbol, side: link.side, volume: link.volume0, entry: link.liveEntry, risk: link.risk, grade: link.grade });
+        this.#alert('trade', `${link.side === 'BUY' ? '🟩' : '🟥'} ${this.#who(link)} ${link.side === 'BUY' ? 'bought' : 'sold'} ${link.volume0} ${link.brokerSymbol} @ ${ack.price} · risk ${fmtUsd(link.risk || 0)}${link.grade ? ` · grade ${link.grade}` : ''}`);
       } else {
         link.state = 'failed';
         link.reason = ack.msg;
         this.#note(`${this.#who(link)} order rejected by MT5: ${ack.msg}`, 'risk', link.agentId);
+        this.reports.event(this.reportDay(), 'reject', `${this.#who(link)} ${link.brokerSymbol} order rejected by MT5: ${ack.msg}`);
+        this.#alert('trade', `⚠️ ${this.#who(link)}'s ${link.brokerSymbol} order was rejected by MT5: ${ack.msg}`);
       }
       this.save();
     } else if (ack.kind === 'close' && !ack.ok && link) {
@@ -445,12 +527,40 @@ export class LiveTrader extends EventEmitter {
           link.pnl = pnl;
           const how = link.closeRequested ? 'closed' : 'closed on MT5 (stop, target or manual)';
           this.#note(`${this.#who(link)} ${link.brokerSymbol} ${how}: ${fmtUsd(pnl, { sign: true })}`, 'live', link.agentId);
+          this.reports.closed(this.reportDay(), { key: link.key, agentId: link.agentId, ...this.#deskInfo(link.agentId), symbol: link.brokerSymbol, side: link.side, volume: link.volume0, entry: link.liveEntry, risk: link.risk, grade: link.grade, pnl, openedAt: link.createdAt });
+          const r = link.risk > 0 ? ` (${pnl >= 0 ? '+' : '−'}${Math.abs(pnl / link.risk).toFixed(1)}R)` : '';
+          const m = this.metrics();
+          const today = m ? ` · account today ${fmtUsd(this.account.equity - m.dayStartBalance, { sign: true })}` : '';
+          this.#alert('trade', `${pnl >= 0 ? '✅' : '❌'} ${this.#who(link)} closed ${link.brokerSymbol} ${fmtUsd(pnl, { sign: true })}${r} · ${link.closeRequested ? 'desk exit' : 'stop, target or manual on MT5'}${today}`);
           this.save();
         }
       }
     }
     this.#guard();
+    this.#maybeRearm();
+    this.#snapshot();
     this.emit('change');
+  }
+
+  // The account and the paper desks, for the daily report (twice a minute is plenty).
+  #snapshot(force = false) {
+    const p = this.profile;
+    const acc = this.account;
+    if (!p || !acc || this.mode !== 'live') return;
+    if (!force && Date.now() - this.lastSnapshot < 30_000) return;
+    this.lastSnapshot = Date.now();
+    const m = guardMetrics(p, acc, 0);
+    const paper = {};
+    // The paper side of the desks switched on for the account, to compare with FTMO.
+    for (const a of this.fund.agents) {
+      if (!p.desks?.[a.id] || !this.eligible(a.id)) continue;
+      paper[a.id] = { name: a.profile.name, desk: a.profile.desk, trades: a.day.trades, wins: a.day.wins };
+    }
+    this.reports.snapshot(this.reportDay(), {
+      login: this.login, server: acc.server, type: ACCOUNT_TYPES[p.type]?.label ?? p.type, size: p.size,
+      startBalance: m.dayStartBalance, balance: acc.balance, equity: acc.equity,
+      dailyUsedPct: Math.round(m.dailyUsed * 1000) / 10, maxUsedPct: Math.round(m.maxUsed * 1000) / 10,
+    }, paper);
   }
 
   // ---- FTMO rule guard -----------------------------------------------------------------------
@@ -496,10 +606,13 @@ export class LiveTrader extends EventEmitter {
     }
     if (!kind) return;
     this.state.halts[this.login] = { kind, reason, day: this.bridge.serverDay, at: Date.now() };
-    this.save();
     this.armed = false;
+    this.#forgetArmed(); // a guard stop is never undone by a restart
+    this.save();
     if (this.bridge.positions.some((x) => this.#ours(x))) this.bridge.closeAll({ kind: 'guard' });
     this.#note(`${kind === 'target' ? 'TARGET HIT' : 'RISK GUARD'} — ${reason}. Floor positions closed and trading stopped.`, 'risk');
+    this.reports.event(this.reportDay(), 'guard', `${kind === 'target' ? 'Target hit' : 'Risk guard'}: ${reason}`);
+    this.#alert('guard', `${kind === 'target' ? '🏁 TARGET HIT' : '🛑 RISK GUARD'}: ${reason}. Floor positions closed and trading stopped.`);
   }
 
   // ---- execution ------------------------------------------------------------------------------
@@ -515,6 +628,7 @@ export class LiveTrader extends EventEmitter {
     if (this.profile && !this.bridge.connected) {
       for (const id of SYMBOL_IDS) if (this.md.ownerOf(id) === 'mt5') this.md.setStatus(id, 'STALE', 'ftmo');
     }
+    this.#watchConnection();
     // Account equity once a minute, for the floor's equity charts in FTMO view.
     const acc = this.account;
     if (this.profile && acc && this.bridge.connected) {
@@ -525,6 +639,28 @@ export class LiveTrader extends EventEmitter {
       if (this.equityHistory.length > 1440) this.equityHistory.shift();
     }
     this.reconcile();
+  }
+
+  // MT5 going quiet for a minute (Mac asleep, MT5 closed, internet down) is worth a message,
+  // and so is it coming back. Only once an account is set up and it had been connected.
+  #watchConnection() {
+    if (!this.profile || !this.bridge.lastSync) return;
+    const up = this.bridge.connected;
+    if (!up && !this.linkDown) this.linkDown = { since: this.bridge.lastSync, alerted: false };
+    if (!up && this.linkDown && !this.linkDown.alerted && Date.now() - this.linkDown.since >= DISCONNECT_ALERT_MS) {
+      this.linkDown.alerted = true;
+      const open = this.bridge.positions.filter((x) => this.#ours(x)).length;
+      this.reports.event(this.reportDay(), 'disconnect', 'MT5 stopped syncing');
+      this.#alert('connection', `🔌 MT5 has stopped talking to the floor for a minute (MT5 closed, the Mac asleep or the internet down).${open ? ` ${open} open position${open === 1 ? '' : 's'} keep${open === 1 ? 's' : ''} ${open === 1 ? 'its' : 'their'} stop-loss on MT5.` : ''}`);
+    }
+    if (up && this.linkDown) {
+      if (this.linkDown.alerted) {
+        const mins = Math.round((Date.now() - this.linkDown.since) / 60_000);
+        this.reports.event(this.reportDay(), 'reconnect', `MT5 back after ${mins} min`);
+        this.#alert('connection', `✅ MT5 is back after ${mins} minute${mins === 1 ? '' : 's'}.${this.armed ? ' Still armed.' : ' Not armed: arm again in the FTMO tab to trade.'}`);
+      }
+      this.linkDown = null;
+    }
   }
 
   // One desk's results on the connected account (floor trades only).
@@ -586,6 +722,7 @@ export class LiveTrader extends EventEmitter {
       key, agentId: agent.id, floorSymbol: pos.symbol, brokerSymbol: this.profile.symbolMap[pos.symbol],
       side: pos.qty > 0 ? 'BUY' : 'SELL', state: 'skipped', reason, createdAt: Date.now(), login: this.login,
     });
+    this.reports.skipped(this.reportDay(), { agentId: agent.id, ...this.#deskInfo(agent.id), symbol: pos.symbol, reason });
     // Say it on the floor, but not again for the same reason within 20 minutes.
     const last = this.lastSkipNote.get(agent.id);
     if (last && last.reason === reason && Date.now() - last.at < 20 * 60_000) return this.emit('change');
@@ -688,6 +825,8 @@ export class LiveTrader extends EventEmitter {
   }
 
   async shutdown() {
+    this.#snapshot(true);
+    this.reports.flush();
     this.armed = false;
     if (!this.bridge.connected || !this.bridge.positions.some((x) => this.#ours(x))) return null;
     this.bridge.closeAll({ kind: 'shutdown' });
@@ -827,6 +966,7 @@ export class LiveTrader extends EventEmitter {
       profile: p,
       armed: this.armed,
       armedAt: this.armedAt,
+      rememberedArmed: !!this.state.armed?.[this.login],
       halt: this.halt,
       metrics: this.metrics(),
       openRisk: this.openRisk(),
@@ -860,4 +1000,17 @@ export class LiveTrader extends EventEmitter {
       warnings,
     };
   }
+}
+
+// The end-of-day message on the boss's phone.
+export function dailyAlertText(s) {
+  const pnl = fmtUsd(s.dayPnl ?? 0, { sign: true });
+  const lines = [`📊 Daily report ${s.day}: ${pnl} on the account`];
+  if (s.trades) lines.push(`${s.trades} trade${s.trades === 1 ? '' : 's'}, ${s.wins} win${s.wins === 1 ? '' : 's'}${s.avgR != null ? `, average ${s.avgR >= 0 ? '+' : '−'}${Math.abs(s.avgR).toFixed(2)}R` : ''}.`);
+  else lines.push('No trades reached the account.');
+  if (s.best) lines.push(`Best: ${s.best.name.split(' ')[0]} ${fmtUsd(s.best.pnl, { sign: true })}.${s.worst ? ` Worst: ${s.worst.name.split(' ')[0]} ${fmtUsd(s.worst.pnl, { sign: true })}.` : ''}`);
+  if (s.skipped) lines.push(`Held back on paper: ${s.skipped} (${s.topReasons.map(([k, n]) => `${k.toLowerCase()} ${n}`).join(', ')}).`);
+  if (s.halted) lines.push('The risk guard stopped trading during the day.');
+  lines.push('Full report on the floor\'s Dashboard.');
+  return lines.join('\n');
 }

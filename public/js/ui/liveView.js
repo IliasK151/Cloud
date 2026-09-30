@@ -20,6 +20,7 @@ export class LiveView {
     this.root.hidden = false;
     if (focusSetup) this.editing = true;
     this.render(true);
+    this.#loadAlerts();
     if (focusSetup) this.root.querySelector('#live-setup')?.scrollIntoView({ block: 'start' });
   }
 
@@ -39,6 +40,7 @@ export class LiveView {
         <div class="card" id="live-status"></div>
         <div class="card" id="live-rules"></div>
       </div>
+      <div class="card" id="live-alerts" style="margin-top:14px"></div>
       <div class="card" id="live-connect" style="margin-top:14px"></div>
       <div class="card" id="live-setup" style="margin-top:14px"></div>
       <div class="card" id="live-desks-card" style="margin-top:14px">
@@ -65,6 +67,9 @@ export class LiveView {
       if (t.matches('[data-desk]')) this.#post('desk', { agentId: t.dataset.desk, enabled: t.checked });
       if (t.id === 'lv-type') this.#applyPreset(t.value);
       if (t.matches('[data-plan-switch]')) onPlanSwitch(t, this.store.live?.plan);
+      if (t.matches('[data-stay-armed]')) this.#onStayArmed(t);
+      if (t.id === 'tg-enabled') this.#alertsPost('settings', { enabled: t.checked }).then((r) => this.#afterAlerts(r));
+      if (t.matches('[data-tg-kind]')) this.#alertsPost('settings', { kinds: { [t.dataset.tgKind]: t.checked } }).then((r) => this.#afterAlerts(r));
     });
     this.built = true;
   }
@@ -80,11 +85,105 @@ export class LiveView {
     }
   }
 
+  async #onStayArmed(input) {
+    const on = input.checked;
+    if (on && !confirm('Stay armed after a restart?\n\nIf the floor, the Mac or MT5 restarts while live trading is armed, the floor arms it again by itself once MT5 is back and every check passes (the same account, Algo Trading on, no risk-guard stop).\n\nDisarm, Close all & disarm and a risk-guard stop always stay off until you arm again yourself.')) {
+      input.checked = false;
+      return;
+    }
+    const res = await this.#post('stay-armed', { on });
+    if (!res.ok) input.checked = !on;
+  }
+
+  // ---- Telegram alerts ------------------------------------------------------------------------
+  async #loadAlerts() {
+    try {
+      this.alerts = await api('/api/alerts');
+    } catch {
+      this.alerts = null;
+    }
+    this.#renderAlerts();
+  }
+
+  async #alertsPost(action, body = {}) {
+    try {
+      const res = await api(`/api/alerts/${action}`, { method: 'POST', body: JSON.stringify(body) });
+      if (res.alerts) this.alerts = res.alerts;
+      return res;
+    } catch (err) {
+      return { ok: false, error: `Could not reach the floor: ${err.message}` };
+    }
+  }
+
+  #afterAlerts(res, okText = null) {
+    this.tgMsg = res.ok ? (okText ? { ok: true, text: okText } : null) : { ok: false, text: res.error || 'That didn\'t work' };
+    this.#renderAlerts();
+  }
+
+  #renderAlerts() {
+    const el = this.root.querySelector('#live-alerts');
+    if (!el) return;
+    const a = this.alerts;
+    const key = JSON.stringify([a, this.tgMsg]);
+    if (el.dataset.key === key) return; // keep what the boss is typing
+    el.dataset.key = key;
+    const title = '<h2>Alerts on your phone (Telegram)</h2>';
+    const msg = this.tgMsg ? `<p class="tg-msg ${this.tgMsg.ok ? 'good' : 'bad'}">${escapeHtml(this.tgMsg.text)}</p>` : '';
+    if (!a) {
+      el.innerHTML = `${title}<p class="sub">Loading…</p>`;
+      return;
+    }
+    if (!a.hasToken) {
+      el.innerHTML = `${title}
+        <p class="sub">A message when a trade opens or closes on FTMO, when the loss guard steps in, when MT5 disconnects, and a report at the end of the day. It uses your own free Telegram bot and takes about 2 minutes. The bot token stays on this Mac.</p>
+        <ol class="tg-steps">
+          <li>In Telegram, open <b>@BotFather</b>, send <code>/newbot</code>, and pick any name and username for your bot.</li>
+          <li>BotFather answers with a <b>token</b> (it looks like <code>123456789:AAH…</code>). Paste it here:
+            <div class="tg-row"><input type="password" id="tg-token" placeholder="Bot token from @BotFather" autocomplete="off" spellcheck="false"><button class="btn primary" data-act="tg-token">Connect bot</button></div></li>
+          <li>Open your new bot in Telegram and press <b>Start</b>. Then come back here for the last click.</li>
+        </ol>${msg}`;
+      return;
+    }
+    const bot = escapeHtml(a.botName || 'your bot');
+    if (!a.chatId) {
+      el.innerHTML = `${title}
+        <p class="sub">Bot ${bot} is connected. Last step: open ${bot} in Telegram and press <b>Start</b> (or send it "hi"), then:</p>
+        <div class="tg-row"><button class="btn primary" data-act="tg-find">Find my chat</button><button class="btn" data-act="tg-forget">Use another bot</button></div>${msg}`;
+      return;
+    }
+    el.innerHTML = `${title}
+      <p class="sub">To ${escapeHtml(a.chatName || `chat ${a.chatId}`)} through ${bot}.</p>
+      <div class="plan-switch ${a.enabled ? '' : 'off'}">
+        <label class="switch safe"><input type="checkbox" id="tg-enabled" ${a.enabled ? 'checked' : ''} aria-label="Telegram alerts"><span></span></label>
+        <div><b>Alerts: ${a.enabled ? 'ON' : 'PAUSED'}</b><small>${a.enabled ? 'Messages go out as things happen.' : 'Nothing is sent until you switch them back on.'}</small></div>
+      </div>
+      <div class="tg-kinds">${Object.entries(a.kindLabels).map(([k, label]) => `<label><input type="checkbox" data-tg-kind="${k}" ${a.kinds[k] ? 'checked' : ''}> ${escapeHtml(label)}</label>`).join('')}</div>
+      <div class="tg-row"><button class="btn" data-act="tg-test">Send a test message</button><button class="btn" data-act="tg-forget">Disconnect</button></div>
+      ${a.lastError ? `<p class="tg-msg bad">Last error: ${escapeHtml(a.lastError.text)}</p>` : ''}${msg}`;
+  }
+
   async #onClick(e) {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const v = this.store.live;
     const act = btn.dataset.act;
+    if (act.startsWith('tg-')) {
+      btn.disabled = true;
+      if (act === 'tg-token') {
+        const res = await this.#alertsPost('token', { token: this.root.querySelector('#tg-token')?.value || '' });
+        this.#afterAlerts(res, res.ok ? `Connected to ${res.botName}. Now open it in Telegram, press Start, then "Find my chat".` : null);
+      } else if (act === 'tg-find') {
+        const res = await this.#alertsPost('find-chat');
+        this.#afterAlerts(res, res.ok ? `Done: alerts go to ${res.chatName}. Telegram should show a hello message.` : null);
+      } else if (act === 'tg-test') {
+        const res = await this.#alertsPost('test');
+        this.#afterAlerts(res, res.ok ? 'Sent. Check Telegram.' : null);
+      } else if (act === 'tg-forget') {
+        if (confirm('Disconnect the Telegram bot? Alerts stop until you connect one again.')) this.#afterAlerts(await this.#alertsPost('forget'));
+      }
+      btn.disabled = false;
+      return;
+    }
     if (act === 'arm') {
       const type = v.profile?.type;
       const label = v.types?.[type]?.label ?? 'account';
@@ -265,6 +364,7 @@ export class LiveView {
 
     this.#renderSteps(v);
     this.#renderEa(v);
+    this.#renderAlerts();
 
     $('#live-warnings').innerHTML = [
       ...(v.halt ? [`<div class="banner crit">⛔ <span><b>Trading halted:</b> ${escapeHtml(v.halt.reason)}.${v.halt.kind === 'daily' ? ' It resets at the start of the next FTMO server day.' : ''} <button class="mini-btn" data-act="reset-halt">Clear halt</button></span></div>`] : []),
@@ -292,7 +392,13 @@ export class LiveView {
         <button class="btn danger" data-act="kill" ${v.connected ? '' : 'disabled'}>Close all & disarm</button>
         ${acc ? '<button class="btn" data-act="edit">Edit setup</button><button class="btn" data-act="goto" data-target="connect">MT5 bridge setup</button>' : ''}
       </div>
-      ${!canArm && !v.armed && acc ? `<p class="fine">${!p ? 'Save the account setup below to continue.' : !v.desks.some((d) => d.enabled) ? 'Switch on at least one desk below, then arm.' : v.mode !== 'live' ? 'Restart the floor with npm start to trade live.' : ''}</p>` : ''}`;
+      ${!canArm && !v.armed && acc ? `<p class="fine">${!p ? 'Save the account setup below to continue.' : !v.desks.some((d) => d.enabled) ? 'Switch on at least one desk below, then arm.' : v.mode !== 'live' ? 'Restart the floor with npm start to trade live.' : ''}</p>` : ''}
+      ${p ? `<div class="plan-switch stay-armed">
+        <label class="switch"><input type="checkbox" data-stay-armed ${p.stayArmed ? 'checked' : ''} aria-label="Stay armed after a restart"><span></span></label>
+        <div><b>Stay armed after a restart: ${p.stayArmed ? 'ON' : 'OFF'}</b><small>${p.stayArmed
+          ? (!v.armed && v.rememberedArmed ? 'Arming again by itself as soon as MT5 is connected and every check passes.' : 'If the floor, the Mac or MT5 restarts while armed, it arms again by itself once MT5 is back and every check passes. Disarm, Close all and a risk-guard stop stay off until you arm again.')
+          : 'After a restart (floor, Mac or MT5), live trading waits for you to arm it again.'}</small></div>
+      </div>` : ''}`;
 
     // Rules card
     const m = v.metrics;

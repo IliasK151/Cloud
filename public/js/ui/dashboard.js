@@ -4,6 +4,7 @@ import { money, price as fmtPrice, qty as fmtQty, pct, signClass, nyTime, escape
 import { bookMode, hasFtmo, setBookPref, deskBook, ftmoStatus } from '../book.js';
 import { labRows } from './research.js';
 import { newsTable, sourceText, blackoutChips } from './news.js';
+import { ReportCard } from './reportCard.js';
 
 // Full-screen dashboard. It follows the FTMO / Paper switch: the paper fund (every desk's
 // practice book) or the connected FTMO account (real equity, rules, live trades).
@@ -45,6 +46,7 @@ export class Dashboard {
           <div class="bars" id="dash-bars"></div>
         </div>
       </div>
+      <div class="card report-card" id="dash-report" style="margin-top:14px" hidden></div>
       <div class="card" id="dash-lab-card" style="margin-top:14px">
         <h2>Quant Research Lab</h2>
         <p class="sub">Five researchers build strategies for today's market conditions and trade only what survives out-of-sample, stress and holdout tests. Click a row for the full research.</p>
@@ -134,6 +136,7 @@ export class Dashboard {
       const row = e.target.closest('tr[data-id]');
       if (row) this.onSelect(row.dataset.id);
     });
+    this.report = new ReportCard(this.root.querySelector('#dash-report'));
     this.built = true;
   }
 
@@ -141,6 +144,7 @@ export class Dashboard {
     if (!this.built) this.#build();
     this.visible = true;
     this.root.hidden = false;
+    this.report.start();
     if (!this.chart) this.chart = equityChart(this.root.querySelector('#dash-equity'));
     this.chartMode = null;
     this.render(true);
@@ -149,6 +153,7 @@ export class Dashboard {
   hide() {
     this.visible = false;
     this.root.hidden = true;
+    this.report?.stop();
   }
 
   onEquity(sample) {

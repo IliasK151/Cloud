@@ -344,7 +344,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 - **Priced from MT5.** Once connected, the floor switches each mapped market to your broker's prices (US100.cash, XAUUSD, EURUSD and so on). The desks then analyse exactly the prices they trade.
 - **Your TradingView alerts can trade the account too.** Enable Chen's TradingView Signals desk (or any desk named in the alert). Each alert is debated by the committee like any other idea and executed on FTMO with the same sizing and stop rules (only A-grade alerts reach the account).
 - **FTMO rule guard.** It watches the daily and maximum loss using FTMO's method (equity against the day's starting balance, and against the account size). At 80% of a limit it closes the floor's positions and stops trading: until the next server day for the daily limit, and until you clear it for the max loss. It can also stop when the profit target is hit, which is on by default.
-- **Arming is always your decision.** The floor starts disarmed after every restart. Paid accounts need you to type the account number to arm. **Close all & disarm** is always one click away.
+- **Arming is always your decision.** The floor starts disarmed after a restart, unless you switch on **Stay armed after a restart** (below). Paid accounts need you to type the account number to arm. **Close all & disarm** is always one click away.
 - **Two desks stay paper-only.** The stat-arb and market-making desks don't mirror onto a single prop account.
 - **Research desks can trade it too,** once you switch them on: they trade only validated strategies, at half size while a new strategy is on probation.
 - **The account brain decides what reaches the account** (above): only committee A-grade trades from desks with a proven edge, sized down in drawdown and after losses, with a daily stop, a daily trade cap and one position per correlated group.
@@ -375,7 +375,34 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 - Run it on the **Free Trial** first and watch it for a few days. The strategies were built and tuned on simulated markets and have no real-money track record.
 - **Check FTMO's current rules on algorithmic trading yourself.** FTMO generally allows Expert Advisors but prohibits some trading practices, and their terms change. Complying with them on your account is your responsibility.
 - **A stop-loss is not a guarantee.** Gaps, news spikes and slippage can fill beyond it. The guard acts at 80% of each limit to leave a buffer, but it cannot promise you'll never breach one. The floor stands aside for news using a public calendar; FTMO's own list of restricted releases is what counts, so check it for funded accounts.
-- MT5 must stay open, and your Mac awake, while the desks trade.
+- MT5 must stay open, and your Mac awake, while the desks trade. Start the floor with `caffeinate -i npm start` so the Mac can't sleep while it runs.
+
+### Stay armed after a restart
+
+A switch in the FTMO tab's Connection card, off until you switch it on. When it's on and the floor, the Mac or MT5 restarts while live trading is armed, the floor arms again by itself as soon as MT5 syncs, but only if every check that **Arm** makes still passes: the same account, live mode, MT5 connected with Algo Trading on, and no risk-guard stop. It never undoes your own decision: after **Disarm**, **Close all & disarm** or a risk-guard stop, it stays disarmed until you arm again yourself. The live log (and your phone, below) says when it re-armed.
+
+### Daily report card
+
+The Dashboard shows a report card for each FTMO server day (the day FTMO's daily loss limit resets with), updated through the day and final once the day rolls over. It shows:
+
+- **the account:** starting balance to equity, day P&L, daily and max loss used;
+- **each desk switched on for the account:** its trades on FTMO, won and lost, P&L, average R, and how many of its trades stayed on paper, next to its paper trades that day;
+- **why trades stayed on paper**, counted by reason (committee grade too low, a correlated position already open, max open positions, news blackout, desk not proven yet and so on), with the latest examples;
+- **account events:** arming, disarming, risk-guard stops, MT5 dropping out and coming back, orders MT5 rejected.
+
+Pick any earlier day from the list. Each day is saved in `data/reports/` (one JSON file per day), so you can compare days and see which strategies earn their place.
+
+### Alerts on your phone (Telegram)
+
+The FTMO tab's **Alerts on your phone** card sends Telegram messages from your own free bot:
+
+- a trade opened on the account (who, what, price, risk, grade), closed (P&L and R, and the account's day so far), or rejected by MT5;
+- the risk guard or profit target stopping trading;
+- MT5 silent for a minute (Mac asleep, MT5 closed, internet down), and back again;
+- armed, disarmed, re-armed after a restart;
+- the day's report card when the FTMO server day ends.
+
+Setup takes about 2 minutes: in Telegram open **@BotFather**, send `/newbot` and pick a name. Paste the token it gives you into the card, press **Start** in your new bot, then **Find my chat** and **Send a test message**. Each kind of alert has its own switch. The bot token is kept in `data/telegram.json`, readable only by you, and is never sent back to the browser.
 
 **Troubleshooting**
 
@@ -403,6 +430,7 @@ It then prints what to fix. It only reads; it never trades. The FTMO tab shows t
 
 The **Dashboard** tab follows the **FTMO / Paper** switch (in the top bar, or on the dashboard itself once an FTMO account is connected).
 
+- **Daily report card** for any FTMO day (above).
 - **FTMO account:** equity and balance, today's P&L (from the day's starting balance, FTMO's way), P&L since the start, open P&L and open risk, the floor's trades today and win rate, daily loss used and profit-target progress. Also the account equity curve, each desk's P&L on the account, a desk table with the live MT5 positions, FTMO rule meters, a blotter of the floor's trades on the account and a **Close all & disarm** button.
 - **Paper fund:** NAV, day P&L, P&L since inception, unrealized P&L, gross exposure, trades and win rate, the fund equity curve, desk P&L bars, a desk table with sparklines, positions and flatten/pause buttons, loss-limit usage per desk, the trade blotter and floor-wide controls.
 - Both show the **Quant Research Lab** (each researcher's market condition, strategy, unseen-data results and live record), the **economic calendar** with who is standing aside, the market board, received TradingView alerts and **what the desks have learned**.

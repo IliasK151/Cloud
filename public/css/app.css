@@ -685,3 +685,34 @@ details.how p { color: var(--text-3); }
 .rail-note .btn { display: block; width: 100%; margin-top: 8px; font-size: 12px; }
 .rail-note.wide { margin: 0 0 12px; font-size: 12.5px; }
 .rail-note.wide .btn { display: inline-block; width: auto; margin: 0 0 0 10px; }
+
+/* ---- daily report card ---------------------------------------------------------------------- */
+.rep-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.rep-pick { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+.rep-pick select { background: var(--surface-2); color: var(--text); border: 1px solid var(--hairline); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 12.5px; }
+.rep-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 12px 0 14px; }
+.rep-tile { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hairline); min-width: 0; }
+.rep-tile span { display: block; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+.rep-tile b { display: block; font-size: 19px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.rep-tile small { display: block; margin-top: 2px; font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rep-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; }
+.rep-grid h3 { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin: 6px 0 8px; }
+.rep-desks td small { display: block; color: var(--text-3); font-size: 11px; }
+.rep-reason { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 28px; align-items: center; gap: 8px; font-size: 12.5px; margin: 5px 0; }
+.rep-reason i { display: block; height: 6px; border-radius: 3px; background: var(--warn); opacity: 0.75; }
+.rep-reason b { text-align: right; font-variant-numeric: tabular-nums; }
+.rep-list { list-style: none; margin: 8px 0 12px; padding: 0; font-size: 12px; line-height: 1.5; }
+.rep-list li { padding: 3px 0; border-bottom: 1px solid var(--hairline); }
+@media (max-width: 1100px) { .rep-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .rep-grid { grid-template-columns: 1fr; } }
+
+/* ---- Telegram alerts card & stay armed ------------------------------------------------------- */
+.tg-steps { margin: 10px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.55; }
+.tg-steps li { margin: 6px 0; }
+.tg-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.tg-row input[type="password"], .tg-row input[type="text"] { flex: 1 1 320px; min-width: 0; background: var(--surface-2); color: var(--text); border: 1px solid var(--hairline); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 12.5px; }
+.tg-kinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; margin: 10px 0; font-size: 12.5px; }
+.tg-kinds label { display: flex; gap: 8px; align-items: center; }
+.tg-msg { font-size: 12px; margin-top: 8px; }
+.tg-msg.bad { color: var(--neg-text, #ff8b8b); }
+.tg-msg.good { color: var(--pos-text); }
+.stay-armed { margin-top: 12px; }

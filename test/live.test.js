@@ -17,7 +17,7 @@ import { autoMap } from '../server/live/symbolMap.js';
 const GOLD = { bid: 3800, ask: 3800.2, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
 const tick = () => new Promise((r) => setImmediate(r));
 
-function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [] } = {}) {
+function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], dataDir = null } = {}) {
   const clock = new MarketClock('live');
   const session = new Session(clock);
   session.isFlattenWindow = () => false; // tests must not depend on the time of day
@@ -27,24 +27,24 @@ function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [] } =
   // These tests cover the mirroring mechanics; the committee and account plan have their own tests.
   const fund = new Fund({ config: { startingCapital: 100_000_000, feed: mode, fundName: 'Test' }, md, clock, session, broker, risk, committee });
   const bridge = new Mt5Bridge();
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
+  dataDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
   const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} } });
   clearInterval(live.timer);
   md.applyTick('XAUUSD', 3800.1, 1, clock.now());
 
-  const mt5 = { balance: 100_000, equity: 100_000, closedToday: 0, positions: [], acks: [] };
+  const mt5 = { balance: 100_000, equity: 100_000, closedToday: 0, positions: [], acks: [], deals: [] };
   const account = () => ({
     login: 555, server: 'FTMO-Demo', currency: 'USD', balance: mt5.balance, equity: mt5.equity, closedToday: mt5.closedToday,
     initialDeposit: 100_000, tradeAllowed: true, expertAllowed: true, algoAllowed: true, connected: true, marginMode: 2,
   });
   const sync = () => {
     const reply = bridge.handleSync({
-      account: account(), positions: mt5.positions, deals: [], quotes: { XAUUSD: GOLD, ...quotes },
+      account: account(), positions: mt5.positions, deals: mt5.deals, quotes: { XAUUSD: GOLD, ...quotes },
       symbols: ['XAUUSD', 'US100.cash', 'EURUSD', ...symbols], serverDay: '2026.09.29', gmtOffset: 0, acks: mt5.acks.splice(0),
     });
     return reply.split('\n').filter((l) => /^(open|close|modify|closeall)\|/.test(l)).map((l) => l.split('|'));
   };
-  return { fund, live, bridge, sync, mt5, chen: fund.byId.get('chen') };
+  return { fund, live, bridge, sync, mt5, dataDir, chen: fund.byId.get('chen') };
 }
 
 test('position sizing turns account risk into lots', () => {
@@ -492,4 +492,121 @@ test('a market without real prices is never made up: its desks stand aside and s
   assert.ok(w, 'the FTMO tab says so');
   assert.match(w, /Nothing is simulated/);
   assert.match(w, /GBPUSD isn't mapped to a symbol on your broker/);
+});
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('the daily report card records the day: trades, R, what stayed on paper, and phone alerts', async () => {
+  const { live, sync, mt5, dataDir, chen, fund } = setup();
+  const alerts = [];
+  live.on('alert', (a) => alerts.push(a));
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  live.setDesk('chen', true);
+  live.setDesk('amara', true);
+  assert.equal(live.arm().ok, true);
+  assert.ok(alerts.some((a) => a.kind === 'arming' && /Armed/.test(a.text)));
+
+  // Chen's alert trade reaches MT5, fills, and later closes for +$125.
+  assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
+  await tick();
+  live.reconcile();
+  const open = sync().find((c) => c[0] === 'open');
+  mt5.acks.push({ id: open[1], ok: true, ticket: 9101, price: 3800.2, volume: Number(open[4]) });
+  mt5.positions.push({ ticket: 9101, symbol: 'XAUUSD', side: 'BUY', volume: Number(open[4]), open: 3800.2, sl: 3795, tp: 3815, profit: 0, magic: Number(open[7]), comment: open[8] });
+  sync();
+  assert.ok(alerts.some((a) => a.kind === 'trade' && /Chen bought .* XAUUSD @ 3800.2/.test(a.text)), JSON.stringify(alerts));
+
+  // Amara wants gold too while Chen holds it: one position per correlated group, so hers
+  // stays on paper, and the report says why.
+  const amara = fund.byId.get('amara');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), true);
+  await tick();
+  live.reconcile();
+
+  const link = [...live.links.values()].find((l) => l.agentId === 'chen');
+  mt5.positions = [];
+  mt5.deals = [{ position: 9101, entry: 1, pnl: 125 }];
+  for (let i = 0; i < 3; i++) sync();
+  assert.equal(link.state, 'closed');
+  const closeAlert = alerts.find((a) => a.kind === 'trade' && /closed XAUUSD/.test(a.text));
+  assert.match(closeAlert.text, /Chen closed XAUUSD \+\$125 \(\+0\.\dR\)/);
+
+  const r = live.reports.current;
+  assert.equal(r.day, '2026.09.29', 'the FTMO server day');
+  assert.equal(r.desks.chen.trades, 1);
+  assert.equal(r.desks.chen.wins, 1);
+  assert.equal(r.desks.chen.pnl, 125);
+  assert.ok(r.desks.chen.sumR > 0);
+  assert.equal(r.desks.amara.skipped, 1);
+  assert.equal(r.skipped['Correlated position already open'], 1, JSON.stringify(r.skipped));
+  assert.ok(r.events.some((e) => e.kind === 'arm'));
+  live.reports.flush();
+  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'reports', '2026-09-29.json'), 'utf8'));
+  assert.equal(saved.desks.chen.pnl, 125);
+});
+
+test('stay armed after a restart: the same account re-arms by itself, never after disarm or a guard stop', async () => {
+  const a = setup();
+  a.sync();
+  a.live.setup({ type: 'trial', size: 100_000 });
+  a.live.setDesk('chen', true);
+  assert.equal(a.live.arm().ok, true);
+  assert.equal(a.live.setStayArmed(true).ok, true);
+  await wait(300);
+  await a.live.shutdown();
+
+  // The floor restarts: once MT5 syncs, it arms again by itself.
+  const b = setup({ dataDir: a.dataDir });
+  const alerts = [];
+  b.live.on('alert', (x) => alerts.push(x));
+  assert.equal(b.live.armed, false);
+  b.sync();
+  assert.equal(b.live.armed, true);
+  assert.ok(alerts.some((x) => /Re-armed automatically/.test(x.text)));
+  assert.ok(b.live.events.some((e) => /ARMED again automatically/.test(e.text)));
+
+  // The boss disarms: a restart leaves it disarmed.
+  b.live.disarm();
+  await wait(300);
+  const c = setup({ dataDir: a.dataDir });
+  c.sync();
+  assert.equal(c.live.armed, false);
+
+  // Switched off: a restart never arms.
+  assert.equal(c.live.arm().ok, true);
+  c.live.setStayArmed(false);
+  await wait(300);
+  const d = setup({ dataDir: a.dataDir });
+  d.sync();
+  assert.equal(d.live.armed, false);
+
+  // A risk-guard stop is never undone by a restart.
+  d.live.setStayArmed(true);
+  assert.equal(d.live.arm().ok, true);
+  d.mt5.equity = 95_500; // down $4,500: past 80% of the $5,000 daily limit
+  d.sync();
+  assert.equal(d.live.armed, false);
+  assert.ok(d.live.halt);
+  await wait(300);
+  const e = setup({ dataDir: a.dataDir });
+  e.sync();
+  assert.equal(e.live.armed, false);
+  assert.equal(e.live.view().rememberedArmed, false);
+});
+
+test('MT5 going quiet for a minute is an alert, and so is it coming back', () => {
+  const { live, sync, bridge } = setup();
+  const alerts = [];
+  live.on('alert', (a) => alerts.push(a));
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  bridge.lastSync = Date.now() - 70_000;
+  live.tick();
+  live.tick();
+  assert.equal(alerts.filter((a) => a.kind === 'connection').length, 1);
+  assert.match(alerts[0].text, /stopped talking to the floor/);
+  sync();
+  live.tick();
+  assert.match(alerts.at(-1).text, /MT5 is back after 1 minute/);
 });

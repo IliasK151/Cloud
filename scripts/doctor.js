@@ -114,8 +114,12 @@ async function main() {
       good(`MT5 is connected: account ${live.account?.login} on ${live.account?.server}, last sync ${ago(live.lastSync)}, EA ${live.eaVersion || 'unknown'}.`);
       if (!live.eaCaps) warn('The EA is an older version without the safety caps. Update it from the FTMO tab (Copy EA code → MetaEditor → Compile).');
       if (!live.profile) warn('The account is not set up yet: FTMO tab → Set up the account.');
-      else if (!live.armed) warn('Live trading is not armed (it never is after a restart): FTMO tab → Arm live trading.');
-      else good('Live trading is armed.');
+      else if (!live.armed) {
+        const why = live.profile.stayArmed
+          ? (live.rememberedArmed ? ' yet (Stay armed is on: it arms again by itself once every check passes)' : '')
+          : ' (after a restart it waits for you, unless "Stay armed after a restart" is on)';
+        warn(`Live trading is not armed${why}: FTMO tab → Arm live trading.`);
+      } else good('Live trading is armed.');
       const desks = (live.desks || []).filter((d) => d.enabled);
       if (live.profile && !desks.length) warn('No desk is switched on for the account (FTMO tab → Desks on the account).');
       for (const d of desks) {

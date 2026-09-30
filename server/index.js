@@ -25,6 +25,8 @@ import { TunnelManager } from './tradingview/tunnel.js';
 import { VoiceEngine, toWav } from './voices/engine.js';
 import { Mt5Bridge } from './live/bridge.js';
 import { LiveTrader } from './live/liveTrader.js';
+import { summarize } from './live/dailyReport.js';
+import { TelegramNotifier } from './notify/telegram.js';
 
 const log = {
   info: (...a) => console.log(...a),
@@ -47,6 +49,9 @@ const feeds = new FeedManager({ md, clock, mode: config.feed, log, calendar: new
 // FTMO / MT5 live execution (idle until the MeridianBridge EA connects and you arm it).
 const bridge = new Mt5Bridge();
 const live = new LiveTrader({ fund, md, bridge, clock, mode: config.feed, dataDir: config.dataDir, token: config.bridgeToken, log });
+// Alerts on the boss's phone (Telegram), from the live trader's big moments.
+const notifier = new TelegramNotifier({ dataDir: config.dataDir, log });
+live.on('alert', (a) => notifier.notify(a));
 
 feeds.onSession({
   sessionClose: () => fund.flattenAll('Session close'),
@@ -192,12 +197,44 @@ app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
     'reset-halt': () => live.resetHalt(),
     plan: () => live.setPlan(b),
     'install-ea': () => live.installEa(),
+    'stay-armed': () => live.setStayArmed(b.on),
   };
-  const fn = actions[req.params.action];
+  const fn = Object.hasOwn(actions, req.params.action) ? actions[req.params.action] : null;
   if (!fn) return res.status(404).json({ ok: false, error: 'unknown action' });
   const result = fn();
   pushLive(true);
   res.json(result);
+});
+
+// ---- daily report card -------------------------------------------------------------------
+app.get('/api/reports', localOnly, (req, res) => res.json({ days: live.reports.list(), today: live.reports.current?.day ?? null }));
+app.get('/api/reports/:day', localOnly, (req, res) => {
+  const day = String(req.params.day);
+  if (!/^[0-9]{4}[.-][0-9]{2}[.-][0-9]{2}$/.test(day)) return res.status(400).json({ ok: false, error: 'bad day' });
+  const report = live.reports.get(day);
+  if (!report) return res.status(404).json({ ok: false, error: 'no report for that day' });
+  res.json({ ok: true, report, summary: summarize(report) });
+});
+
+// ---- Telegram alerts ------------------------------------------------------------------------
+app.get('/api/alerts', localOnly, (req, res) => res.json(notifier.view()));
+app.post('/api/alerts/:action', localOnly, express.json({ limit: '4kb' }), async (req, res) => {
+  const b = req.body || {};
+  const actions = {
+    token: () => notifier.setToken(b.token),
+    'find-chat': () => notifier.findChat(),
+    test: () => notifier.test(),
+    settings: () => notifier.settings(b),
+    forget: () => notifier.forget(),
+  };
+  const fn = Object.hasOwn(actions, req.params.action) ? actions[req.params.action] : null;
+  if (!fn) return res.status(404).json({ ok: false, error: 'unknown action' });
+  try {
+    const result = await fn();
+    res.json({ ...result, alerts: notifier.view() });
+  } catch (err) {
+    res.json({ ok: false, error: err.message, alerts: notifier.view() });
+  }
 });
 
 const tunnel = new TunnelManager({ dataDir: config.dataDir, port: config.webhookPort, secret: config.webhookSecret, log });
