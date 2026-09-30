@@ -43,10 +43,18 @@ export class LiveTrader extends EventEmitter {
     this.lastSkipNote = new Map();
     this.brain = new AccountBrain(this);
 
-    bridge.on('account', (acc) => this.#onAccount(acc));
-    bridge.on('ack', (ack) => this.#onAck(ack));
-    bridge.on('history', (sym, bars) => this.#onHistory(sym, bars));
-    bridge.on('sync', () => this.#onSync());
+    // A problem in one of these must never break MT5's connection or stop the floor.
+    const safe = (label, fn) => (...args) => {
+      try {
+        fn(...args);
+      } catch (err) {
+        this.log.warn?.(`[live] ${label} failed: ${err.stack || err.message}`);
+      }
+    };
+    bridge.on('account', safe('account', (acc) => this.#onAccount(acc)));
+    bridge.on('ack', safe('ack', (ack) => this.#onAck(ack)));
+    bridge.on('history', safe('history', (sym, bars) => this.#onHistory(sym, bars)));
+    bridge.on('sync', safe('sync', () => this.#onSync()));
     fund.broker.on('fill', () => setImmediate(() => this.reconcile()));
     fund.env.liveDescribe = (id) => this.describeFor(id);
     fund.env.liveBook = (id) => (this.profile && this.account ? this.deskBook(id) : null);
@@ -55,7 +63,13 @@ export class LiveTrader extends EventEmitter {
       for (const l of this.links.values()) if (l.floorSymbol === symbol && !l.previousSession && Number.isFinite(l.paperEntry)) l.paperEntry += offset;
     });
     this.equityHistory = [];
-    this.timer = setInterval(() => this.tick(), 1000);
+    this.timer = setInterval(() => {
+      try {
+        this.tick();
+      } catch (err) {
+        this.log.warn?.(`[live] tick failed: ${err.stack || err.message}`);
+      }
+    }, 1000);
   }
 
   // ---- persistence ---------------------------------------------------------------------
@@ -666,6 +680,9 @@ export class LiveTrader extends EventEmitter {
     if (acc && acc.connected !== false && !acc.expertAllowed) warnings.push('The broker has disabled Expert Advisor trading on this account.');
     if (acc && !acc.algoAllowed) warnings.push('Algo Trading is off in MT5 — turn on the "Algo Trading" toolbar button, and tick "Allow Algo Trading" in the EA settings (click the chart, press F7).');
     if (acc && acc.marginMode === 0) warnings.push('This is a netting account: desks trading the same symbol will net against each other.');
+    // MT5 is knocking but being turned away (wrong token, …): say exactly why.
+    const issue = this.bridgeIssue && Date.now() - this.bridgeIssue.at < 2 * 60_000 ? this.bridgeIssue : null;
+    if (issue) warnings.unshift(issue.text);
     const caps = this.bridge.caps;
     if (acc && this.bridge.connected && !caps) warnings.push('Your MeridianBridge EA is an older version without the built-in safety caps. Update it: copy the new EA code from the steps below into MetaEditor, compile, and re-attach it to the chart.');
     else if (caps && p) {
@@ -686,6 +703,7 @@ export class LiveTrader extends EventEmitter {
       lastSync: this.bridge.lastSync || null,
       eaVersion: this.bridge.version,
       eaCaps: this.bridge.caps,
+      bridgeIssue: issue ? { kind: issue.kind, text: issue.text, at: issue.at, count: issue.count } : null,
       token: this.token,
       account: acc,
       isFtmo,

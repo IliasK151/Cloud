@@ -20,8 +20,11 @@ import os from 'node:os';
 //   4. Strict security headers: CSP (no inline or third-party scripts), no framing, no
 //      referrer, no MIME sniffing, cross-origin isolation.
 //   5. Opened from another device on your Wi-Fi: a password login (FLOOR_PASSWORD),
-//      with lockout after repeated wrong passwords. Without a password the floor refuses
-//      to listen on the network at all.
+//      with lockout after repeated wrong passwords. Without a password, other devices get
+//      nothing but the MT5 bridge (for MT5 in a Windows VM or on another PC), which has its
+//      own token.
+// Every refusal is remembered (refusals()), so the floor can say exactly why something
+// couldn't connect.
 
 const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '::1']);
 const SESSION_COOKIE = 'floor_sid';
@@ -64,9 +67,11 @@ function lanNames() {
 }
 
 export class LocalGuard {
-  constructor({ port, lan = false, extraHosts = [], password = null, widgetPort = null, key = null, now = () => Date.now(), isLocal = isLoopbackAddress }) {
+  constructor({ port, lan = false, extraHosts = [], password = null, widgetPort = null, key = null, now = () => Date.now(), isLocal = isLoopbackAddress, networkPaths = [] }) {
     this.port = port;
     this.isLocal = isLocal;
+    this.networkPaths = networkPaths; // reachable from other machines without a login (own auth)
+    this.recent = []; // the latest refusals, for the connection doctor
     this.widgetPort = widgetPort;
     this.key = key || crypto.randomBytes(32).toString('base64url');
     this.now = now;
@@ -78,13 +83,24 @@ export class LocalGuard {
     this.pwHash = password ? crypto.scryptSync(String(password), this.salt, 32) : null;
     this.sessions = new Map(); // sid → expiry
     this.logins = new Map(); // ip → { fails, lockedUntil }
-    this.blocked = { host: 0, origin: 0, key: 0, login: 0 };
+    this.blocked = { host: 0, origin: 0, key: 0, login: 0, network: 0 };
   }
 
   // ---- checks ---------------------------------------------------------------------------------
   hostOk(req) {
     const h = parseHost(req.headers.host);
-    return !!h && this.names.has(h.name) && h.port === this.port;
+    // Some clients leave the port out of the Host header; the name is what matters.
+    return !!h && this.names.has(h.name) && (h.port === this.port || !/:\d+$/.test(String(req.headers.host).trim()));
+  }
+
+  #refuse(kind, req, extra = '') {
+    this.blocked[kind] = (this.blocked[kind] || 0) + 1;
+    this.recent.push({ at: this.now(), kind, path: String(req.path || req.url || '').slice(0, 60), host: String(req.headers?.host || '').slice(0, 80), ip: String(req.socket?.remoteAddress || ''), extra });
+    if (this.recent.length > 20) this.recent.shift();
+  }
+
+  refusals() {
+    return this.recent.slice();
   }
 
   // Started by this page (or by a non-browser client on this Mac), not by another site.
@@ -132,11 +148,18 @@ export class LocalGuard {
   middleware({ exempt = [] } = {}) {
     return (req, res, next) => {
       this.headers(res, req);
-      if (!this.hostOk(req)) {
-        this.blocked.host++;
-        return res.status(403).type('text').send('Blocked: this address is not allowed to open the floor.');
-      }
       const path = req.path;
+      const local = this.isLocal(req.socket?.remoteAddress);
+      // Paths with their own authentication (the MT5 bridge token) work from any address.
+      if (this.networkPaths.includes(path)) return next();
+      if (!local && !this.pwHash) {
+        this.#refuse('network', req);
+        return res.status(403).type('text').send('This trading floor only opens on the Mac it runs on. To use it from another device, set FLOOR_PASSWORD (and HOST=0.0.0.0) in .env.');
+      }
+      if (!this.hostOk(req)) {
+        this.#refuse('host', req);
+        return res.status(403).type('text').send(`Blocked: open the floor at http://localhost:${this.port} (this address is not allowed).`);
+      }
       if (path === '/login') return this.#login(req, res);
       if (this.needsLogin(req) && !this.sessionOk(req) && !exempt.includes(path)) {
         if (path.startsWith('/api/')) return res.status(401).json({ ok: false, error: 'login required' });
@@ -146,11 +169,11 @@ export class LocalGuard {
         res.setHeader('Cache-Control', 'no-store');
         if (exempt.includes(path)) return next();
         if (!this.originOk(req)) {
-          this.blocked.origin++;
+          this.#refuse('origin', req, String(req.headers.origin || req.headers['sec-fetch-site'] || ''));
           return res.status(403).json({ ok: false, error: 'cross-site request blocked' });
         }
         if (!this.keyOk(req.headers['x-floor-key'])) {
-          this.blocked.key++;
+          this.#refuse('key', req);
           return res.status(401).json({ ok: false, error: 'floor key missing or out of date: reload the page' });
         }
       } else if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -168,11 +191,13 @@ export class LocalGuard {
     } catch {
       return 'bad url';
     }
+    const r = { path: '/ws', headers: req.headers, socket: req.socket };
     if (url.pathname !== '/ws') return 'not found';
-    if (!this.hostOk(req)) return (this.blocked.host++, 'host');
-    if (!this.originOk(req, { requireOrigin: true })) return (this.blocked.origin++, 'origin');
-    if (this.needsLogin(req) && !this.sessionOk(req)) return (this.blocked.login++, 'login');
-    if (!this.keyOk(url.searchParams.get('key'))) return (this.blocked.key++, 'key');
+    if (!this.isLocal(req.socket?.remoteAddress) && !this.pwHash) return (this.#refuse('network', r), 'network');
+    if (!this.hostOk(req)) return (this.#refuse('host', r), 'host');
+    if (!this.originOk(req, { requireOrigin: true })) return (this.#refuse('origin', r, String(req.headers.origin || '')), 'origin');
+    if (this.needsLogin(req) && !this.sessionOk(req)) return (this.#refuse('login', r), 'login');
+    if (!this.keyOk(url.searchParams.get('key'))) return (this.#refuse('key', r), 'key');
     return null;
   }
 
@@ -255,7 +280,7 @@ export class LocalGuard {
   }
 
   view() {
-    return { lan: this.lan, passwordSet: !!this.pwHash, blocked: { ...this.blocked }, sessions: this.sessions.size };
+    return { lan: this.lan, passwordSet: !!this.pwHash, blocked: { ...this.blocked }, sessions: this.sessions.size, recent: this.recent.slice(-8) };
   }
 }
 

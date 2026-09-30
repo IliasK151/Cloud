@@ -19,7 +19,7 @@ import { RiskManager } from './engine/risk.js';
 import { Fund } from './engine/fund.js';
 import { Store } from './store.js';
 import { parseBody, normalizeAlert, alertSecret, secretMatches, rateLimiter } from './tradingview/webhook.js';
-import { LocalGuard, isLoopbackBind } from './security/localGuard.js';
+import { LocalGuard, isLoopbackBind, isLoopbackAddress } from './security/localGuard.js';
 import { WebhookFirewall, newSecret } from './security/webhookFirewall.js';
 import { TunnelManager } from './tradingview/tunnel.js';
 import { VoiceEngine, toWav } from './voices/engine.js';
@@ -58,17 +58,20 @@ feeds.on('recovered', (id, source) => {
 });
 
 // ---- security --------------------------------------------------------------------------------
-// Opening the floor to the network (HOST=0.0.0.0) is only allowed with a password.
-let bindHost = config.host;
-if (!isLoopbackBind(bindHost) && config.floorPassword.length < 10) {
-  log.warn(`\n  [security] HOST=${bindHost} would open the floor to your whole network, but FLOOR_PASSWORD is not set`);
-  log.warn('  [security] (at least 10 characters). Listening on this Mac only (127.0.0.1) instead.\n');
-  bindHost = '127.0.0.1';
+// HOST=0.0.0.0 listens on your network. Other devices get the dashboard only with a password
+// (FLOOR_PASSWORD); without one they can reach nothing but the MT5 bridge, which has its own
+// token (for MT5 in a Windows VM, e.g. Parallels, or on another PC).
+const bindHost = config.host;
+const networkBind = !isLoopbackBind(bindHost);
+const lanMode = networkBind && config.floorPassword.length >= 10;
+if (networkBind && !lanMode) {
+  log.warn(`\n  [security] HOST=${bindHost}: MT5 can connect from other machines (bridge token required), but the dashboard`);
+  log.warn('  [security] stays on this Mac. Set FLOOR_PASSWORD (10+ characters) in .env to open it on other devices.\n');
 }
-const lanMode = !isLoopbackBind(bindHost);
 const guard = new LocalGuard({
   port: config.port, lan: lanMode, extraHosts: config.allowedHosts,
   password: lanMode ? config.floorPassword : null, widgetPort: config.widgetPort,
+  networkPaths: ['/api/bridge/sync'],
 });
 const secrets = { webhook: config.webhookSecret };
 const firewall = new WebhookFirewall({ file: path.join(config.dataDir, 'security-log.json'), log });
@@ -122,25 +125,59 @@ app.post('/api/news/refresh', localOnly, async (req, res) => {
 });
 
 // ---- MT5 bridge + FTMO live trading --------------------------------------------------------
-const bridgeFails = { n: 0, since: 0, until: 0 };
+// Why MT5 last failed to connect: shown in the FTMO tab, printed here (once a minute at
+// most) and reported by `npm run doctor`.
+function noteBridgeIssue(kind, text) {
+  const now = Date.now();
+  const prev = live.bridgeIssue;
+  const loud = !prev || prev.kind !== kind || now - prev.loggedAt > 60_000;
+  live.bridgeIssue = { kind, text, at: now, count: prev?.kind === kind ? prev.count + 1 : 1, loggedAt: loud ? now : prev.loggedAt };
+  if (loud) {
+    log.warn(`[bridge] ${text}`);
+    pushLive(true);
+  }
+}
+const bridgeStrikes = new Map(); // other machines only: wrong tokens → slowed down
 app.post('/api/bridge/sync', express.text({ type: '*/*', limit: '4mb' }), (req, res) => {
-  if (!isDirect(req)) return res.status(403).type('text').send('ERR local only');
+  const ip = String(req.socket.remoteAddress || '');
+  if (!isDirect(req)) return res.status(403).type('text').send('ERR the bridge only accepts MT5 directly, not through a tunnel');
   // MT5 never sends an Origin header; a web page always does.
   if (req.headers.origin || /site/.test(req.headers['sec-fetch-site'] || '')) return res.status(403).type('text').send('ERR browsers may not use the bridge');
-  if (bridgeFails.until > Date.now()) return res.status(429).type('text').send('ERR too many wrong bridge tokens, wait a minute');
+  const strikes = bridgeStrikes.get(ip);
+  if (strikes && strikes.n >= 20 && Date.now() - strikes.since < 60_000) return res.status(429).type('text').send('ERR too many wrong bridge tokens from this machine, wait a minute');
   let msg;
   try {
     msg = JSON.parse(req.body);
   } catch {
+    noteBridgeIssue('json', 'MT5 sent something the floor could not read. Re-install the MeridianBridge EA from the FTMO tab.');
     return res.status(400).type('text').send('ERR bad json');
   }
-  const token = req.headers['x-bridge-token'] || msg.token;
+  const token = req.headers['x-bridge-token'] || msg?.token;
   if (!secretMatches(token, config.bridgeToken)) {
-    if (Date.now() - bridgeFails.since > 60_000) Object.assign(bridgeFails, { n: 0, since: Date.now() });
-    if (++bridgeFails.n >= 20) bridgeFails.until = Date.now() + 60_000;
+    if (!isLoopbackAddress(ip)) {
+      const st = strikes && Date.now() - strikes.since < 60_000 ? strikes : { n: 0, since: Date.now() };
+      st.n++;
+      bridgeStrikes.set(ip, st);
+    }
+    noteBridgeIssue('token', token
+      ? 'MT5 is reaching the floor, but the EA\'s bridge token is wrong. Copy the token from the FTMO tab and paste it into the EA\'s Inputs (right-click the chart → Expert list → MeridianBridge → Properties → Inputs → Bridge token).'
+      : 'MT5 is reaching the floor, but the EA\'s bridge token is empty. Copy the token from the FTMO tab and paste it into the EA\'s Inputs (right-click the chart → Expert list → MeridianBridge → Properties → Inputs → Bridge token).');
     return res.status(401).type('text').send('ERR bad bridge token — copy it from the FTMO tab');
   }
-  res.type('text').send(bridge.handleSync(msg));
+  bridgeStrikes.delete(ip);
+  if (live.bridgeIssue) {
+    live.bridgeIssue = null;
+    log.info('[bridge] MT5 connected');
+  }
+  // The reply must never fail because of something else on the floor.
+  let reply;
+  try {
+    reply = bridge.handleSync(msg);
+  } catch (err) {
+    log.warn(`[bridge] error while handling MT5's sync: ${err.stack || err.message}`);
+    reply = 'OK';
+  }
+  res.type('text').send(reply);
 });
 app.get('/api/live', localOnly, (req, res) => res.json(live.view()));
 app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
@@ -423,7 +460,13 @@ let lastLive = '';
 let lastLiveAt = 0;
 function pushLive(force = false) {
   if (!wss.clients.size) return;
-  const view = live.view();
+  let view;
+  try {
+    view = live.view();
+  } catch (err) {
+    log.warn(`[live] could not build the FTMO panel: ${err.stack || err.message}`);
+    return;
+  }
   const key = JSON.stringify({ ...view, lastSync: 0 });
   if (!force && key === lastLive && Date.now() - lastLiveAt < 5000) return;
   lastLive = key;
@@ -476,7 +519,8 @@ async function main() {
     for (const n of feeds.notes) log.info(`                      ${n}`);
     log.info(`  TradingView hook:   http://localhost:${config.webhookPort}/webhook   (public address: TradingView tab)`);
     log.info(`  Webhook secret:     ${secrets.webhook.slice(0, 4)}…  (full secret in the TradingView tab, kept off this screen)`);
-    log.info(`  Security:           ${lanMode ? 'open to your network, password required (FLOOR_PASSWORD)' : 'dashboard on this Mac only'} · webhook firewall on · trades from TradingView only: ${firewall.settings.tradingViewOnly ? 'on' : 'OFF'}`);
+    log.info(`  Security:           ${lanMode ? 'dashboard open to your network, password required' : networkBind ? 'dashboard on this Mac only, MT5 bridge open to your network (token)' : 'dashboard on this Mac only'} · webhook firewall on · trades from TradingView only: ${firewall.settings.tradingViewOnly ? 'on' : 'OFF'}`);
+    log.info('  Trouble connecting? Run: npm run doctor');
     log.info(`  FTMO / MT5 bridge:  http://127.0.0.1:${config.port}/api/bridge/sync  (token in the FTMO tab)`);
     log.info(`  Paper trading unless you connect MT5 and arm live trading in the FTMO tab.`);
     log.info('');
@@ -485,7 +529,7 @@ async function main() {
   // The webhook listener only ever accepts connections from this Mac: the tunnel app runs
   // here and forwards TradingView's requests to it.
   hookServer.listen(config.webhookPort, '127.0.0.1', () => tunnel.init());
-  widgetServer.listen(config.widgetPort, bindHost);
+  widgetServer.listen(config.widgetPort, lanMode ? bindHost : '127.0.0.1');
   widgetServer.on('error', (err) => {
     guard.widgetPort = null;
     log.warn(`[security] TradingView chart widget port ${config.widgetPort} unavailable (${err.message}); the desk panels link to TradingView instead`);

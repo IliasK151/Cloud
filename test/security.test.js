@@ -103,6 +103,32 @@ test('local firewall: the live feed needs this page\'s origin and the key', () =
   assert.equal(isLoopbackAddress('192.168.1.4'), false);
 });
 
+test('other machines reach only the MT5 bridge unless a password is set; a Host without port is fine', async () => {
+  const probe = await listen(express());
+  const port = probe.address().port;
+  probe.close();
+  const guard = new LocalGuard({ port, isLocal: () => false, networkPaths: ['/api/bridge/sync'] });
+  const app = express();
+  app.use(guard.middleware());
+  app.get('/', (req, res) => guard.sendIndex(req, res, '<html><head></head><body></body></html>'));
+  app.post('/api/bridge/sync', (req, res) => res.type('text').send('OK'));
+  const server = await new Promise((resolve) => { const s = http.createServer(app).listen(port, '127.0.0.1', () => resolve(s)); });
+  try {
+    // MT5 in a Windows VM: any Host, the bridge answers (it checks its own token).
+    assert.equal((await request(port, { method: 'POST', path: '/api/bridge/sync', headers: { Host: `10.211.55.2:${port}` } })).status, 200);
+    const page = await request(port, { headers: { Host: `127.0.0.1:${port}` } });
+    assert.equal(page.status, 403);
+    assert.match(page.body, /only opens on the Mac/);
+    assert.equal(guard.refusals().at(-1).kind, 'network');
+  } finally {
+    server.close();
+  }
+  const local = new LocalGuard({ port: 3000 });
+  assert.equal(local.hostOk({ headers: { host: '127.0.0.1' } }), true, 'no port in the Host header');
+  assert.equal(local.hostOk({ headers: { host: 'evil.example' } }), false);
+  assert.equal(local.hostOk({ headers: { host: '127.0.0.1:4444' } }), false);
+});
+
 test('Wi-Fi access needs the password; wrong passwords lock the device out', async () => {
   const g = await guarded({ password: 'correct horse battery', isLocal: () => false });
   const form = (password) => request(g.port, { method: 'POST', path: '/login', headers: { Host: g.host, Origin: `http://${g.host}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: `password=${encodeURIComponent(password)}` });
@@ -208,7 +234,7 @@ test('the running floor refuses the attacks end to end', { timeout: 90_000 }, as
   try {
     const deadline = Date.now() + 60_000;
     while (!/Floor & dashboard/.test(out) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
-    assert.match(out, /FLOOR_PASSWORD is not set/, 'no password: not opened to the network');
+    assert.match(out, /stays on this Mac/, 'no password: the dashboard is not opened to the network');
     assert.doesNotMatch(out, new RegExp(fs.readFileSync(path.join(dataDir, 'webhook-secret.txt'), 'utf8').trim()), 'the secret stays off the terminal');
     const host = `127.0.0.1:${base}`;
     const page = await request(base, { headers: { Host: host } });
@@ -246,6 +272,16 @@ test('the running floor refuses the attacks end to end', { timeout: 90_000 }, as
     const untyped = await request(base + 1, { method: 'POST', path: '/webhook', headers: { 'CF-Connecting-IP': TRADINGVIEW_IPS[0] }, body: 'x'.repeat(20_000) });
     assert.equal(untyped.status, 401, 'not even read');
     assert.doesNotMatch(big.body, /at |node_modules|Error:/, 'no stack traces');
+
+    // MT5: a wrong token says why (FTMO tab / doctor) and never locks the right one out.
+    const sync = (token) => request(base, { method: 'POST', path: '/api/bridge/sync', headers: { Host: host, 'Content-Type': 'application/json' }, body: JSON.stringify({ token, account: { login: 1, server: 'X' } }) });
+    for (let i = 0; i < 25; i++) assert.equal((await sync('wrong')).status, 401);
+    const issue = JSON.parse((await request(base, { path: '/api/live', headers: { Host: host, 'X-Floor-Key': key } })).body).bridgeIssue;
+    assert.equal(issue.kind, 'token');
+    assert.match(issue.text, /bridge token is wrong/);
+    const bridgeToken = fs.readFileSync(path.join(dataDir, 'bridge-token.txt'), 'utf8').trim();
+    assert.equal((await sync(bridgeToken)).status, 200, 'the right token works straight away');
+    assert.equal(JSON.parse((await request(base, { path: '/api/live', headers: { Host: host, 'X-Floor-Key': key } })).body).bridgeIssue, null);
 
     // Secrets on disk: readable by this user only.
     assert.equal(fs.statSync(dataDir).mode & 0o777, 0o700);

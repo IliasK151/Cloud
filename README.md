@@ -350,10 +350,18 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 
 **Troubleshooting**
 
+**Something won't connect? Run `npm run doctor`** in a second Terminal window while the floor runs. It checks:
+- the floor itself;
+- the dashboard's live feed;
+- MT5 (including the exact reason it's being refused, such as a wrong bridge token);
+- the TradingView address.
+
+It then prints what to fix. It only reads; it never trades. The FTMO tab shows the same MT5 reason at the top, and the dashboard shows what to do when it loses the floor. After the floor restarts, open dashboard tabs reload themselves.
+
 | MT5 shows… | Fix |
 | --- | --- |
 | "WebRequest is blocked" (error 4014) | Add `http://127.0.0.1:3000` under Tools → Options → Expert Advisors → Allow WebRequest |
-| "Floor not reachable" | Start the floor (`npm start`). On a different port, set the EA's *Floor bridge URL* input to match |
+| "Floor not reachable" | Start the floor (`npm start`). On a different port, set the EA's *Floor bridge URL* input to match. MT5 in a Windows VM or on another PC: set `HOST=0.0.0.0` in `.env` and use the Mac's address in the URL |
 | "Floor refused the sync (HTTP 401)" | The bridge token is wrong: copy it again from the FTMO tab (it lives in `data/bridge-token.txt`) |
 | The FTMO tab says "Algo Trading is off" | Turn on the Algo Trading toolbar button and tick *Allow Algo Trading* in the EA's settings |
 | Can't drag the file into the Experts folder | Use the MetaEditor paste method or `npm run install-ea` (step 4 above) |
@@ -382,7 +390,7 @@ The floor can trade a real account, so it's built like a small trading firm's ne
 | --- | --- | --- |
 | The internet | Only the TradingView webhook, through the tunnel | The webhook firewall (below) |
 | Web pages in your browser | Nothing | Other sites can't read the page, so they never get the floor key |
-| Devices on your Wi-Fi | Nothing, unless you set `HOST=0.0.0.0` | Then a password login is required |
+| Devices on your Wi-Fi | Nothing, unless you set `HOST=0.0.0.0` | Then only the MT5 bridge (its token), and the dashboard only with `FLOOR_PASSWORD` |
 | This Mac | The dashboard | Every request carries a floor key that changes each launch |
 
 **The webhook firewall.** This is the only part of the floor on the internet. Every request passes through it in this order:
@@ -443,7 +451,7 @@ Copy `.env.example` to `.env`. The most useful settings:
 | `FEED` | `live` | `live` or `sim` |
 | `SIM_SPEED` | `20` | Simulation speed (market seconds per real second) |
 | `PORT` / `WEBHOOK_PORT` / `WIDGET_PORT` | `3000` / `3001` / `3002` | Dashboard, webhook-only port (this Mac only, for the tunnel), isolated TradingView chart |
-| `HOST` | `127.0.0.1` | Set `0.0.0.0` to open the floor from an iPad on your Wi-Fi. Requires `FLOOR_PASSWORD` |
+| `HOST` | `127.0.0.1` | Set `0.0.0.0` when MT5 runs in a Windows VM (Parallels) or on another PC: the MT5 bridge becomes reachable on your network (token required) and the dashboard stays on this Mac. Add `FLOOR_PASSWORD` to also open the dashboard from an iPad |
 | `FLOOR_PASSWORD` | — | Password for other devices on your Wi-Fi (at least 10 characters). This Mac never needs it |
 | `ALLOWED_HOSTS` | — | Extra host names allowed to open the dashboard (comma-separated), e.g. a custom local DNS name |
 | `WEBHOOK_SECRET` | auto | TradingView webhook secret (auto: random, in `data/webhook-secret.txt`, rotatable from the TradingView tab) |
@@ -456,6 +464,7 @@ Other commands:
 npm test               # tests: indicators, broker, risk, webhooks, FTMO, news calendar, backtester (no look-ahead),
                        # research validation (rejects pure noise), research desks, committee + account brain,
                        # a full floor session
+npm run doctor         # checks every connection (floor, dashboard, MT5, TradingView) and says what to fix
 npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow (MOCK_PNL=-100 rehearses a drawdown)
 npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
 npm run backtest -- 5  # fast-forward 5 simulated sessions (news + research lab included) and print each desk's results

@@ -665,3 +665,5 @@ details.how p { color: var(--text-3); }
 .table td.ftmo-status { white-space: normal; min-width: 240px; max-width: 380px; }
 .ftmo-status .ftmo-why { margin: 4px 0 0; line-height: 1.35; white-space: normal; max-width: 380px; }
 .ap-live.paper { color: var(--text-2); border-color: var(--hairline); background: var(--surface-2); }
+.conn-help { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 60; max-width: min(620px, calc(100vw - 32px)); padding: 12px 16px; border-radius: 10px; background: #2a1414; border: 1px solid rgba(217, 69, 79, 0.5); color: #ffd7d9; font-size: 13px; line-height: 1.45; box-shadow: var(--shadow); }
+.conn-help code { background: rgba(255, 255, 255, 0.08); padding: 1px 5px; border-radius: 4px; }

@@ -72,6 +72,21 @@ export class Hud {
     const labels = { ok: 'Connected', connecting: 'Connecting…', down: 'Reconnecting…' };
     this.el.conn.className = `conn ${state}`;
     this.el.conn.querySelector('span').textContent = labels[state] || state;
+    // Lost the floor for more than a few seconds: say what to do instead of spinning.
+    if (state === 'ok') {
+      clearTimeout(this.connTimer);
+      this.connTimer = null;
+      document.getElementById('conn-help')?.remove();
+    } else if (!this.connTimer) {
+      this.connTimer = setTimeout(() => {
+        if (document.getElementById('conn-help')) return;
+        const el = document.createElement('div');
+        el.id = 'conn-help';
+        el.className = 'conn-help';
+        el.innerHTML = '<b>Can\'t reach the trading floor.</b> Check that the Terminal window running <code>npm start</code> is still open. If it is, reload this page (Cmd+R). Still stuck? Run <code>npm run doctor</code> in a second Terminal window: it tells you exactly what\'s wrong.';
+        document.body.appendChild(el);
+      }, 6000);
+    }
   }
 
   update() {
