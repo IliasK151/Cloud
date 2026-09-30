@@ -6,6 +6,7 @@ const CANDIDATES = {
   XAUUSD: ['XAUUSD', 'GOLD', 'XAUUSD.cash'],
   USOIL: ['USOIL.cash', 'USOIL', 'WTI', 'XTIUSD', 'CL-OIL', 'WTI.cash'],
   EURUSD: ['EURUSD'],
+  GBPUSD: ['GBPUSD'],
   USDJPY: ['USDJPY'],
   BTCUSD: ['BTCUSD', 'BTCUSDT', 'BITCOIN'],
   ETHUSD: ['ETHUSD', 'ETHUSDT', 'ETHEREUM'],

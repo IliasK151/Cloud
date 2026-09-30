@@ -22,12 +22,13 @@ const SPECS = {
   XAUUSD: { price: 3800, digits: 2, tickSize: 0.01, tickValue: 1, volMin: 0.01, volStep: 0.01, volMax: 50, vol: 0.18, spread: 0.25 },
   'USOIL.cash': { price: 64, digits: 2, tickSize: 0.01, tickValue: 1, volMin: 0.01, volStep: 0.01, volMax: 50, vol: 0.34, spread: 0.03 },
   EURUSD: { price: 1.17, digits: 5, tickSize: 0.00001, tickValue: 1, volMin: 0.01, volStep: 0.01, volMax: 50, vol: 0.07, spread: 0.00008 },
+  GBPUSD: { price: 1.34, digits: 5, tickSize: 0.00001, tickValue: 1, volMin: 0.01, volStep: 0.01, volMax: 50, vol: 0.08, spread: 0.0001 },
   USDJPY: { price: 148, digits: 3, tickSize: 0.001, tickValue: 0.68, volMin: 0.01, volStep: 0.01, volMax: 50, vol: 0.09, spread: 0.012 },
   BTCUSD: { price: 112000, digits: 2, tickSize: 0.01, tickValue: 0.01, volMin: 0.01, volStep: 0.01, volMax: 20, vol: 0.45, spread: 15 },
   ETHUSD: { price: 4100, digits: 2, tickSize: 0.01, tickValue: 0.01, volMin: 0.01, volStep: 0.01, volMax: 200, vol: 0.6, spread: 1.2 },
   SOLUSD: { price: 210, digits: 2, tickSize: 0.01, tickValue: 0.01, volMin: 0.1, volStep: 0.1, volMax: 2000, vol: 0.75, spread: 0.1 },
 };
-const EXTRA_SYMBOLS = ['GBPUSD', 'AUDUSD', 'USDCHF', 'GER40.cash', 'UK100.cash', 'JP225.cash', 'XAGUSD', 'UKOIL.cash', 'US30.cash'];
+const EXTRA_SYMBOLS = ['AUDUSD', 'USDCHF', 'GER40.cash', 'UK100.cash', 'JP225.cash', 'XAGUSD', 'UKOIL.cash', 'US30.cash'];
 
 const gauss = () => Math.sqrt(-2 * Math.log(Math.random() || 1e-9)) * Math.cos(2 * Math.PI * Math.random());
 const minuteOf = (sec) => Math.floor(sec / 60) * 60;

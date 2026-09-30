@@ -51,6 +51,12 @@ export function initials(name) {
   return name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
+// The key shown on a desk's badge: 1–0 for the ten trading desks, Q for the research lab,
+// S for the scalping desk.
+export function deskKey(p, i) {
+  return p.lab ? 'Q' : p.scalper ? 'S' : (i + 1) % 10;
+}
+
 export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }

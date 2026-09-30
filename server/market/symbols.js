@@ -40,6 +40,13 @@ export const SYMBOLS = {
     seedPrice: 1.17, annualVol: 0.07, baseVolume: 20000,
     aliases: ['EURUSD', 'EURUSD=X', '6E1!', 'EUR/USD'],
   },
+  GBPUSD: {
+    id: 'GBPUSD', name: 'Pound / US Dollar', assetClass: 'FX',
+    tv: 'FX:GBPUSD', source: { type: 'yahoo', ticker: 'GBPUSD=X' },
+    decimals: 5, tick: 0.00001, lot: 1000, spreadBps: 0.6,
+    seedPrice: 1.34, annualVol: 0.08, baseVolume: 16000,
+    aliases: ['GBPUSD', 'GBPUSD=X', '6B1!', 'GBP/USD', 'CABLE'],
+  },
   USDJPY: {
     id: 'USDJPY', name: 'US Dollar / Yen', assetClass: 'FX',
     tv: 'FX:USDJPY', source: { type: 'yahoo', ticker: 'JPY=X' },

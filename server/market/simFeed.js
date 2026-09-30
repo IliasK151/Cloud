@@ -198,6 +198,7 @@ export class SimFeed {
     const usd = ev.usd ?? 0;
     const risk = ev.risk ?? 0;
     if (id === 'EURUSD') return ev.currency === 'EUR' ? 1 : -usd;
+    if (id === 'GBPUSD') return ev.currency === 'GBP' ? 1 : -usd;
     if (id === 'USDJPY') return ev.currency === 'JPY' ? -1 : usd;
     if (id === 'XAUUSD') return -usd;
     return risk; // indices, oil on macro data, crypto

@@ -20,7 +20,7 @@ import { fmtUsd } from '../util/format.js';
 export const GROUPS = {
   NAS100: 'US indices', SPX500: 'US indices',
   BTCUSD: 'Crypto', ETHUSD: 'Crypto', SOLUSD: 'Crypto',
-  EURUSD: 'FX', USDJPY: 'FX', XAUUSD: 'Gold', USOIL: 'Oil',
+  EURUSD: 'FX', GBPUSD: 'FX', USDJPY: 'FX', XAUUSD: 'Gold', USOIL: 'Oil',
 };
 
 const GRADE_RANK = { A: 3, B: 2, C: 1 };

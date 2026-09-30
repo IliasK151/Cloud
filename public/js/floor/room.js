@@ -8,10 +8,13 @@ export const ROOM = { x0: -17, x1: 17, z0: -15, z1: 17, height: 6.5 };
 export const PLATFORM = { z0: 0.1, z1: 4.9, height: 0.32 };
 // The Quant Research Lab: a third, higher tier behind the trading rows.
 export const LAB = { z0: 6.3, z1: 11.5, height: 0.64 };
+// The Scalping Desk: a fourth tier at the very back, a step above the lab.
+export const SCALP = { z0: 12.3, z1: 16.9, height: 0.96, width: 26 };
 export const DESK_XS = [-10, -5, 0, 5, 10];
 export const FRONT_ROW_Z = -5.4;
 export const BACK_ROW_Z = 1.9;
 export const LAB_ROW_Z = 8.4;
+export const SCALP_ROW_Z = 14.4;
 
 const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.02, ...o });
 
@@ -95,6 +98,46 @@ export function buildRoom(scene) {
   signMesh.position.set(-2.5, LAB.height + 0.52, LAB.z0 + 0.14);
   scene.add(signMesh);
 
+  // --- scalping desk tier: the highest, behind its own glass rail with a warm red light ---
+  const scalp = new THREE.Mesh(new THREE.BoxGeometry(SCALP.width, SCALP.height, SCALP.z1 - SCALP.z0), platMat);
+  scalp.position.set(0, SCALP.height / 2, (SCALP.z0 + SCALP.z1) / 2);
+  scalp.receiveShadow = scalp.castShadow = true;
+  scene.add(scalp);
+  const scalpRug = new THREE.Mesh(new RoundedBoxGeometry(SCALP.width - 1.5, 0.012, SCALP.z1 - SCALP.z0 - 0.9, 2, 0.005), rugMat);
+  scalpRug.position.set(0, SCALP.height + 0.006, (SCALP.z0 + SCALP.z1) / 2 + 0.1);
+  scalpRug.receiveShadow = true;
+  scene.add(scalpRug);
+  const scalpNosing = new THREE.Mesh(new RoundedBoxGeometry(SCALP.width, 0.06, 0.08, 2, 0.02), walnut);
+  scalpNosing.position.set(0, SCALP.height - 0.03, SCALP.z0 - 0.02);
+  scene.add(scalpNosing);
+  const scalpLight = new THREE.Mesh(new THREE.BoxGeometry(SCALP.width - 0.2, 0.012, 0.01), new THREE.MeshBasicMaterial({ color: '#ff8a7a', toneMapped: false }));
+  scalpLight.position.set(0, SCALP.height - 0.07, SCALP.z0 - 0.045);
+  scene.add(scalpLight);
+  const scalpGlass = new THREE.MeshPhysicalMaterial({ color: '#f2b0a6', transparent: true, opacity: 0.09, roughness: 0.05, metalness: 0, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide });
+  const scalpRail = new THREE.Mesh(new THREE.PlaneGeometry(SCALP.width - 0.4, 0.9), scalpGlass);
+  scalpRail.position.set(0, SCALP.height + 0.45, SCALP.z0 + 0.12);
+  scene.add(scalpRail);
+  const scalpHandrail = new THREE.Mesh(new RoundedBoxGeometry(SCALP.width - 0.4, 0.035, 0.05, 2, 0.012), railMat);
+  scalpHandrail.position.set(0, SCALP.height + 0.92, SCALP.z0 + 0.12);
+  scene.add(scalpHandrail);
+  for (let x = -SCALP.width / 2 + 0.3; x <= SCALP.width / 2 - 0.3; x += (SCALP.width - 0.6) / 6) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.9, 0.03), railMat);
+    post.position.set(x, SCALP.height + 0.45, SCALP.z0 + 0.12);
+    scene.add(post);
+  }
+  const scalpSign = canvasTexture(1024, 96);
+  scalpSign.ctx.clearRect(0, 0, 1024, 96);
+  scalpSign.ctx.font = '700 58px -apple-system, "Helvetica Neue", Arial, sans-serif';
+  scalpSign.ctx.textAlign = 'center';
+  scalpSign.ctx.textBaseline = 'middle';
+  scalpSign.ctx.fillStyle = '#ffb3a6';
+  if ('letterSpacing' in scalpSign.ctx) scalpSign.ctx.letterSpacing = '14px';
+  scalpSign.ctx.fillText('SCALPING DESK', 512, 50);
+  scalpSign.texture.needsUpdate = true;
+  const scalpSignMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.34), new THREE.MeshBasicMaterial({ map: scalpSign.texture, transparent: true, opacity: 0.85, toneMapped: false, depthWrite: false }));
+  scalpSignMesh.position.set(-2.5, SCALP.height + 0.52, SCALP.z0 + 0.14);
+  scene.add(scalpSignMesh);
+
   // --- walls ---
   const plaster = std('#1e1f23', { roughness: 0.92 });
   const addWall = (w, h, pos, rotY, mat = plaster) => {
@@ -170,7 +213,7 @@ export function buildRoom(scene) {
   const pendantBody = std('#1b1c1f', { roughness: 0.4, metalness: 0.5 });
   const pendantGlow = new THREE.MeshBasicMaterial({ color: '#fff3e2', toneMapped: false });
   const wire = std('#555', { metalness: 0.6 });
-  for (const [z, y0] of [[FRONT_ROW_Z + 0.2, 0], [BACK_ROW_Z + 0.2, PLATFORM.height], [LAB_ROW_Z + 0.2, LAB.height]]) {
+  for (const [z, y0] of [[FRONT_ROW_Z + 0.2, 0], [BACK_ROW_Z + 0.2, PLATFORM.height], [LAB_ROW_Z + 0.2, LAB.height], [SCALP_ROW_Z + 0.2, SCALP.height]]) {
     for (const x of DESK_XS) {
       const body = new THREE.Mesh(new RoundedBoxGeometry(2.4, 0.045, 0.09, 2, 0.015), pendantBody);
       body.position.set(x, y0 + 3.4, z);
@@ -247,7 +290,7 @@ export function buildRoom(scene) {
   }
   // Soft light from the pendants onto each row.
   RectAreaLightUniformsLib.init();
-  for (const [z, y0] of [[FRONT_ROW_Z + 0.4, 0], [BACK_ROW_Z + 0.4, PLATFORM.height], [LAB_ROW_Z + 0.4, LAB.height]]) {
+  for (const [z, y0] of [[FRONT_ROW_Z + 0.4, 0], [BACK_ROW_Z + 0.4, PLATFORM.height], [LAB_ROW_Z + 0.4, LAB.height], [SCALP_ROW_Z + 0.4, SCALP.height]]) {
     const area = new THREE.RectAreaLight(0xfff1dc, 0.55, 24, 1.6);
     area.position.set(0, y0 + 3.36, z);
     area.lookAt(0, y0, z);

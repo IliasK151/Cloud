@@ -6,14 +6,14 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildRoom, PLATFORM, LAB, DESK_XS, FRONT_ROW_Z, BACK_ROW_Z, LAB_ROW_Z } from './room.js';
+import { buildRoom, PLATFORM, LAB, SCALP, DESK_XS, FRONT_ROW_Z, BACK_ROW_Z, LAB_ROW_Z, SCALP_ROW_Z } from './room.js';
 import { Desk } from './desk.js';
 import { VideoWall } from './videowall.js';
-import { money, escapeHtml, STATUS_COLORS } from '../format.js';
+import { money, escapeHtml, STATUS_COLORS, deskKey } from '../format.js';
 import { deskBook } from '../book.js';
 import { voice } from '../voice.js';
 
-const OVERVIEW = { pos: new THREE.Vector3(-2.4, 12.6, 26.5), target: new THREE.Vector3(-2.4, 0.0, -1.8) };
+const OVERVIEW = { pos: new THREE.Vector3(-2.4, 18.5, 33.5), target: new THREE.Vector3(-2.4, 0.0, 0.8) };
 
 const LABEL_OFFSET = new THREE.Vector3(0, 2.25, 0.3);
 
@@ -86,7 +86,7 @@ export class TradingFloor {
     this.controls.dampingFactor = 0.08;
     this.controls.maxPolarAngle = 1.5;
     this.controls.minDistance = 0.8;
-    this.controls.maxDistance = 36;
+    this.controls.maxDistance = 44;
     this.controls.screenSpacePanning = true;
     this.controls.update();
 
@@ -112,8 +112,9 @@ export class TradingFloor {
     if (this.desks.size) return;
     profiles.forEach((p, i) => {
       const desk = new Desk(p, i);
-      const row = Math.min(2, Math.floor(i / 5));
-      desk.group.position.set(DESK_XS[i % 5], [0, PLATFORM.height, LAB.height][row], [FRONT_ROW_Z, BACK_ROW_Z, LAB_ROW_Z][row]);
+      // Trading rows by position, then the lab and the scalping desk on their own tiers.
+      const row = p.scalper ? 3 : p.lab ? 2 : Math.min(1, Math.floor(i / 5));
+      desk.group.position.set(DESK_XS[i % 5], [0, PLATFORM.height, LAB.height, SCALP.height][row], [FRONT_ROW_Z, BACK_ROW_Z, LAB_ROW_Z, SCALP_ROW_Z][row]);
       desk.blob.visible = !this.quality;
       this.scene.add(desk.group);
       this.desks.set(p.id, desk);
@@ -176,8 +177,8 @@ export class TradingFloor {
     const el = document.createElement('button');
     el.className = 'desk-tag';
     el.type = 'button';
-    const key = p.lab ? 'Q' : i === 9 ? 0 : i + 1;
-    el.innerHTML = `<span class="k${p.lab ? ' lab' : ''}">${key}</span><span class="who"><b>${escapeHtml(p.name.split(' ')[0])}</b><small>${escapeHtml(p.desk)}</small></span><span class="v"></span><i class="st"></i>`;
+    const key = deskKey(p, i);
+    el.innerHTML = `<span class="k${p.lab ? ' lab' : p.scalper ? ' scalp' : ''}">${key}</span><span class="who"><b>${escapeHtml(p.name.split(' ')[0])}</b><small>${escapeHtml(p.desk)}</small></span><span class="v"></span><i class="st"></i>`;
     el.style.setProperty('--accent', p.accent);
     el.addEventListener('click', () => this.#emit('select', p.id));
     this.overlay.appendChild(el);

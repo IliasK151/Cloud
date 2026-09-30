@@ -1,4 +1,4 @@
-import { money, nyTime, signClass, escapeHtml, STATUS_COLORS } from '../format.js';
+import { money, nyTime, signClass, escapeHtml, STATUS_COLORS, deskKey } from '../format.js';
 import { fundBook, deskBook, hasFtmo, bookMode, setBookPref } from '../book.js';
 import { provingNote, setPlanSwitch } from './planSwitch.js';
 
@@ -59,11 +59,17 @@ export class Hud {
         h.innerHTML = 'Quant Research Lab <small>trades only validated strategies</small>';
         this.el.list.appendChild(h);
       }
+      if (p.scalper && !s.profiles[i - 1]?.scalper) {
+        const h = document.createElement('li');
+        h.className = 'desk-group scalp';
+        h.innerHTML = 'Scalping Desk <small>AJ Currency style: liquidity runs, tight stops, fast trades</small>';
+        this.el.list.appendChild(h);
+      }
       const li = document.createElement('li');
-      li.className = `desk-item${p.lab ? ' lab' : ''}`;
+      li.className = `desk-item${p.lab ? ' lab' : p.scalper ? ' scalp' : ''}`;
       const markets = p.research?.markets || p.symbols;
       li.innerHTML = `
-        <span class="key" style="--accent:${p.accent}">${p.lab ? 'Q' : (i + 1) % 10}</span>
+        <span class="key" style="--accent:${p.accent}">${deskKey(p, i)}</span>
         <span class="nm">${escapeHtml(p.name)}</span>
         <span class="pnl num">—</span>
         <span class="sub"><span class="subt">${escapeHtml(p.desk)} · ${escapeHtml(markets.length > 3 ? 'all markets' : markets.join('/'))}</span></span>

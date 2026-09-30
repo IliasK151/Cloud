@@ -11,9 +11,9 @@ import { opinion, say, thesisLine, researchFactor, styleKey, styleOf, FACTORS } 
 // Only A-grade trades go to the prop account (see live/accountBrain.js).
 
 export const DEPARTMENTS = [
-  { id: 'indices', name: 'Equity Indices', markets: ['NAS100', 'SPX500'], members: ['marcus', 'james', 'arjun'] },
-  { id: 'fx', name: 'FX & Macro', markets: ['EURUSD', 'USDJPY'], members: ['sofia', 'priya', 'hannah'] },
-  { id: 'commodities', name: 'Metals & Energy', markets: ['XAUUSD', 'USOIL'], members: ['amara', 'lucas', 'omar'] },
+  { id: 'indices', name: 'Equity Indices', markets: ['NAS100', 'SPX500'], members: ['marcus', 'james', 'arjun', 'nico'] },
+  { id: 'fx', name: 'FX & Macro', markets: ['EURUSD', 'GBPUSD', 'USDJPY'], members: ['sofia', 'priya', 'hannah', 'jake', 'layla'] },
+  { id: 'commodities', name: 'Metals & Energy', markets: ['XAUUSD', 'USOIL'], members: ['amara', 'lucas', 'omar', 'ryan', 'mia'] },
   { id: 'crypto', name: 'Digital Assets', markets: ['BTCUSD', 'ETHUSD', 'SOLUSD'], members: ['viktor', 'isabella', 'kenji', 'chen', 'mei'] },
 ];
 export const CHAIR = 'elena';
@@ -110,7 +110,8 @@ export class Committee extends EventEmitter {
     const dept = departmentFor(symbol);
     const pool = (dept?.members || []).filter((id) => id !== proposer.id && this.agents.get(id));
     const lab = pool.filter((id) => this.agents.get(id).profile.lab);
-    const traders = pool.filter((id) => !this.agents.get(id).profile.lab);
+    // Scalpers review scalps; a trading desk's idea goes to the department's other desks.
+    const traders = pool.filter((id) => !this.agents.get(id).profile.lab && (proposer.profile.scalper || !this.agents.get(id).profile.scalper));
     traders.sort((x, y) => (this.agents.get(y).symbols.includes(symbol) ? 1 : 0) - (this.agents.get(x).symbols.includes(symbol) ? 1 : 0));
     return [...lab.slice(0, 1), ...traders].slice(0, 2);
   }

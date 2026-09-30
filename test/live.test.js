@@ -17,7 +17,7 @@ import { autoMap } from '../server/live/symbolMap.js';
 const GOLD = { bid: 3800, ask: 3800.2, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
 const tick = () => new Promise((r) => setImmediate(r));
 
-function setup({ mode = 'live', committee = 'off' } = {}) {
+function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [] } = {}) {
   const clock = new MarketClock('live');
   const session = new Session(clock);
   session.isFlattenWindow = () => false; // tests must not depend on the time of day
@@ -39,8 +39,8 @@ function setup({ mode = 'live', committee = 'off' } = {}) {
   });
   const sync = () => {
     const reply = bridge.handleSync({
-      account: account(), positions: mt5.positions, deals: [], quotes: { XAUUSD: GOLD },
-      symbols: ['XAUUSD', 'US100.cash', 'EURUSD'], serverDay: '2026.09.29', gmtOffset: 0, acks: mt5.acks.splice(0),
+      account: account(), positions: mt5.positions, deals: [], quotes: { XAUUSD: GOLD, ...quotes },
+      symbols: ['XAUUSD', 'US100.cash', 'EURUSD', ...symbols], serverDay: '2026.09.29', gmtOffset: 0, acks: mt5.acks.splice(0),
     });
     return reply.split('\n').filter((l) => /^(open|close|modify|closeall)\|/.test(l)).map((l) => l.split('|'));
   };
@@ -434,4 +434,28 @@ test('with "Proven desks only" off, a desk\'s own trade really reaches MT5 at ha
   assert.equal(link.agentId, 'amara');
   assert.equal(link.riskMult, 0.5);
   assert.match(live.describeFor('amara'), /sent a buy order/);
+});
+
+test("a scalper's GBPUSD scalp reaches MT5 under its own magic number, with its tight stop", async () => {
+  const CABLE = { bid: 1.34, ask: 1.34008, digits: 5, point: 0.00001, tickSize: 0.00001, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
+  const { fund, live, sync } = setup({ quotes: { GBPUSD: CABLE }, symbols: ['GBPUSD'] });
+  fund.md.applyTick('GBPUSD', 1.34004, 1, Date.now());
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  live.setPlan({ provenOnly: false });
+  assert.equal(live.setDesk('jake', true).ok, true);
+  assert.equal(live.arm().ok, true);
+  assert.equal(live.view().desks.find((d) => d.id === 'jake').brokerSymbol, 'GBPUSD');
+  const jake = fund.byId.get('jake');
+  assert.equal(jake.openTrade({ side: 'LONG', stop: 1.3394, target: 1.3425, reason: 'London scalp: ran the Asia low', symbol: 'GBPUSD', partialAt: 1, timeStopBars: 20 }), true);
+  await tick();
+  live.reconcile();
+  const open = sync().filter((c) => c[0] === 'open');
+  assert.equal(open.length, 1, 'the scalp went to MT5');
+  // open|id|SYM|BUY|vol|slDist|tpDist|magic|comment
+  const [, , sym, side, , slDist, , magic] = open[0];
+  assert.equal(sym, 'GBPUSD');
+  assert.equal(side, 'BUY');
+  assert.equal(Number(magic), MAGIC_BASE + 16, 'the scalpers come after the original fifteen desks');
+  assert.ok(Number(slDist) > 0 && Number(slDist) < 0.001, `a scalp stop under 10 pips (${slDist})`);
 });

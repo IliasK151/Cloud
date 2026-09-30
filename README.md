@@ -1,6 +1,6 @@
 # Meridian Trading Floor
 
-A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Fifteen AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. No desk trades on its own say-so: every trade idea is **argued by its department** and graded, and an **account brain** decides what, if anything, reaches your prop account. You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
+A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. A five-person **Scalping Desk** only takes fast trades, scalping the London and New York sessions the way AJ Currency trades: liquidity first, tight stops. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. No desk trades on its own say-so: every trade idea is **argued by its department** and graded, and an **account brain** decides what, if anything, reaches your prop account. You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
 
 ![The trading floor](docs/floor.jpg)
 
@@ -35,7 +35,7 @@ A 3D institutional trading floor that runs in your browser, served by a small se
 | | `npm start` (live) | `npm run demo` (simulation) |
 | --- | --- | --- |
 | Crypto (BTC, ETH, SOL) | Binance public market data, real time | Simulated |
-| Index futures, gold, oil, FX | Yahoo Finance 1-minute bars (NQ, ES, GC, CL, EURUSD, USDJPY) | Simulated |
+| Index futures, gold, oil, FX | Yahoo Finance 1-minute bars (NQ, ES, GC, CL, EURUSD, GBPUSD, USDJPY) | Simulated |
 | Clock | Real time; desks go flat 16:50–18:00 New York | 20× accelerated New York session, 09:30–16:00, then the next day |
 | Best for | Watching the agents trade the real market | Non-stop action, weekends, offline |
 
@@ -55,14 +55,14 @@ When real prices come back, the desks re-test on the real data.
 - it sends one request at a time;
 - after a 429 it pauses instead of retrying.
 
-In the meantime those markets run simulated. The floor keeps retrying in the background, after about 1½, 3 and 6 minutes and then every 10 minutes, and switches each market to real prices the moment Yahoo answers. With MT5 connected and the account set up in the FTMO tab, it doesn't matter: every mapped market (NAS100, SPX500, gold, oil, EURUSD, USDJPY and the coins your broker lists) runs on **your broker's own prices** instead. It also gets about 6,000 of the broker's one-minute bars as research history.
+In the meantime those markets run simulated. The floor keeps retrying in the background, after about 1½, 3 and 6 minutes and then every 10 minutes, and switches each market to real prices the moment Yahoo answers. With MT5 connected and the account set up in the FTMO tab, it doesn't matter: every mapped market (NAS100, SPX500, gold, oil, EURUSD, GBPUSD, USDJPY and the coins your broker lists) runs on **your broker's own prices** instead. It also gets about 6,000 of the broker's one-minute bars as research history.
 
 ---
 
 ## The floor
 
 - **A calm, modern floor:** polished concrete, walnut slat walls, linear pendants over every desk and floor-to-ceiling windows onto the city at dusk, with soft shadows and ambient occlusion.
-- **15 desks in three tiers**: two trading rows and, raised at the back behind a glass rail, the Quant Research Lab. Each desk has a six-screen workstation. The screens are live: a TradingView-style chart with the desk's entry, stop and target drawn as a position box, the book and setup checklist, a DOM ladder with time & sales, a Bloomberg-style terminal with the desk's log, the intraday P&L curve, and market watch.
+- **20 desks in four tiers**: two trading rows; raised behind a glass rail, the Quant Research Lab; and at the very back, a step higher, the Scalping Desk. Each desk has a six-screen workstation. The screens are live: a TradingView-style chart with the desk's entry, stop and target drawn as a position box, the book and setup checklist, a DOM ladder with time & sales, a Bloomberg-style terminal with the desk's log, the intraday P&L curve, and market watch.
 - **A name tag floats over every desk** with the trader, their desk, today's P&L and a status dot (scanning, armed, in trade, standing aside for news, researching, halted). Click it to talk to them.
 - **The front wall** carries the LED video wall (NAV, day P&L, fund equity, the next market-moving news, desk P&L bars, markets), world clocks and a ticker tape.
 - **The traders are real characters,** each with their own look: faces with eyes that blink and follow what they're reading, hairstyles, suits, blazers and knitwear, glasses and trading headsets. Their hands work the keyboard and mouse (the arms use inverse kinematics), and between trades they sit back to read, rest their chin on a hand, take calls on the headset or sip their coffee. They fist-pump a winner, put their hands on their head after a loser and slump when risk halts them. When they trade, a speech bubble pops up over their head.
@@ -110,10 +110,33 @@ Tickers are read the way traders say them ("gold", "the Nasdaq", "dollar yen"), 
 | Omar Haddad | Commodities Research | XAUUSD, USOIL |
 | Mei Lin | Crypto Research | BTCUSD, ETHUSD, SOLUSD |
 
+**The Scalping Desk** (the top tier at the back, marked `S`): five scalpers who only take fast trades, all with the same method, modelled on how [AJ Currency](https://www.youtube.com/@aj.currency) (Adrian Mudronja) describes his trading in public. He started with smart-money concepts and moved to a purely liquidity-based approach. He reads the higher timeframes for context even though he scalps, trades the London session (his signals come at 8am London) on GBPUSD, EURUSD and gold, and keeps a tight fixed stop (he quotes 20 pips on gold) for a high reward to risk. His exact entry rules aren't public; the rules below are the floor's version of that approach.
+
+| Scalper | Desk | Market | Killzone |
+| --- | --- | --- | --- |
+| Jake Morrison | Scalping · GBPUSD London | GBPUSD | 07:00–10:00 London |
+| Layla Nasser | Scalping · EURUSD London | EURUSD | 07:00–10:00 London |
+| Ryan Cole | Scalping · Gold London | XAUUSD | 07:00–10:00 London |
+| Mia Torres | Scalping · Gold New York | XAUUSD | 08:00–11:00 New York |
+| Nico Rossi | Scalping · Nasdaq New York | NAS100 | 08:00–11:00 New York |
+
+AJ is known for the first three. The Nasdaq desk applies the same method to the New York open, the most popular fast market on FTMO.
+
+How each scalper trades, on the 1-minute chart, inside its killzone only:
+
+1. **Higher timeframe first.** The hourly trend (15-minute while history is short). With it, any pool of liquidity will do; against it, only a run of *major* liquidity (below), and the committee weighs the trend too.
+2. **Mark the liquidity.** The Asia range (19:00–02:00 New York), the previous day's high and low, the London range (for the New York desks), the killzone's opening range, equal highs and lows, and 5- and 1-minute swing highs and lows. The first four are major.
+3. **The run and the trap.** Price trades through a pool (the stops get run), then closes back inside: the breakout traders are trapped.
+4. **The shift.** A 1-minute close back through the candle that made the run's extreme, with displacement (a big body, a big range or a fair value gap).
+5. **Entry and stop.** The stop goes just beyond the run. If that fits the scalp stop, the desk is in at once. Otherwise it waits up to 8 minutes for the pullback to where the stop fits, and lets it go if price jumps through. **Scalp stop:** 20 pips on gold (AJ's number), 10 on GBPUSD, 8 on EURUSD, 20 points on the Nasdaq, stretched to at most 1.5× the 1-minute ATR when the market is fast. A deeper run is skipped, never chased.
+6. **Target and exits.** The liquidity on the other side, at least 2R away (2.5R when there's none within 6R). Half comes off at 1R with the stop to breakeven. Out after 20 minutes if it isn't working (below +0.5R), and after 45 minutes regardless. At most three scalps per killzone.
+
+In demo mode the clock only runs New York's cash session, so there the London scalpers work its first two hours (09:30–11:30) and the New York scalpers 11:00–13:00. On the FTMO account the scalpers follow the same rules as every desk: they need a proven edge (or **Proven desks only** off for half risk), and one position per correlated group, so Jake and Layla share the FX slot and Ryan and Mia the gold one.
+
 ### Institutional risk framework
 
-- A **$100M fund** split evenly across the 15 desks (about $6.7M each). Every trade is sized so that a stop-out costs **0.5% of the desk's allocation**, capped at **4× leverage**.
-- **Trade management:** half the position is taken off at +1R and the stop moves to breakeven. After that the runner is trailed with an ATR chandelier stop, and some strategies use time stops.
+- A **$100M fund** split evenly across the 20 desks ($5M each). Every trade is sized so that a stop-out costs **0.5% of the desk's allocation**, capped at **4× leverage**.
+- **Trade management:** half the position is taken off at +1R and the stop moves to breakeven. After that the runner is trailed with an ATR chandelier stop, and some strategies use time stops. The scalpers don't trail: the runner goes for the liquidity target, with a 20-minute time stop and a 45-minute limit.
 - **Desk daily loss limit (2%):** when it's hit, the CRO flattens and halts the desk until the next trading day.
 - **Fund daily loss limit (1.2% of NAV):** when it's hit, the whole floor goes risk-off.
 - **News:** no new trades around high and medium-impact releases for the markets they move, and every desk goes flat 5 minutes before high-impact news (below).
@@ -128,7 +151,7 @@ All limits are configurable in `.env` (copy `.env.example`).
 Real traders don't open a trade into CPI, payrolls or a Fed decision, and they're flat before the number hits. Neither are the desks.
 
 - **The calendar.** In live mode the floor reads this week's [Forex Factory](https://www.forexfactory.com/calendar) calendar (high, medium and low impact, with forecast and previous), saves it in `data/calendar.json` and refreshes it every few hours. If it can't be reached, the desks stand aside around the usual US release times (08:30 and 10:00 New York, and the Wednesday oil report) rather than trade blind. In demo mode the floor generates a realistic calendar, and the simulator moves the markets when each number comes out: a jump in the direction of the surprise and a burst of volatility that fades.
-- **Which markets care.** Each release is matched to the markets it moves: US data moves everything, euro data moves EURUSD, Japanese data moves USDJPY, and the oil inventories report moves oil (as high impact). Crypto reacts only to high-impact US news.
+- **Which markets care.** Each release is matched to the markets it moves: US data moves everything, euro data moves EURUSD, UK data moves GBPUSD, Japanese data moves USDJPY, and the oil inventories report moves oil (as high impact). Crypto reacts only to high-impact US news.
 - **What the desks do.** No new trades from **15 minutes before to 15 minutes after** high-impact news for their market, and 5 minutes either side of medium impact. **Every position in a market with high-impact news is closed 5 minutes before the release.** TradingView alerts are held to the same rule. The desk's status turns **NEWS**, and its briefing says what's coming and when it's back.
 - **FTMO.** Funded FTMO accounts may not open or close trades within 2 minutes of high-impact news on the affected instrument. Closing 5 minutes early and standing aside for 15 keeps the floor well outside that window, and the live router refuses to send any trade during a blackout.
 - **Where to see it.** A pill in the top bar counts down to the next high-impact release (or shows who is standing aside), the dashboard has the full calendar with actual, forecast and previous, and the video wall shows the next release. Under the gear icon you can switch news protection off, or let trades already 1R in profit ride through the release with the stop locked at +0.5R (never on desks trading your FTMO account).
@@ -166,7 +189,7 @@ Only a strategy that passes every gate trades. If nothing passes, the researcher
 
 ![The Brain](docs/brain.jpg)
 
-**Departments.** The fifteen agents work in four departments, each covering its markets with at least two traders and a researcher: **Equity Indices** (Marcus, James, Arjun), **FX & Macro** (Sofia, Priya, Hannah), **Metals & Energy** (Amara, Lucas, Omar) and **Digital Assets** (Viktor, Isabella, Kenji, Chen, Mei). Elena, head of research, chairs every decision as the risk manager.
+**Departments.** The twenty agents work in four departments, each covering its markets with at least two traders and a researcher: **Equity Indices** (Marcus, James, Arjun, and Nico from the Scalping Desk), **FX & Macro** (Sofia, Priya, Hannah, Jake, Layla), **Metals & Energy** (Amara, Lucas, Omar, Ryan, Mia) and **Digital Assets** (Viktor, Isabella, Kenji, Chen, Mei). Elena, head of research, chairs every decision as the risk manager. Scalpers review scalps; a trading desk's idea goes to the department's other trading desks.
 
 **The market brain.** One shared, multi-timeframe read of every market that everybody reasons from: the higher-timeframe and 15-minute trend, swing structure (higher highs and lows or not), momentum, distance from session VWAP, the levels that matter (session high/low, prior day, 5 and 15-minute swings, VWAP), the volatility regime, the market condition and the news clock. Each piece of evidence comes with a sentence explaining it.
 
@@ -229,7 +252,7 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
   - **FTMO**: cleared;
   - **FTMO LIVE**: has a position on MT5 right now.
 - **The broker's minimum lot.** When a trade sizes below MT5's minimum lot, it goes at the minimum only if that still risks no more than your base risk per trade. Otherwise it stays on paper and says why.
-- **One position per correlated group.** NAS100 and SPX500 are one bet, and so are the three coins.
+- **One position per correlated group.** NAS100 and SPX500 are one bet, EURUSD, GBPUSD and USDJPY are one FX bet, and so are the three coins.
 - **Near the target, smaller risk**, so one loss can't undo the progress. **Funded accounts trade 20% lighter** to protect the payouts.
 - The FTMO rule guard, news blackouts and stop-losses on every order still apply underneath.
 
@@ -474,7 +497,7 @@ Copy `.env.example` to `.env`. The most useful settings:
 | `FLOOR_PASSWORD` | — | Password for other devices on your Wi-Fi (at least 10 characters). This Mac never needs it |
 | `ALLOWED_HOSTS` | — | Extra host names allowed to open the dashboard (comma-separated), e.g. a custom local DNS name |
 | `WEBHOOK_SECRET` | auto | TradingView webhook secret (auto: random, in `data/webhook-secret.txt`, rotatable from the TradingView tab) |
-| `STARTING_CAPITAL` | `100000000` | Fund size, split evenly across the 15 desks |
+| `STARTING_CAPITAL` | `100000000` | Fund size, split evenly across the 20 desks |
 | `RISK_PER_TRADE_PCT`, `DESK_DAILY_LOSS_PCT`, `FUND_DAILY_LOSS_PCT`, `MAX_LEVERAGE` | 0.5 / 2 / 1.2 / 4 | Risk framework |
 
 Other commands:

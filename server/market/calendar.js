@@ -31,7 +31,7 @@ const MIN = 60_000;
 // Currencies each market reacts to.
 export const SYMBOL_CURRENCIES = {
   NAS100: ['USD'], SPX500: ['USD'], XAUUSD: ['USD'], USOIL: ['USD'],
-  EURUSD: ['EUR', 'USD'], USDJPY: ['USD', 'JPY'],
+  EURUSD: ['EUR', 'USD'], GBPUSD: ['GBP', 'USD'], USDJPY: ['USD', 'JPY'],
   BTCUSD: ['USD'], ETHUSD: ['USD'], SOLUSD: ['USD'],
 };
 

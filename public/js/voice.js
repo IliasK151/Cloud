@@ -34,14 +34,14 @@ const emit = () => { for (const fn of listeners) fn(voice.status()); };
 // ---- text for the ear ------------------------------------------------------------------
 const SPOKEN = {
   NAS100: 'the Nasdaq', SPX500: 'the S and P 500', XAUUSD: 'gold', USOIL: 'crude oil',
-  EURUSD: 'euro dollar', USDJPY: 'dollar yen', BTCUSD: 'Bitcoin', ETHUSD: 'Ether', SOLUSD: 'Solana',
+  EURUSD: 'euro dollar', GBPUSD: 'cable', USDJPY: 'dollar yen', BTCUSD: 'Bitcoin', ETHUSD: 'Ether', SOLUSD: 'Solana',
   US100: 'the Nasdaq', US500: 'the S and P 500',
 };
 export function speechText(line, { neuralEngine = false } = {}) {
   let s = String(line)
     .replace(/\b(US100|US500|USOIL)\.cash\b/g, (m, a) => SPOKEN[a] || a)
     .replace(/\bETH\s*\/\s*BTC\b/g, 'Ether against Bitcoin')
-    .replace(/\b(NAS100|SPX500|XAUUSD|USOIL|EURUSD|USDJPY|BTCUSD|ETHUSD|SOLUSD)\b/g, (m) => SPOKEN[m])
+    .replace(/\b(NAS100|SPX500|XAUUSD|USOIL|EURUSD|GBPUSD|USDJPY|BTCUSD|ETHUSD|SOLUSD)\b/g, (m) => SPOKEN[m])
     .replace(/\bP&L\b/g, 'P and L')
     .replace(/\bFTMO\b/g, 'F T M O')
     .replace(/\bVWAP\b/g, 'V-wap')

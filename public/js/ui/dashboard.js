@@ -1,6 +1,6 @@
 import { command, api } from '../net.js';
 import { equityChart } from './charts.js';
-import { money, price as fmtPrice, qty as fmtQty, pct, signClass, nyTime, escapeHtml } from '../format.js';
+import { money, price as fmtPrice, qty as fmtQty, pct, signClass, nyTime, escapeHtml, deskKey } from '../format.js';
 import { bookMode, hasFtmo, setBookPref, deskBook, ftmoStatus } from '../book.js';
 import { labRows } from './research.js';
 import { newsTable, sourceText, blackoutChips } from './news.js';
@@ -317,7 +317,7 @@ export class Dashboard {
     $('#dash-table').innerHTML = `
       <thead><tr><th>#</th><th>Desk · strategy</th><th>Trader</th><th>Market → MT5</th><th>On FTMO</th><th>Live position</th><th class="r">Open P&amp;L</th><th class="r">Today</th><th class="r">Since start</th><th class="r">Trades today</th></tr></thead>
       <tbody>${rows.map(({ pr, d }, i) => `<tr class="clickable" data-id="${pr.id}">
-          <td class="muted">${pr.lab ? 'Q' : (i + 1) % 10}</td>
+          <td class="muted">${deskKey(pr, i)}</td>
           <td><span class="desk-cell"><i style="background:${pr.accent}"></i><span>${escapeHtml(pr.desk)}<small>${escapeHtml(pr.strategy)}</small></span></span></td>
           <td>${escapeHtml(pr.name)}</td>
           <td>${escapeHtml(d.symbols[0])} → ${d.brokerSymbol ? escapeHtml(d.brokerSymbol) : '<span class="muted">not mapped</span>'}</td>
@@ -407,7 +407,7 @@ export class Dashboard {
         const pos = a.positions.map((x) => `${x.side === 'LONG' ? 'L' : 'S'} ${fmtQty(x.qty)} ${x.symbol} @ ${fmtPrice(x.avg, dec(x.symbol))}`).join('<br>') || '<span class="muted">Flat</span>';
         const st = a.stats;
         return `<tr class="clickable" data-id="${p.id}">
-          <td class="muted">${p.lab ? 'Q' : (i + 1) % 10}</td>
+          <td class="muted">${deskKey(p, i)}</td>
           <td><span class="desk-cell"><i style="background:${p.accent}"></i><span>${escapeHtml(p.desk)}<small>${escapeHtml(p.lab && a.research?.active ? a.research.active.name : p.strategy)}</small></span></span></td>
           <td>${escapeHtml(p.name)}</td>
           <td>${escapeHtml(p.lab ? (a.research?.active ? a.symbol : 'none yet') : p.symbols.join(' / '))}</td>
