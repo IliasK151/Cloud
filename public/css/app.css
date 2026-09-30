@@ -676,3 +676,8 @@ details.how p { color: var(--text-3); }
 .plan-switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 4px; }
 .plan-switches .plan-switch { margin: 0; }
 @media (max-width: 900px) { .plan-switches { grid-template-columns: 1fr; } }
+.rail-note { margin: 0 10px 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(242, 176, 30, 0.45); background: rgba(242, 176, 30, 0.08); color: var(--text-2); font-size: 11.5px; line-height: 1.45; }
+.rail-note b { color: var(--warn); }
+.rail-note .btn { display: block; width: 100%; margin-top: 8px; font-size: 12px; }
+.rail-note.wide { margin: 0 0 12px; font-size: 12.5px; }
+.rail-note.wide .btn { display: inline-block; width: auto; margin: 0 0 0 10px; }

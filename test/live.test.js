@@ -405,3 +405,33 @@ test('a trade below the broker minimum goes at the minimum lot only within the b
   assert.equal(open.length, 1);
   assert.equal(open[0][4], '0.01');
 });
+
+test('with "Proven desks only" off, a desk\'s own trade really reaches MT5 at half risk', async () => {
+  const { fund, live, sync } = setup({ committee: 'on' });
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  live.setDesk('amara', true);
+  assert.equal(live.arm().ok, true);
+  const amara = fund.byId.get('amara');
+
+  // Proven desks only (default): stays on paper.
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'setup one', symbol: 'XAUUSD' }), true);
+  await tick();
+  live.reconcile();
+  assert.equal(sync().filter((c) => c[0] === 'open').length, 0);
+  amara.closeTrade('XAUUSD', 'test exit');
+  amara.cooldownBars = 0;
+
+  // Switched off: the next trade goes to MT5, at half the risk of a proven desk.
+  live.setPlan({ provenOnly: false });
+  assert.equal(live.view().desks.find((d) => d.id === 'amara').status.state, 'probation');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'setup two', symbol: 'XAUUSD' }), true);
+  await tick();
+  live.reconcile();
+  const open = sync().filter((c) => c[0] === 'open');
+  assert.equal(open.length, 1, 'the order went to MT5');
+  const link = [...live.links.values()].find((l) => l.state === 'pending');
+  assert.equal(link.agentId, 'amara');
+  assert.equal(link.riskMult, 0.5);
+  assert.match(live.describeFor('amara'), /sent a buy order/);
+});

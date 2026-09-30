@@ -1,6 +1,6 @@
 import { api } from '../net.js';
 import { money, escapeHtml, signClass } from '../format.js';
-import { planSwitches, onPlanSwitch } from './planSwitch.js';
+import { planSwitches, onPlanSwitch, provingNote, setPlanSwitch } from './planSwitch.js';
 import { ftmoStatus } from '../book.js';
 
 // FTMO tab: connect MT5, set the account up, pick desks, arm, and watch the rules.
@@ -44,6 +44,7 @@ export class LiveView {
       <div class="card" id="live-desks-card" style="margin-top:14px">
         <h2>Desks on the account</h2>
         <p class="sub">Switch on the desks that may trade FTMO. Everyone keeps paper trading either way. Switched on isn't the same as trading the account: a desk's own trades only go to MT5 once the account brain has cleared it (10+ trades on real prices with a positive edge, and A-grade trades). "Status on the account" shows where each desk stands. Your own TradingView alerts go to the account through Chen's TradingView Signals desk, or any desk named in the alert, straight away. The committee can still veto them, and every risk rule applies.</p>
+        <div class="rail-note wide" id="live-proving" hidden></div>
         <div class="table-wrap" style="max-height:none"><table class="table" id="live-desks"></table></div>
       </div>
       <div class="grid dash-row-3" style="margin-top:14px">
@@ -99,6 +100,10 @@ export class LiveView {
       await this.#post('disarm');
     } else if (act === 'kill') {
       if (confirm('Close every floor position on the FTMO account now and disarm?')) await this.#post('kill');
+    } else if (act === 'let-trade') {
+      btn.disabled = true;
+      await setPlanSwitch('provenOnly', false, v.plan);
+      btn.disabled = false;
     } else if (act === 'hide-connect') {
       this.showConnect = false;
       this.render(true);
@@ -411,6 +416,15 @@ export class LiveView {
         <p class="fine">The floor's markets matched to your MT5 symbols (${v.brokerSymbolCount} available). Markets set to "Not traded" stay paper only.</p>
         <div class="map-grid">${mapRows}</div>
         <div class="btn-row" style="margin-top:16px"><button class="btn primary" data-act="save">Save setup</button>${p ? '<button class="btn" data-act="cancel-edit">Cancel</button>' : ''}</div>`;
+    }
+
+    // Desks still proving themselves: their trades stay on paper (say so, offer the switch).
+    const provingHtml = provingNote(v);
+    const pv = $('#live-proving');
+    if (pv.dataset.html !== provingHtml) {
+      pv.dataset.html = provingHtml;
+      pv.innerHTML = provingHtml;
+      pv.hidden = !provingHtml;
     }
 
     // Desks

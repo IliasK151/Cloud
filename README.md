@@ -222,6 +222,12 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
   - **Proven desks only:** when it's off, unproven desks send their committee-approved A and B-grade trades to the account at half risk.
 
   FTMO's own loss guard (80% of each limit) always stays on.
+
+  While switched-on desks are still proving themselves, the desk list and the FTMO tab say so, with a **Let them trade FTMO now (half risk)** button. The desk chips show where each desk stands:
+  - **PROVING**: its trades stay on paper;
+  - **FTMO ½**: unproven, trades the account at half risk;
+  - **FTMO**: cleared;
+  - **FTMO LIVE**: has a position on MT5 right now.
 - **The broker's minimum lot.** When a trade sizes below MT5's minimum lot, it goes at the minimum only if that still risks no more than your base risk per trade. Otherwise it stays on paper and says why.
 - **One position per correlated group.** NAS100 and SPX500 are one bet, and so are the three coins.
 - **Near the target, smaller risk**, so one loss can't undo the progress. **Funded accounts trade 20% lighter** to protect the payouts.

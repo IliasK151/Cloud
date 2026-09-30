@@ -50,23 +50,36 @@ export function planSwitches(plan) {
 // Kept for the places that show only the daily stop.
 export const dailyStopSwitch = planSwitches;
 
-// A click on a switch: confirm when switching a protection off, then save it on the floor.
-export async function onPlanSwitch(input, plan) {
-  const sw = SWITCHES.find((x) => x.key === input?.dataset.planSwitch);
-  if (!sw) return;
-  const on = input.checked;
-  if (!on && !confirm(sw.confirm(plan || {}))) {
-    input.checked = true;
-    return;
-  }
+// Set one switch: confirm when switching a protection off, then save it on the floor.
+// Returns true when saved.
+export async function setPlanSwitch(key, on, plan) {
+  const sw = SWITCHES.find((x) => x.key === key);
+  if (!sw) return false;
+  if (!on && !confirm(sw.confirm(plan || {}))) return false;
   try {
-    const res = await api('/api/live/plan', { method: 'POST', body: JSON.stringify({ [sw.key]: on }) });
-    if (!res.ok) {
-      input.checked = !on;
-      alert(res.error || 'Could not change the setting');
-    }
+    const res = await api('/api/live/plan', { method: 'POST', body: JSON.stringify({ [key]: on }) });
+    if (!res.ok) alert(res.error || 'Could not change the setting');
+    return !!res.ok;
   } catch (err) {
-    input.checked = !on;
     alert(`Could not reach the floor: ${err.message}`);
+    return false;
   }
+}
+
+// A click on a switch.
+export async function onPlanSwitch(input, plan) {
+  if (!input?.dataset.planSwitch) return;
+  const on = input.checked;
+  if (!(await setPlanSwitch(input.dataset.planSwitch, on, plan))) input.checked = !on;
+}
+
+// Switched-on desks whose own trades stay on paper because they're still proving
+// themselves: say so where the boss is looking, with the one click that changes it.
+export function provingNote(v) {
+  const proving = (v?.desks || []).filter((d) => d.enabled && d.status?.state === 'proving');
+  if (!v?.armed || !v.plan?.provenOnly || !proving.length) return '';
+  const names = proving.map((d) => d.name.split(' ')[0]);
+  const who = names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
+  return `<b>${proving.length === 1 ? `${escapeHtml(who)} is` : `${proving.length} desks are`} still proving ${proving.length === 1 ? 'itself' : 'themselves'}.</b> ${proving.length === 1 ? 'Its' : 'Their'} own trades stay on paper until ${proving.length === 1 ? 'it has' : 'each has'} 10 trades on real prices with a positive edge${proving.length === 1 ? '' : ` (${escapeHtml(who)})`}. Your TradingView alerts go to FTMO already.
+    <button class="btn primary" data-act="let-trade">Let them trade FTMO now (half risk)</button>`;
 }

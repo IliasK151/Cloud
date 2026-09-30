@@ -1,5 +1,6 @@
 import { money, nyTime, signClass, escapeHtml, STATUS_COLORS } from '../format.js';
 import { fundBook, deskBook, hasFtmo, bookMode, setBookPref } from '../book.js';
+import { provingNote, setPlanSwitch } from './planSwitch.js';
 
 // Top bar KPIs, the desk rail on the left and the scrolling event tape.
 export class Hud {
@@ -31,6 +32,13 @@ export class Hud {
       this.onBookChange?.();
     });
     this.rows = new Map();
+    document.getElementById('rail-note')?.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-act="let-trade"]');
+      if (!btn) return;
+      btn.disabled = true;
+      await setPlanSwitch('provenOnly', false, this.store.live?.plan);
+      btn.disabled = false;
+    });
     store.on('conn', (s) => this.setConn(s));
   }
 
@@ -138,6 +146,13 @@ export class Hud {
 
   // Mark desks that trade the FTMO account (red when a live position is open).
   setLive(v) {
+    const note = document.getElementById('rail-note');
+    const html = bookMode(this.store) === 'ftmo' ? provingNote(v) : '';
+    if (note && note.dataset.html !== html) {
+      note.dataset.html = html;
+      note.innerHTML = html;
+      note.hidden = !html;
+    }
     for (const d of v.desks || []) {
       const row = this.rows.get(d.id);
       if (!row) continue;
@@ -155,7 +170,7 @@ export class Hud {
       const state = d.status?.state || 'proving';
       chip.classList.toggle('on', state === 'live');
       chip.classList.toggle('wait', !['live', 'cleared', 'ready', 'probation'].includes(state));
-      chip.textContent = state === 'live' ? 'FTMO LIVE' : state === 'probation' ? 'FTMO · ½' : ['cleared', 'ready'].includes(state) ? 'FTMO' : 'FTMO · PAPER';
+      chip.textContent = state === 'live' ? 'FTMO LIVE' : state === 'probation' ? 'FTMO ½' : ['cleared', 'ready'].includes(state) ? 'FTMO' : state === 'proving' ? 'PROVING' : 'FTMO · PAPER';
       chip.title = [d.status?.text || 'Switched on for the FTMO account', d.lastSkip && state !== 'live' ? `Last trade not sent (${d.lastSkip.symbol}): ${d.lastSkip.reason}` : ''].filter(Boolean).join('\n');
     }
   }
