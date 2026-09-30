@@ -136,6 +136,12 @@ export class SimFeed {
     this.state.set(id, st);
   }
 
+  // A market whose real feed came back stops being simulated.
+  remove(id) {
+    this.state.delete(id);
+    this.ids = this.ids.filter((x) => x !== id);
+  }
+
   #sessionVol(ms) {
     if (!this.useSessionShape) return 1;
     const m = nyMinuteOfDay(ms);

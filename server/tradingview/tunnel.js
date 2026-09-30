@@ -268,6 +268,12 @@ export class TunnelManager extends EventEmitter {
     setTimeout(() => this.check().catch(() => {}), this.settings.provider === 'cloudflare' ? 4000 : 500).unref?.();
   }
 
+  // The floor is shutting down. Ctrl+C in Terminal also reaches cloudflared directly, so it
+  // may exit before stop() runs: that's not a dropped tunnel to restart.
+  shuttingDown() {
+    this.stopping = true;
+  }
+
   async stop({ keepAuto = false } = {}) {
     this.stopping = true;
     if (!keepAuto) {

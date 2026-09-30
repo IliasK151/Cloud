@@ -48,6 +48,10 @@ feeds.onSession({
   sessionClose: () => fund.flattenAll('Session close'),
   sessionOpen: () => fund.housekeeping(),
 });
+feeds.on('recovered', (id, source) => {
+  const via = source === 'mt5' ? 'your broker\'s MT5 prices' : 'live Yahoo Finance prices';
+  fund.pushEvent({ kind: 'info', text: `${id} is now on ${via} (it was simulated while its feed was down).` });
+});
 
 // ---- HTTP ----------------------------------------------------------------------------------
 const app = express();
@@ -334,6 +338,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  tunnel.shuttingDown();
   log.info('\n  Flattening all desks and saving the track record…');
   try {
     const closed = await live.shutdown();

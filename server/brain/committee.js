@@ -49,18 +49,34 @@ export class Committee extends EventEmitter {
   // The proposing desk's measured edge: its real, shrunk track record (overall, recent form
   // and in this kind of situation), or for a research desk its validated expectation
   // blended with its live results. No record means no edge yet.
+  //
+  // With live market data only real evidence counts: trades on real prices, and research
+  // validated on real history. A market running on a simulated stand-in (its feed is down)
+  // proves nothing about the real one.
   edge(agent, symbol, side) {
     const fmtR = (x) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}R`;
     if (!agent) return { value: 0, e: 0, n: 0, text: 'no track record' };
+    const realOnly = this.clock?.mode === 'live';
     if (agent.profile.lab) {
       const act = agent.active;
       if (!act || act.symbol !== symbol) return { value: 0, e: 0, n: 0, text: 'no validated strategy on this market' };
+      if (realOnly && !act.real) return { value: 0, e: 0, n: 0, text: `${act.name} was validated on simulated history only; it has to pass again on real data` };
       const u = act.stats.unseen;
       const l = act.live;
-      const e = (u.avgR * 20 + l.sumR) / (20 + l.trades);
-      return { value: clamp(e / 0.25), e, n: u.n + l.trades, text: `the validated ${act.name} made ${fmtR(u.avgR)} per trade on unseen data${l.trades ? ` and ${fmtR(l.sumR)} over ${l.trades} live trade${l.trades === 1 ? '' : 's'}` : ''}` };
+      const trades = realOnly ? l.realTrades || 0 : l.trades;
+      const sumR = realOnly ? l.realSumR || 0 : l.sumR;
+      const e = (u.avgR * 20 + sumR) / (20 + trades);
+      return { value: clamp(e / 0.25), e, n: u.n + trades, text: `the validated ${act.name} made ${fmtR(u.avgR)} per trade on unseen data${trades ? ` and ${fmtR(sumR)} over ${trades} live trade${trades === 1 ? '' : 's'}` : ''}` };
     }
     const L = agent.lifetime;
+    if (realOnly) {
+      // The learner's blend is left out here: it may still hold lessons from before the
+      // real-only record existed.
+      const n = L.realN || 0;
+      const e = (L.realSumR || 0) / (n + 15);
+      const text = n < 5 ? `the desk has no real track record yet (${n} trade${n === 1 ? '' : 's'} on real prices)` : `the desk's record is ${fmtR(L.realSumR / n)} per trade over ${n} trades on real prices`;
+      return { value: clamp(e / 0.15), e, n, text };
+    }
     const n = L.countR;
     let e = L.sumR / (n + 15);
     const ln = agent.learner;
@@ -82,7 +98,7 @@ export class Committee extends EventEmitter {
     const style = styleKey(proposerId);
     // Only a research desk's own trade can cite its validated strategy.
     const ag = this.agents.get(proposerId);
-    const validated = ag?.profile.lab && ag.active?.symbol === symbol ? ag.active.name : null;
+    const validated = ag?.profile.lab && ag.active?.symbol === symbol && (this.clock?.mode !== 'live' || ag.active.real) ? ag.active.name : null;
     a.f.research = researchFactor(a.read.regime, a.dir, style, validated);
     const ed = this.edge(ag, symbol, side);
     a.f.edge = { value: ed.value, text: ed.text };

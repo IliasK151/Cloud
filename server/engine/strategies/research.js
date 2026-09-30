@@ -77,6 +77,9 @@ export class QuantResearch extends TraderAgent {
     else if (!this.active && this.#regimeChangedSince(this.lastRun.at, now)) reason = 'the market condition changed';
     else if (this.active && flat && now - this.active.researchedAt >= REVALIDATE_MS) reason = 'walk-forward revalidation on fresh data';
     else if (this.active && flat && this.#regimeChangedSince(this.active.researchedAt, now, [this.active.symbol])) reason = `${this.active.symbol} changed from ${this.active.regime.label.toLowerCase()} to ${this.regimes[this.active.symbol]?.label.toLowerCase()}`;
+    // Validated on simulated history (the real feed was down) and real data is here now:
+    // it has to prove itself again on the real thing.
+    else if (this.env.clock.mode === 'live' && flat && this.#realDataArrived()) reason = 'real market data arrived, re-testing on it';
     if (!reason) return;
     if (this.paused) return;
     this.retireReason = null;
@@ -99,6 +102,13 @@ export class QuantResearch extends TraderAgent {
     return markets.some((s) => this.regimes[s] && was[s] && this.regimes[s].key !== was[s].key && now - (this.regimeSince[s] || now) >= REGIME_PERSIST_MS && this.regimeSince[s] > at);
   }
 
+  #realDataArrived() {
+    const h = this.history;
+    if (this.active) return !this.active.real && h.isReal?.(this.active.symbol);
+    const res = this.lastRun?.results || {};
+    return Object.entries(res).some(([sym, r]) => !r.real && r.outcome !== 'error' && h.isReal?.(sym));
+  }
+
   requestResearch(reason) {
     if (!this.lab?.history?.ready) return { ok: false, error: 'Market history is still loading' };
     if (this.pending || this.lab.isBusy(this.id)) return { ok: false, error: 'Already researching' };
@@ -115,9 +125,9 @@ export class QuantResearch extends TraderAgent {
     this.setStage(`Researching strategies (${reason})`, 'quiet');
   }
 
-  onResearch({ symbol, result, error }) {
+  onResearch({ symbol, result, error, real = false }) {
     if (!this.pending?.has(symbol)) return;
-    this.pending.set(symbol, result || { ok: false, outcome: 'error', summary: error || 'Research failed', symbol });
+    this.pending.set(symbol, result ? { ...result, real } : { ok: false, outcome: 'error', summary: error || 'Research failed', symbol, real });
     if (result?.tested) this.tested += result.tested;
     if ([...this.pending.values()].some((v) => v === null)) return;
     const results = Object.fromEntries(this.pending);
@@ -133,7 +143,7 @@ export class QuantResearch extends TraderAgent {
       regimes: Object.fromEntries(list.map((r) => [r.symbol, r.regime])),
       results: Object.fromEntries(list.map((r) => [r.symbol, {
         outcome: r.outcome, summary: r.summary, funnel: r.funnel, reasons: r.reasons, nearMiss: r.nearMiss || null,
-        regime: r.regime, tested: r.tested || 0, bars: r.bars, strategy: r.strategy ? { name: r.strategy.name, unseen: r.strategy.unseen } : null,
+        regime: r.regime, tested: r.tested || 0, bars: r.bars, real: !!r.real, strategy: r.strategy ? { name: r.strategy.name, unseen: r.strategy.unseen } : null,
       }])),
     };
     for (const r of list) if (r.regime) this.regimes[r.symbol] = r.regime;
@@ -165,8 +175,8 @@ export class QuantResearch extends TraderAgent {
       stats: { is: s.is, oos: s.oos, holdout: s.holdout, unseen: s.unseen, all: s.all },
       robust: s.robust, expectation: s.expectation, tradesPerDay: s.tradesPerDay,
       curve: s.curve.slice(-400), splits: s.splits, regime: best.regime, funnel: best.funnel, tested,
-      researchedAt: now, deployedAt: now,
-      live: { trades: 0, wins: 0, sumR: 0, peak: 0, dd: 0 },
+      researchedAt: now, deployedAt: now, real: !!best.real,
+      live: { trades: 0, wins: 0, sumR: 0, peak: 0, dd: 0, realTrades: 0, realSumR: 0 },
     };
     if (this.active && this.active.key === next.key && this.active.symbol === next.symbol) {
       // Same strategy re-validated on fresh data: keep its live record.
@@ -253,6 +263,10 @@ export class QuantResearch extends TraderAgent {
     l.trades++;
     if (trade.r > 0) l.wins++;
     l.sumR += trade.r;
+    if (!trade.simFeed) {
+      l.realTrades = (l.realTrades || 0) + 1;
+      l.realSumR = (l.realSumR || 0) + trade.r;
+    }
     l.peak = Math.max(l.peak, l.sumR);
     l.dd = Math.max(l.dd, l.peak - l.sumR);
     const exp = act.expectation;
@@ -304,7 +318,7 @@ export class QuantResearch extends TraderAgent {
       regimes: this.regimes,
       active: act ? {
         symbol: act.symbol, name: act.name, regime: act.regime, stats: full ? act.stats : { unseen: act.stats.unseen },
-        live: act.live, probation: this.probation, deployedAt: act.deployedAt, researchedAt: act.researchedAt, tradesPerDay: act.tradesPerDay,
+        live: act.live, probation: this.probation, deployedAt: act.deployedAt, researchedAt: act.researchedAt, tradesPerDay: act.tradesPerDay, real: !!act.real,
         ...(full ? { rules: act.rules, robust: act.robust, expectation: act.expectation, curve: act.curve, splits: act.splits, funnel: act.funnel, tested: act.tested, genome: act.genome } : {}),
       } : null,
       pendingSwap: this.pendingSwap ? { name: this.pendingSwap.name, symbol: this.pendingSwap.symbol } : null,
@@ -342,6 +356,7 @@ export class QuantResearch extends TraderAgent {
       `It also survived double trading costs, nearby settings and a final holdout.`;
     if (l.trades) s += ` Live it's ${l.sumR >= 0 ? 'up' : 'down'} ${Math.abs(r2(l.sumR))} R over ${l.trades} trade${l.trades === 1 ? '' : 's'}${this.probation ? ', still on probation at half size' : ''}.`;
     else s += ` It's on probation at half size for its first ${PROBATION_TRADES} trades.`;
+    if (this.env.clock.mode === 'live' && !act.real) s += ` One caveat: the real feed for ${act.symbol} was down, so I validated it on simulated history. It stays on paper until it passes again on real data.`;
     return s;
   }
 

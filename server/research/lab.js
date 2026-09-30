@@ -59,6 +59,8 @@ export class ResearchLab extends EventEmitter {
   #pump() {
     if (this.running || !this.queue.length || !this.history.ready) return;
     const job = this.queue.shift();
+    // Was this research done on real market data? Only then can its result go near real money.
+    job.real = this.mode !== 'sim' && !!this.history.isReal?.(job.symbol);
     this.running = { ...job, stage: 'Loading history', done: 0, total: 1, startedAt: Date.now() };
     this.emit('progress', this.#progressView());
     let payload;
@@ -123,7 +125,7 @@ export class ResearchLab extends EventEmitter {
     this.running = null;
     this.completed++;
     if (error) this.log.warn?.(`[research] ${job.agentId}/${job.symbol}: ${error.split('\n')[0]}`);
-    this.emit('result', { agentId: job.agentId, symbol: job.symbol, reason: job.reason, result, error });
+    this.emit('result', { agentId: job.agentId, symbol: job.symbol, reason: job.reason, result, error, real: !!job.real });
     setImmediate(() => this.#pump());
   }
 

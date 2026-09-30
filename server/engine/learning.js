@@ -217,7 +217,8 @@ export class DeskLearner {
     this.open.delete(trade.id);
     const now = this.agent.env.clock.now();
     if (trade.pnl < 0) this.state.lastLossAt = now;
-    if (!rec0 || !this.enabled || trade.r == null) return null;
+    // A simulated stand-in market (live feed down) teaches nothing about the real one.
+    if (!rec0 || !this.enabled || trade.r == null || trade.simFeed) return null;
     const { plan, ctx } = rec0;
     const dir = plan.side === 'LONG' ? 1 : -1;
     const risk = plan.risk || 1;

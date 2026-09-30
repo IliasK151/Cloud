@@ -4,7 +4,8 @@ import { fmtUsd } from '../util/format.js';
 // then keep getting paid. The paper desks can experiment; the account only gets the best
 // ideas, sized by where the account stands:
 //
-//   - only committee A-grade trades, from desks with a proven, positive measured edge;
+//   - only committee A-grade trades, from desks with a proven, positive measured edge
+//     earned on real market prices (never on a simulated stand-in feed);
 //   - risk shrinks while the account is in drawdown and after losses, never grows past the
 //     base risk you set;
 //   - a daily stop well before FTMO's daily limit, a cap on trades per day, and a stop
@@ -112,7 +113,8 @@ export class AccountBrain {
       remaining, winsToTarget,
       dailyStopPct: p.dailyStopPct, maxTradesPerDay: p.maxTradesPerDay, streakStop: p.streakStop, minGrade,
       rules: [
-        { text: `Only committee ${minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades from desks with a proven edge`, ok: true },
+        { text: `Only committee ${minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades from desks with a proven edge on real prices`, ok: true },
+        { text: 'Never a trade on simulated prices (a market whose live feed is down)', ok: true },
         { text: `Risk ${riskPct.toFixed(2)}% per trade now (base ${base}%)`, ok: mult >= 0.99 },
         { text: `Daily stop at −${p.dailyStopPct}% (today ${fmtUsd(dayPnl, { sign: true })})`, ok: dayLoss < stop / 2 },
         { text: `At most ${p.maxTradesPerDay} trades a day (${tradesToday} so far)`, ok: tradesToday < p.maxTradesPerDay },
@@ -135,7 +137,7 @@ export class AccountBrain {
     const committee = agent.env.committee;
     if (committee) {
       const ed = committee.edge(agent, pos.symbol, pos.qty > 0 ? 'LONG' : 'SHORT');
-      if (!agent.profile.lab && ed.n < 10) return { ok: false, reason: `the desk needs 10 or more paper trades before it risks real money (${ed.n} so far)` };
+      if (!agent.profile.lab && ed.n < 10) return { ok: false, reason: `the desk needs 10 or more paper trades on real market prices before it risks real money (${ed.n} so far)` };
       if (ed.e <= 0) return { ok: false, reason: `the desk's measured edge is negative (${ed.text}); it earns its way back on paper first` };
     }
     const group = GROUPS[pos.symbol];

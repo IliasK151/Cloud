@@ -41,6 +41,22 @@ A 3D institutional trading floor that runs in your browser, served by a small se
 
 If a live source can't be reached, that market automatically falls back to a real-time simulation. Every price is labelled `LIVE`, `DELAYED`, `CLOSED` or `SIM`, so you always know what you're looking at. Futures and FX desks go quiet on weekends in live mode, while crypto trades 24/7.
 
+**Simulated prices never touch real money.** A market running on the simulated stand-in (`SIM`) is paper practice only:
+
+- nothing on it is sent to your FTMO account;
+- trades on it don't count toward a desk's real track record, and the desks don't learn from them;
+- the research desks don't trust strategies validated on its generated history.
+
+When real prices come back, the desks re-test on the real data.
+
+**"Yahoo … HTTP 429" at startup.** Yahoo Finance rate-limits some internet connections. The floor handles this politely:
+
+- it opens a browser-like session;
+- it sends one request at a time;
+- after a 429 it pauses instead of retrying.
+
+In the meantime those markets run simulated. The floor keeps retrying in the background, after about 1½, 3 and 6 minutes and then every 10 minutes, and switches each market to real prices the moment Yahoo answers. With MT5 connected and the account set up in the FTMO tab, it doesn't matter: every mapped market (NAS100, SPX500, gold, oil, EURUSD, USDJPY and the coins your broker lists) runs on **your broker's own prices** instead. It also gets about 6,000 of the broker's one-minute bars as research history.
+
 ---
 
 ## The floor
@@ -134,7 +150,7 @@ Only a strategy that passes every gate trades. If nothing passes, the researcher
 
 **How strict is it?** On 200 runs of pure random-walk data, where no real edge exists, the lab wrongly accepted a strategy 5 times (2.5%). Without these gates the same search "found" an edge a third of the time. Probation and the live kill-switch are there to catch the rare lucky strategy cheaply.
 
-**History.** In live mode the lab loads about two weeks of real 1-minute bars (Binance, Yahoo Finance), keeps them in `data/history/` and extends them with every new bar, so research gets better the longer the floor runs. In demo mode it generates 30 past sessions with the same simulator and calendar.
+**History.** In live mode the lab loads about two weeks of real 1-minute bars (Binance, Yahoo Finance), keeps them in `data/history/` and extends them with every new bar, so research gets better the longer the floor runs. Once MT5 prices a market, the broker's own bars are used, and older history is shifted onto the broker's price level. Only real data is ever saved there. Caches from older versions are ignored because they could contain generated bars. In demo mode the lab generates 30 past sessions with the same simulator and calendar.
 
 | A researcher's Research tab | Lab and economic calendar on the dashboard |
 | --- | --- |
@@ -187,7 +203,8 @@ Run `npm run backtest -- 5` to fast-forward five sessions and see the results yo
 
 The paper desks can experiment; the account only gets the best ideas, sized by where the account stands. This is the plan a professional prop trader follows to pass a challenge and keep getting paid:
 
-- **Only A-grade trades from proven desks.** A desk needs 10+ paper trades and a positive measured edge (or a validated research strategy) before it risks real money. The Brain tab lists who is cleared and who is still proving themselves.
+- **Only A-grade trades from proven desks.** A desk needs 10+ paper trades **on real market prices** and a positive measured edge before it risks real money. For a research desk, a strategy validated on real history counts instead. Trades on simulated prices (a market whose live feed is down) never count, and a trade decided on simulated prices is never sent to the account. The Brain tab lists who is cleared and who is still proving themselves.
+- **Starting fresh.** The real-only record began with this version. Your desks' earlier paper records can't be split into real and simulated trades, so every desk earns its 10 real trades again before it risks the account. Crypto desks on Binance get there fastest.
 - **Drawdown shrinks risk.** Below the starting balance, risk scales down (for example −$100 on a $10,000 trial: 0.25% → 0.20% per trade) until the loss is won back. It never grows past the base risk you set.
 - **Daily stop at −1.5%**, far before FTMO's 5%. At half of that, risk halves for the rest of the day.
 - **Losing streaks:** two in a row halve the risk until the next winner; three in a row end the day.
@@ -196,7 +213,19 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
 - **Near the target, smaller risk**, so one loss can't undo the progress. **Funded accounts trade 20% lighter** to protect the payouts.
 - The FTMO rule guard, news blackouts and stop-losses on every order still apply underneath.
 
-The Brain tab shows the account's phase and goal, its status (NORMAL, CAUTIOUS or STOPPED FOR TODAY), the risk per trade right now and why, how many clean 2R winners it is from the target, trading days (FTMO asks for at least 4) and every rule. All of it is editable under **Edit setup → The account plan** in the FTMO tab. To rehearse a drawdown without risking anything, run `MOCK_PNL=-100 npm run mock-mt5` next to `npm run demo`.
+The Brain tab shows the account's phase and goal, its status (NORMAL, CAUTIOUS or STOPPED FOR TODAY), the risk per trade right now and why, how many clean 2R winners it is from the target, trading days (FTMO asks for at least 4) and every rule. All of it is editable under **Edit setup → The account plan** in the FTMO tab.
+
+To rehearse a drawdown without risking anything, use **two Terminal windows**, because the floor has to keep running while the mock connects to it:
+
+```bash
+# Terminal window 1: start the floor and leave it running
+cd ~/Desktop/trading-floor && npm start
+
+# Terminal window 2 (⌘N in Terminal): a pretend FTMO terminal that is $100 down
+cd ~/Desktop/trading-floor && MOCK_PNL=-100 npm run mock-mt5
+```
+
+Close your real MT5 first (or use another floor port), so two terminals don't feed the same floor. `npm run demo` in window 1 works too, but the FTMO tab only arms in live mode.
 
 **Honestly:** none of this can guarantee a pass or a payout. What it does is make every trade explain itself, keep the account out of the situations that measurably lose, and size the account down exactly when losses tempt people to size up.
 
@@ -304,7 +333,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 
 **Why a desk hasn't traded yet.** A desk only trades when its setup appears, and some setups only appear at certain times (the opening-range breakout needs the New York open). No new trades open between 16:50 and 18:00 New York time, around the daily roll-over.
 
-**No MT5 handy?** Run `npm run mock-mt5` next to `npm start`. It pretends to be an FTMO Free Trial terminal, so you can try the whole connect → set up → arm → trade flow.
+**No MT5 handy?** Run `npm run mock-mt5` in a **second** Terminal window while `npm start` runs in the first. It pretends to be an FTMO Free Trial terminal, so you can try the whole connect → set up → arm → trade flow. ("Floor not reachable" means the floor isn't running in the other window.)
 
 **Before you arm a paid Challenge, read this**
 
@@ -323,6 +352,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 | The FTMO tab says "Algo Trading is off" | Turn on the Algo Trading toolbar button and tick *Allow Algo Trading* in the EA's settings |
 | Can't drag the file into the Experts folder | Use the MetaEditor paste method or `npm run install-ea` (step 4 above) |
 | A market shows "not mapped" | Pick the matching MT5 symbol in **Edit setup → Symbols on your account** |
+| A desk's trade says "not sent to FTMO: … simulated prices" | That market's live feed is down (e.g. Yahoo HTTP 429). Map it to your MT5 symbol and its broker prices take over within seconds |
 
 ---
 

@@ -39,8 +39,8 @@ for (const [sym, s] of Object.entries(SPECS)) {
   const sigmaMin = s.vol / Math.sqrt(252 * 390);
   const bars = [];
   let p = s.price;
-  const t0 = minuteOf(nowSec()) - 600 * 60;
-  for (let i = 0; i < 600; i++) {
+  const t0 = minuteOf(nowSec()) - 6000 * 60;
+  for (let i = 0; i < 6000; i++) {
     const o = p;
     let h = o;
     let l = o;
@@ -62,7 +62,7 @@ function stepMarket(dtSec) {
     if (cur.time < t) {
       cur = { time: t, open: m.price, high: m.price, low: m.price, close: m.price, volume: 0 };
       m.bars.push(cur);
-      if (m.bars.length > 900) m.bars.shift();
+      if (m.bars.length > 6500) m.bars.shift();
     }
     cur.high = Math.max(cur.high, m.price);
     cur.low = Math.min(cur.low, m.price);

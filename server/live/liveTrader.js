@@ -284,7 +284,8 @@ export class LiveTrader extends EventEmitter {
       for (const [id, brokerSym] of Object.entries(p.symbolMap)) {
         if (!brokerSym) continue;
         if (this.md.ownerOf(id) !== 'mt5') {
-          this.bridge.requestHistory(brokerSym, 600);
+          // Enough of the broker's own bars for the research lab to test on real prices.
+          this.bridge.requestHistory(brokerSym, 6000);
           continue;
         }
         const q = this.bridge.quotes[brokerSym];
@@ -470,6 +471,11 @@ export class LiveTrader extends EventEmitter {
     const brokerSymbol = p.symbolMap[pos.symbol];
     const spec = brokerSymbol ? this.bridge.quotes[brokerSymbol] : null;
     if (!brokerSymbol) return this.#skip(agent, pos, key, `no FTMO symbol mapped for ${pos.symbol}`);
+    // Never real money on made-up prices: a market whose live feed is down runs on a
+    // simulated stand-in, and a trade decided on it is paper practice only.
+    const feed = this.md.get(pos.symbol);
+    if (feed?.source === 'sim' || feed?.status === 'SIM') return this.#skip(agent, pos, key, `${pos.symbol} is on simulated prices right now (its live feed is down); only real prices trade real money`);
+    if (pos.trade?.simFeed) return this.#skip(agent, pos, key, `the desk decided this ${pos.symbol} trade on simulated prices`);
     if (!plan || !(plan.risk > 0)) return this.#skip(agent, pos, key, 'no stop-loss on the desk trade');
     if (!spec) return this.#skip(agent, pos, key, `no MT5 price for ${brokerSymbol} yet`);
     if (!acc.algoAllowed || !acc.tradeAllowed) return this.#skip(agent, pos, key, 'Algo Trading is switched off in MT5');
@@ -607,6 +613,11 @@ export class LiveTrader extends EventEmitter {
     if (acc && acc.connected !== false && !acc.expertAllowed) warnings.push('The broker has disabled Expert Advisor trading on this account.');
     if (acc && !acc.algoAllowed) warnings.push('Algo Trading is off in MT5 — turn on the "Algo Trading" toolbar button, and tick "Allow Algo Trading" in the EA settings (click the chart, press F7).');
     if (acc && acc.marginMode === 0) warnings.push('This is a netting account: desks trading the same symbol will net against each other.');
+    const simulated = SYMBOL_IDS.filter((id) => this.md.get(id)?.source === 'sim');
+    if (this.mode === 'live' && simulated.length) {
+      const how = !p ? ' Set up the account below and MT5 will price the mapped ones with your broker\'s feed.' : '';
+      warnings.push(`${simulated.join(', ')} ${simulated.length === 1 ? 'is' : 'are'} on simulated prices because the live feed is down. Desks keep practising on paper there, but nothing on those markets is sent to FTMO until real prices are back.${how}`);
+    }
     const orphans = this.bridge.positions.filter((x) => this.#ours(x) && !links.some((l) => l.ticket === x.ticket && !l.previousSession && ['open', 'closing'].includes(l.state)));
     if (orphans.length) warnings.push(`${orphans.length} floor position(s) on MT5 are from a previous session. They keep their stop-loss; close them below if you like.`);
     return {

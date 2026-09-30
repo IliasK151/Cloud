@@ -239,3 +239,38 @@ test('briefings talk about the FTMO account once it is connected', () => {
   assert.doesNotMatch(text, /Since inception the desk/);
   assert.match(fund.byId.get('kenji').briefing().text, /paper trading only/);
 });
+
+test('a market on simulated prices never reaches the FTMO account', async () => {
+  const { fund, live, sync, chen } = setup();
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  live.setDesk('chen', true);
+  assert.equal(live.arm().ok, true);
+
+  // Gold's live feed is down: the floor runs it on the simulated stand-in.
+  fund.md.setStatus('XAUUSD', 'SIM', 'sim');
+  assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
+  await tick();
+  live.reconcile();
+  assert.equal(sync().filter((c) => c[0] === 'open').length, 0, 'nothing is sent to MT5');
+  const skipped = [...live.links.values()].find((l) => l.agentId === 'chen');
+  assert.equal(skipped.state, 'skipped');
+  assert.match(skipped.reason, /simulated prices/);
+
+  // The trade closes on paper: it counts as practice, not as a real track record.
+  chen.closeTrade('XAUUSD', 'test exit');
+  const trade = fund.broker.book('chen').trades.at(-1);
+  assert.equal(trade.simFeed, true);
+  assert.equal(chen.lifetime.realN, 0);
+  assert.equal(chen.lifetime.countR, 1);
+
+  // Real prices again (the broker's feed): the next trade is mirrored and counts.
+  const bars = Array.from({ length: 60 }, (_, i) => ({ time: Math.floor(Date.now() / 60_000) * 60 - (60 - i) * 60, open: 3800, high: 3801, low: 3799, close: 3800.1, volume: 10 }));
+  fund.md.claim('XAUUSD', 'mt5', bars);
+  chen.cooldownBars = 0; // the desk's normal cool-off after that paper loss
+  const again = chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 });
+  assert.equal(again.ok, true, again.reason);
+  await tick();
+  live.reconcile();
+  assert.equal(sync().filter((c) => c[0] === 'open').length, 1);
+});

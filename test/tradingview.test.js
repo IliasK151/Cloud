@@ -98,6 +98,27 @@ test('a dropped tunnel restarts, and a new address after alerts were flowing is 
   delete process.env.CLOUDFLARED;
 });
 
+test('Ctrl+C ends the tunnel quietly: no restart while the floor shuts down', async () => {
+  const dir = tmpDir();
+  const bin = path.join(dir, 'cloudflared');
+  fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+  process.env.CLOUDFLARED = bin;
+  const children = [];
+  const warnings = [];
+  const t = new TunnelManager({ dataDir: dir, port: 3001, secret: 's', log: { info() {}, warn: (m) => warnings.push(m) }, fetchImpl: okFetch(), spawnImpl: () => { const c = fakeProcess(); children.push(c); return c; } });
+  await t.start('cloudflare');
+  children[0].stdout.emit('data', 'https://first-one.trycloudflare.com\n');
+  // Terminal delivers Ctrl+C to cloudflared too, so it can exit before stop() is reached.
+  t.shuttingDown();
+  children[0].emit('exit', null, 'SIGINT');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(children.length, 1, 'not restarted');
+  assert.equal(warnings.filter((w) => /restarting/.test(w)).length, 0);
+  await t.stop({ keepAuto: true });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'tradingview.json'), 'utf8')).autoStart, true, 'comes back on the next launch');
+  delete process.env.CLOUDFLARED;
+});
+
 test('cloudflared is downloaded when it is not installed', { skip: process.platform !== 'linux' || process.arch !== 'x64' }, async () => {
   const dir = tmpDir();
   const oldPath = process.env.PATH;

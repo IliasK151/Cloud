@@ -38,10 +38,12 @@ export class MarketData extends EventEmitter {
     if (source) s.source = source;
   }
 
-  // Hand a symbol to one data source exclusively (e.g. the broker's own MT5 prices),
-  // replacing its history so indicators run on the prices that will be traded.
+  // Hand a symbol to one data source exclusively (e.g. the broker's own MT5 prices, or the
+  // real feed coming back after a stretch on the simulated stand-in), replacing its
+  // history so indicators run on the prices that will be traded.
   // Emits 'rebase' (id, offset) so open positions can be shifted to the new price level
-  // instead of showing a fake profit or loss from the feed switch.
+  // instead of showing a fake profit or loss from the feed switch, then 'claim'
+  // (id, source, bars) with the full history the source sent (the research store keeps it).
   claim(id, source, bars, status = 'LIVE') {
     const s = this.series.get(id);
     if (!s) return;
@@ -52,6 +54,7 @@ export class MarketData extends EventEmitter {
     this.setStatus(id, status, source);
     const offset = s.price - before;
     if (Number.isFinite(offset) && offset !== 0) this.emit('rebase', id, offset);
+    this.emit('claim', id, source, bars);
   }
 
   ownerOf(id) {

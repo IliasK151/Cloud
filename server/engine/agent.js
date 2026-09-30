@@ -27,7 +27,9 @@ export class TraderAgent {
     this.cooldownBars = 0;
     this.plans = new Map();
     this.day = freshDayStats();
-    this.lifetime = { trades: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0, sumR: 0, countR: 0, best: 0, worst: 0 };
+    // realN / realSumR: trades on real market prices only (live mode), the record the
+    // prop account trusts. Trades on a simulated fallback feed never count there.
+    this.lifetime = { trades: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0, sumR: 0, countR: 0, best: 0, worst: 0, realN: 0, realSumR: 0 };
     this.equityPeak = 0;
     this.maxDrawdown = 0;
     this.log = [];
@@ -222,6 +224,7 @@ export class TraderAgent {
       this.day.grossLoss += -trade.pnl; this.lifetime.grossLoss += -trade.pnl;
     }
     if (trade.r != null) { this.lifetime.sumR += trade.r; this.lifetime.countR++; }
+    if (trade.r != null && !trade.simFeed) { this.lifetime.realN++; this.lifetime.realSumR += trade.r; }
     this.lifetime.best = Math.max(this.lifetime.best, trade.pnl);
     this.lifetime.worst = Math.min(this.lifetime.worst, trade.pnl);
     if (!win && !this.profile.noCooldown) this.cooldownBars = this.learner.cooldownBars(this.profile.cooldownBars ?? 3);

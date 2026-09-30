@@ -1,108 +1,90 @@
 // Index futures, gold, oil and FX from Yahoo Finance's public chart endpoint.
-// Polls 1-minute bars; marks a symbol DELAYED/CLOSED when bars stop arriving
-// (e.g. weekends or the daily futures maintenance break).
+// Polls 1-minute bars, one request at a time through the shared, rate-limit-aware client;
+// marks a symbol DELAYED/CLOSED when bars stop arriving (e.g. weekends or the daily futures
+// maintenance break).
 
-const HOSTS = ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'];
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36',
-  Accept: 'application/json',
-};
-
-async function fetchChart(ticker, query, timeoutMs = 9000) {
-  let lastErr;
-  for (const host of HOSTS) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${host}/v8/finance/chart/${encodeURIComponent(ticker)}?${query}`, { headers: HEADERS, signal: ctrl.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      const result = json?.chart?.result?.[0];
-      if (!result) throw new Error(json?.chart?.error?.description || 'empty result');
-      return result;
-    } catch (err) {
-      lastErr = err;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw lastErr;
-}
-
-function toBars(result) {
-  const ts = result.timestamp || [];
-  const q = result.indicators?.quote?.[0] || {};
-  const bars = [];
-  for (let i = 0; i < ts.length; i++) {
-    const close = q.close?.[i];
-    if (close == null) continue;
-    const open = q.open?.[i] ?? close;
-    const bar = {
-      time: Math.floor(ts[i] / 60) * 60,
-      open,
-      high: q.high?.[i] ?? Math.max(open, close),
-      low: q.low?.[i] ?? Math.min(open, close),
-      close,
-      volume: q.volume?.[i] ?? 0,
-    };
-    const prev = bars[bars.length - 1];
-    // Yahoo's newest point can share a minute with the previous bar: merge them.
-    if (prev && prev.time === bar.time) {
-      prev.high = Math.max(prev.high, bar.high);
-      prev.low = Math.min(prev.low, bar.low);
-      prev.close = bar.close;
-      prev.volume += bar.volume;
-    } else if (!prev || bar.time > prev.time) {
-      bars.push(bar);
-    }
-  }
-  return bars;
-}
+import { yahoo as sharedClient, toBars } from './yahooClient.js';
 
 export class YahooFeed {
-  constructor(md, symbols, log = console, { pollMs = 10_000 } = {}) {
+  constructor(md, symbols, log = console, { pollMs = 15_000, client = sharedClient } = {}) {
     this.md = md;
     this.symbols = symbols;
     this.log = log;
     this.pollMs = pollMs;
-    this.timers = [];
+    this.client = client;
+    this.live = new Set();
+    this.lastPoll = new Map();
     this.failures = new Map();
+    this.busy = false;
+    this.timer = null;
   }
 
-  // Returns { ok: [ids], failed: [{ id, error, lastPrice }] }.
+  // Returns { ok: [ids], failed: [{ id, error }] }. Requests go one after another: a
+  // parallel burst is exactly what gets a connection rate-limited.
   async start() {
     const ok = [];
     const failed = [];
-    await Promise.all(this.symbols.map(async (s) => {
+    for (const s of this.symbols) {
       try {
-        const result = await fetchChart(s.source.ticker, 'interval=1m&range=2d&includePrePost=true');
-        const bars = toBars(result);
-        if (bars.length < 30) throw new Error('not enough history');
+        const bars = await this.#history(s);
         const forming = bars.pop();
         this.md.seed(s.id, bars);
         this.md.applyBar(s.id, forming, { source: 'yahoo' });
         this.#updateStatus(s.id);
+        this.live.add(s.id);
         ok.push(s.id);
       } catch (err) {
-        failed.push({ id: s.id, error: err.message });
+        failed.push({ id: s.id, error: err.message, rateLimited: !!err.rateLimited });
       }
-    }));
-    const live = this.symbols.filter((s) => ok.includes(s.id));
-    live.forEach((s, i) => {
-      // Stagger requests so we stay well inside Yahoo's rate limits.
-      const t = setTimeout(() => {
-        this.#poll(s);
-        this.timers.push(setInterval(() => this.#poll(s), this.pollMs));
-      }, (i * this.pollMs) / Math.max(1, live.length));
-      this.timers.push(t);
-    });
+    }
+    this.timer = setInterval(() => this.#tick(), 1000);
+    this.timer.unref?.();
     return { ok, failed };
+  }
+
+  async #history(s) {
+    const result = await this.client.chart(s.source.ticker, 'interval=1m&range=2d&includePrePost=true');
+    const bars = toBars(result);
+    if (bars.length < 30) throw new Error('not enough history');
+    return bars;
+  }
+
+  // A market that fell back to simulation: try the real feed again. On success the real
+  // prices take over the symbol (md.claim) and it joins the polling rotation.
+  async recover(id) {
+    const s = this.symbols.find((x) => x.id === id);
+    if (!s || this.live.has(id) || this.md.ownerOf(id) === 'mt5') return false; // the broker's prices already rule
+    const bars = await this.#history(s);
+    const forming = bars.pop();
+    this.md.claim(id, 'yahoo', bars, 'LIVE');
+    this.md.applyBar(id, forming, { source: 'yahoo' });
+    this.live.add(id);
+    this.lastPoll.set(id, Date.now());
+    this.#updateStatus(id);
+    return true;
+  }
+
+  // Poll the most overdue live symbol, at most one request in flight.
+  #tick() {
+    if (this.busy || this.client.paused) return;
+    const now = Date.now();
+    let pick = null;
+    for (const id of this.live) {
+      const owner = this.md.ownerOf(id);
+      if (owner && owner !== 'yahoo') continue; // priced by the broker (MT5): no need to ask Yahoo
+      const t = this.lastPoll.get(id) || 0;
+      if (now - t >= this.pollMs && (pick === null || t < (this.lastPoll.get(pick) || 0))) pick = id;
+    }
+    if (!pick) return;
+    this.lastPoll.set(pick, now);
+    this.busy = true;
+    this.#poll(this.symbols.find((x) => x.id === pick)).finally(() => { this.busy = false; });
   }
 
   async #poll(s) {
     const now = Math.floor(Date.now() / 1000);
     try {
-      const result = await fetchChart(s.source.ticker, `interval=1m&period1=${now - 900}&period2=${now + 60}&includePrePost=true`);
+      const result = await this.client.chart(s.source.ticker, `interval=1m&period1=${now - 900}&period2=${now + 60}&includePrePost=true`);
       for (const bar of toBars(result)) this.md.applyBar(s.id, bar, { source: 'yahoo' });
       this.failures.set(s.id, 0);
       this.#updateStatus(s.id);
@@ -124,6 +106,6 @@ export class YahooFeed {
   }
 
   stop() {
-    for (const t of this.timers) clearInterval(t);
+    clearInterval(this.timer);
   }
 }

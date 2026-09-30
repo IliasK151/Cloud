@@ -69,6 +69,9 @@ export class Broker extends EventEmitter {
 
     const book = this.book(agentId);
     const now = this.clock.now();
+    // In live mode a market whose real feed is down runs on simulated prices. Trades there
+    // are paper practice only: they never count as a real track record.
+    const simFeed = this.clock.mode === 'live' && this.md.get(symbol)?.source === 'sim';
     const fill = {
       id: ++fillSeq, time: now, agentId, symbol,
       side: qty > 0 ? 'BUY' : 'SELL', qty: Math.abs(qty), price: fillPrice,
@@ -98,6 +101,7 @@ export class Broker extends EventEmitter {
       pos.qty += Math.sign(remaining) * closeQty;
       remaining -= Math.sign(remaining) * closeQty;
       if (reason) pos.trade.exitReason = reason;
+      if (simFeed) pos.trade.simFeed = true;
       if (Math.abs(pos.qty) < 1e-12) {
         closed.push(this.#closeTrade(book, pos, now));
         book.positions.delete(symbol);
@@ -124,7 +128,7 @@ export class Broker extends EventEmitter {
           entryQty: Math.abs(remaining), entryNotional: Math.abs(remaining) * fillPrice,
           exitQty: 0, exitNotional: 0, realized: 0,
           fees: fee * (Math.abs(remaining) / Math.abs(qty)),
-          initialRisk, stop, target, entryReason: reason, exitReason: '', meta,
+          initialRisk, stop, target, entryReason: reason, exitReason: '', meta, simFeed,
         },
       };
       book.positions.set(symbol, pos);
@@ -147,6 +151,7 @@ export class Broker extends EventEmitter {
       gross: t.realized, fees: t.fees, pnl: net,
       r: t.initialRisk > 0 ? net / t.initialRisk : null,
       entryReason: t.entryReason, exitReason: t.exitReason,
+      ...(t.simFeed ? { simFeed: true } : {}),
       ...(t.meta ? { thesis: t.meta.thesis, grade: t.meta.grade, score: t.meta.score, verdict: t.meta.verdict, f: t.meta.f } : {}),
     };
     book.trades.push(trade);

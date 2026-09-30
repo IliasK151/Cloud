@@ -223,7 +223,7 @@ export class Fund extends EventEmitter {
       b.trades = [];
       b.fills = [];
       a.resetDay();
-      Object.assign(a.lifetime, { trades: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0, sumR: 0, countR: 0, best: 0, worst: 0 });
+      Object.assign(a.lifetime, { trades: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0, sumR: 0, countR: 0, best: 0, worst: 0, realN: 0, realSumR: 0 });
       a.maxDrawdown = 0;
       a.equityPeak = a.totalPnl();
       this.dayCurves.set(a.id, []);
