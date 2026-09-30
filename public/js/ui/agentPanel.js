@@ -37,6 +37,16 @@ export class AgentPanel {
     store.on('trade', (t) => {
       if (t.agentId === this.id && this.tab === 'trades') this.#loadTrades();
     });
+    store.on('event', (ev) => {
+      if (ev.agentId === this.id && this.tab === 'learn' && (ev.kind === 'learn' || ev.kind === 'exit')) this.#loadLearning();
+    });
+    document.getElementById('ap-learn').addEventListener('click', (e) => {
+      if (!e.target.closest('[data-act="reset-learning"]') || !this.id) return;
+      const name = this.store.profileById[this.id].name.split(' ')[0];
+      if (!confirm(`Make ${name} forget everything learned so far and start fresh?`)) return;
+      command('reset-learning', this.id);
+      setTimeout(() => this.#loadLearning(), 400);
+    });
   }
 
   // One line about the desk's position on the FTMO account.
@@ -181,6 +191,56 @@ export class AgentPanel {
     if (tab === 'chart') this.#ensureChart();
     if (tab === 'tv') this.#ensureTradingView();
     if (tab === 'trades') this.#loadTrades();
+    if (tab === 'learn') this.#loadLearning();
+  }
+
+  async #loadLearning() {
+    if (!this.id) return;
+    const id = this.id;
+    try {
+      this.detail = await api(`/api/agents/${id}`);
+    } catch {
+      return;
+    }
+    if (id !== this.id) return;
+    this.#renderLearning(this.detail.learning);
+  }
+
+  #renderLearning(L) {
+    const el = document.getElementById('ap-learn');
+    const p = this.store.profileById[this.id];
+    const first = p.name.split(' ')[0];
+    if (!L || !L.enabled) {
+      el.innerHTML = `<p class="thesis">${escapeHtml(first)}'s ${escapeHtml(p.strategy.toLowerCase())} book is managed as a whole (hedged pairs or two-sided quotes), so it doesn't use the trade-by-trade learning system.</p>`;
+      return;
+    }
+    const fmtR = (r) => (r == null ? '—' : `${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)}R`);
+    const statusChip = { active: ['trying it', 'armed'], kept: ['kept, it helped', 'trade'], reverted: ['undone', 'halted'], noted: ['', ''] };
+    const lessons = L.lessons.map((l) => {
+      const [chip, cls] = statusChip[l.status] || ['', ''];
+      return `<li><div class="lh"><b>${escapeHtml(l.title)}</b>${chip ? `<span class="status-chip ${cls}">${chip}</span>` : ''}</div>
+        <p>${escapeHtml(l.text)}</p><time>${new Date(l.time).toLocaleDateString()} · after ${l.studied} trades studied</time></li>`;
+    }).join('');
+    const rows = L.features.filter((f) => f.n >= 3).map((f) => `<tr class="${f.avoided ? 'avoided' : ''}">
+      <td>${escapeHtml(f.label)}${f.avoided ? ' <span class="pill no">SAT OUT</span>' : ''}</td>
+      <td class="r">${Math.round(f.n)}</td>
+      <td class="r ${f.avgR > 0.05 ? 'pos' : f.avgR < -0.05 ? 'neg' : ''}">${fmtR(f.avgR)}</td>
+      <td class="r muted">${fmtR(f.otherR)}</td>
+      <td class="r">${f.effect === 1 ? '<span class="muted">—</span>' : `×${f.effect.toFixed(2)}`}</td></tr>`).join('');
+    el.innerHTML = `
+      <div class="learn-strip">
+        <div><span>Trades studied</span><b class="num">${L.studied}</b></div>
+        <div><span>Recent average</span><b class="num ${L.recentAvgR > 0 ? 'pos' : L.recentAvgR < 0 ? 'neg' : ''}">${fmtR(L.recentAvgR)}</b></div>
+        <div><span>Lessons</span><b class="num">${L.lessons.length}</b></div>
+      </div>
+      <h3>What ${escapeHtml(first)} does differently now</h3>
+      ${L.adjustments.length ? `<ul class="learn-adj">${L.adjustments.map((a) => `<li>${escapeHtml(a)}</li>`).join('')}</ul>` : `<p class="fine">Nothing yet. ${escapeHtml(first)} changes a habit only after enough trades show a clear pattern (about a dozen in the same situation), and never beyond safe limits.</p>`}
+      <h3>Lessons</h3>
+      ${lessons ? `<ol class="learn-lessons">${lessons}</ol>` : '<p class="fine">No lessons yet. Every closed trade is studied: the situation it was taken in, how far it went for and against, and what the market did after a stop-out.</p>'}
+      <h3>Results by situation</h3>
+      ${rows ? `<div class="table-wrap"><table class="table compact learn-table"><thead><tr><th>Situation</th><th class="r">Trades</th><th class="r">Avg</th><th class="r">Others</th><th class="r">Size</th></tr></thead><tbody>${rows}</tbody></table></div><p class="fine">Recent trades count most. "Others" is the desk's average on all its other trades; size shows how much bigger or smaller ${escapeHtml(first)} trades that situation now.</p>` : '<p class="fine">Builds up as trades close.</p>'}
+      <p class="fine">On your FTMO account, learning can only make a trade smaller, never bigger. Your own TradingView alerts are studied but never skipped or changed.</p>
+      <button class="btn" data-act="reset-learning" style="margin-top:6px">Forget what ${escapeHtml(first)} learned</button>`;
   }
 
   #ensureChart() {

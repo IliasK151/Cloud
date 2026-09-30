@@ -61,7 +61,7 @@ Selecting a trader flies the camera to their desk. They swivel their chair towar
 
 Choose how the traders sound in the welcome tour or under the gear icon:
 
-- **Realistic** (recommended): natural, human-sounding AI voices from [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), an open (Apache-2.0) text-to-speech model that runs entirely in your browser on this computer. The first time, the browser downloads it once (about 100 MB, or about 330 MB for the faster version on Macs with a capable graphics chip); after that it works from the cache. Nothing you hear is sent anywhere. Until the download finishes, Mac voices fill in.
+- **Realistic** (recommended): natural, human-sounding AI voices from [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), an open (Apache-2.0) text-to-speech model. The floor's own server runs it on your Mac, in the background, so it works the same in Chrome and Safari. The first time you pick it, the floor installs its voice engine into `data/voice-engine` (about 400 MB, a minute or two) and downloads the voice model once from Hugging Face (about 90 MB); after that it starts in seconds, even offline. Progress shows under the gear icon and in the Terminal (lines starting with `[voices]`). Nothing you hear is sent anywhere. Mac voices fill in until it's ready, and if a sentence ever fails, the trader finishes in their Mac voice rather than going quiet; the gear icon says what went wrong.
 - **Mac voices:** your computer's built-in voices. The floor picks the best installed English voices, matches each trader's gender and accent, gives everyone a different voice where it can, and never uses the novelty or old robotic ones. For much better Mac voices, open **System Settings → Accessibility → Spoken Content → System voice → Manage Voices** and download a few **Premium** or **Enhanced** voices (for example Zoe, Ava, Evan, Nathan, Serena or Daniel), then reload the floor.
 - **Off:** traders answer in text only.
 
@@ -133,6 +133,33 @@ You can try the whole pipeline without TradingView using **Send test alert** on 
 
 ---
 
+## How the desks learn
+
+Every desk studies its own trades and gets better at avoiding its own mistakes. The pair-trading and market-making desks manage their books as a whole, so they sit this out.
+
+**What each trade teaches.** When a trade closes, the desk journals the situation it was taken in and how it played out:
+
+- **The situation:** time of day (Asia, London, the New York open, midday, afternoon), whether the market was quiet or wild, with or against the trend, how good the setup looked, whether it came right after a loss, which trade of the day it was, and long or short.
+- **How it played out:** the result in R, how far it went for and against the desk, and, after a stop-out, whether the market then went the desk's way.
+
+**What the desk changes**, only when the evidence is clear and always within safe limits:
+
+- **Sizing.** A bit bigger where the desk has a proven edge, and smaller in situations that do worse than its other trades, or while it's in a losing streak (×0.5 to ×1.25 overall).
+- **Sitting out** a situation that keeps losing compared with the desk's other trades, after at least a dozen trades of evidence. The desk still takes an occasional small test trade there, so it can notice when things change and go back.
+- **Fixing management mistakes:**
+  - Giving back winners → it takes partial profits sooner and trails tighter.
+  - Getting stopped out right before the move → it gives trades more room. The size shrinks, so the money at risk stays the same.
+  - Stops wider than needed → it tightens them.
+  - Targets that are rarely reached → it brings them closer.
+- **Behaviour:** a longer break after a loss if revenge trades lose, and fewer trades per day if late-day trades lose.
+- **Checking its own changes.** After about 15 more trades, the desk compares results before and after each change. It keeps what helped and rolls back what didn't, and tells you so.
+
+**Where to see it.** Each trader's panel has a **Learning** tab: what they do differently now, every lesson with its evidence, and their results in each situation. New lessons pop up on the floor, traders mention the latest one in their briefing, and the dashboard lists what every desk has learned. Everything is saved with the track record and survives restarts. **Forget what they learned** in the tab starts a desk fresh.
+
+**Safety.** On your FTMO account, learning can only make a trade smaller, never bigger, and every FTMO rule and limit still applies. Your own TradingView alerts are studied but never skipped or changed. This is adaptive risk management from a desk's own history, not a guarantee of profits: patterns from a few dozen trades can be noise, which is why every change is limited, reviewed and reversible.
+
+---
+
 ## Trade your FTMO account (MetaTrader 5)
 
 The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Account** through MetaTrader 5. A small Expert Advisor, [`mt5/MeridianBridge.mq5`](mt5/MeridianBridge.mq5), runs inside your MT5 terminal and links it to the floor on the same Mac. Your FTMO password stays in MT5; the floor never sees it.
@@ -192,12 +219,11 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 
 ## Dashboard
 
-The **Dashboard** tab shows the paper fund. Your FTMO account lives in the FTMO tab. It shows:
+The **Dashboard** tab follows the **FTMO / Paper** switch (in the top bar, or on the dashboard itself once an FTMO account is connected).
 
-- NAV, day P&L, P&L since inception, unrealized P&L, gross exposure, trades and win rate
-- The fund equity curve and desk P&L bars
-- A desk table with sparklines, positions and flatten/pause buttons
-- Loss-limit usage per desk, the market board with feed status, the trade blotter, floor-wide controls and received TradingView alerts
+- **FTMO account:** equity and balance, today's P&L (from the day's starting balance, FTMO's way), P&L since the start, open P&L and open risk, the floor's trades today and win rate, daily loss used and profit-target progress. Also the account equity curve, each desk's P&L on the account, a desk table with the live MT5 positions, FTMO rule meters, a blotter of the floor's trades on the account and a **Close all & disarm** button.
+- **Paper fund:** NAV, day P&L, P&L since inception, unrealized P&L, gross exposure, trades and win rate, the fund equity curve, desk P&L bars, a desk table with sparklines, positions and flatten/pause buttons, loss-limit usage per desk, the trade blotter and floor-wide controls.
+- Both show the market board, received TradingView alerts and **what the desks have learned**.
 
 ---
 
@@ -233,14 +259,16 @@ server/
   market/               Binance + Yahoo live feeds, regime-switching simulator, 1-min bars,
                         indicators, New York session clock
   engine/               paper broker, risk manager (CRO), agent base class,
-                        10 strategies, fund orchestration
-  tradingview/          alert parsing + authentication
+                        10 strategies, fund orchestration, learning.js (self-learning)
+  tradingview/          alert parsing + authentication, one-click public address (tunnel)
   live/                 MT5 bridge protocol, FTMO rules + guard, live execution router
+  voices/               realistic voices: Kokoro text-to-speech in a worker thread
 mt5/                    MeridianBridge.mq5 Expert Advisor for MetaTrader 5
 public/
   js/floor/             Three.js floor: room, desks, six-screen workstations,
-                        animated traders, video wall, camera director
-  js/ui/                HUD, trader panel + voice briefing, dashboard, TradingView page
+                        animated traders (avatar/: head, hair, body, IK), video wall, camera
+  js/ui/                HUD, trader panel + briefing + learning, dashboard, TradingView, FTMO
+  js/voice.js           voices: realistic (from the server) or system, lip-sync level
 tradingview/            Pine Script alert bridge
 ```
 

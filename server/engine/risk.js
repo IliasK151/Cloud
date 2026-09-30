@@ -35,7 +35,8 @@ export class RiskManager {
     if (agent.halted) return { ok: false, reason: agent.halted };
     if (this.riskOff) return { ok: false, reason: `Fund risk-off: ${this.riskOff.reason}` };
     if (this.session.isFlattenWindow()) return { ok: false, reason: 'Flat into the close' };
-    if (agent.day.trades >= (agent.profile.maxTradesPerDay ?? 12)) return { ok: false, reason: 'Daily trade cap reached' };
+    const cap = agent.learner ? agent.learner.maxTrades(agent.profile.maxTradesPerDay ?? 12) : agent.profile.maxTradesPerDay ?? 12;
+    if (agent.day.trades >= cap) return { ok: false, reason: 'Daily trade cap reached' };
     if (agent.cooldownBars > 0) return { ok: false, reason: `Cooling off after a loss (${agent.cooldownBars} bars)` };
     return { ok: true };
   }

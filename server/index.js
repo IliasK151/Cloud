@@ -15,6 +15,7 @@ import { Fund } from './engine/fund.js';
 import { Store } from './store.js';
 import { parseBody, normalizeAlert, secretMatches, rateLimiter } from './tradingview/webhook.js';
 import { TunnelManager } from './tradingview/tunnel.js';
+import { VoiceEngine, toWav } from './voices/engine.js';
 import { Mt5Bridge } from './live/bridge.js';
 import { LiveTrader } from './live/liveTrader.js';
 
@@ -107,6 +108,28 @@ app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
 });
 
 const tunnel = new TunnelManager({ dataDir: config.dataDir, port: config.webhookPort, secret: config.webhookSecret, log });
+const voices = new VoiceEngine({ dataDir: config.dataDir, log });
+
+// Realistic voices: generated here on the Mac, played by the browser.
+app.get('/api/voices', localOnly, (req, res) => res.json(voices.status()));
+app.post('/api/voices/setup', localOnly, (req, res) => {
+  voices.setup();
+  res.json({ ok: true, voices: voices.status() });
+});
+app.post('/api/voices/disable', localOnly, (req, res) => {
+  voices.disable();
+  res.json({ ok: true, voices: voices.status() });
+});
+app.post('/api/voices/speak', localOnly, express.json({ limit: '8kb' }), async (req, res) => {
+  const { text, voice } = req.body || {};
+  if (!text || !/^[ab][fm]_[a-z]+$/.test(String(voice))) return res.status(400).json({ ok: false, error: 'text and a Kokoro voice id are required' });
+  try {
+    const out = await voices.speak(text, voice);
+    res.type('audio/wav').send(toWav(out.samples, out.rate));
+  } catch (err) {
+    res.status(503).json({ ok: false, error: err.message });
+  }
+});
 
 const tvInfo = () => ({
   tunnel: tunnel.view(),
@@ -189,7 +212,7 @@ function broadcast(msg) {
 }
 
 wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view() }));
+  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status() }));
   ws.on('message', (buf) => {
     try {
       const msg = JSON.parse(buf.toString());
@@ -210,10 +233,11 @@ fund.on('equity', (sample) => broadcast({ type: 'equity', sample }));
 fund.on('alert', (alert) => broadcast({ type: 'alert', alert }));
 fund.on('reset', () => {
   store.save(fund.serialize());
-  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view() }));
+  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status() }));
 });
 broker.on('trade', (trade) => broadcast({ type: 'trade', trade }));
 tunnel.on('change', (view) => broadcast({ type: 'tunnel', tunnel: view }));
+voices.on('change', (st) => broadcast({ type: 'voices', voices: st }));
 
 // Push the FTMO panel state when it changes (and at least every few seconds).
 let lastLive = '';
@@ -272,6 +296,7 @@ async function main() {
     if (config.openBrowser && !process.env.CI) openBrowser(url);
   });
   hookServer.listen(config.webhookPort, config.host, () => tunnel.init());
+  voices.init();
   hookServer.on('error', (err) => log.warn(`[webhook] port ${config.webhookPort} unavailable: ${err.message}`));
 }
 
@@ -295,6 +320,7 @@ async function shutdown() {
   }
   feeds.stop();
   await tunnel.stop({ keepAuto: true }).catch(() => {});
+  voices.stop();
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

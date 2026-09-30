@@ -1,6 +1,7 @@
 import { SYMBOLS, usdPerQuote, roundToLot } from '../market/symbols.js';
 import { atr, last } from '../market/indicators.js';
 import { fmtPrice, fmtQty, fmtUsd, spokenPnl, round } from '../util/format.js';
+import { DeskLearner } from './learning.js';
 
 const LOG_SIZE = 80;
 
@@ -34,6 +35,7 @@ export class TraderAgent {
       bias: 'NEUTRAL', stage: 'Warming up', thesis: '', armed: false,
       levels: [], checklist: [], confidence: 0, indicators: {},
     };
+    this.learner = new DeskLearner(this);
   }
 
   // ---- accessors -----------------------------------------------------------------
@@ -59,6 +61,7 @@ export class TraderAgent {
   onBar(symbol, bar) {
     if (!this.symbols.includes(symbol) && !this.plans.has(symbol)) return;
     if (symbol === this.symbol && this.cooldownBars > 0) this.cooldownBars--;
+    this.learner.onBar(symbol, bar);
     const plan = this.plans.get(symbol);
     if (plan) this.#manageOnBar(plan, bar);
     if (this.symbols.includes(symbol) && !this.paused && !this.halted) {
@@ -94,23 +97,37 @@ export class TraderAgent {
     if (!Number.isFinite(entry) || !Number.isFinite(stop) || (long ? stop >= entry : stop <= entry)) return false;
     if (target != null && (long ? target <= entry : target >= entry)) target = null;
 
+    // What the desk has learned from its own trades: sit out losing situations, size by
+    // proven edge, and adjust stop / target / profit-taking.
+    const learn = this.learner.beforeEntry({ symbol, side, entry, stop, target, partialAt, trail, external: tag === 'TV' });
+    if (learn.skip) {
+      this.setStage(`Skipped a signal: ${learn.reason}`);
+      return false;
+    }
+    ({ stop, target, partialAt, trail } = learn);
+    riskMultiplier *= learn.sizeMult;
+
     const qty = this.risk.size(this, symbol, entry, stop, { riskMultiplier });
     if (!qty) return false;
     const initialRisk = qty * Math.abs(entry - stop) * usdPerQuote(symbol, entry);
     const res = this.broker.execute(this.id, symbol, long ? qty : -qty, { reason, tag, stop, target, initialRisk });
     if (!res) return false;
     const fillPx = res.fill.price;
-    this.plans.set(symbol, {
+    const plan = {
       symbol, side, qty, entry: fillPx, stop, initialStop: stop, target,
       risk: Math.abs(fillPx - stop), partialAt, partialDone: false, trail, timeStopBars,
-      barsHeld: 0, reason, tag, extreme: fillPx, openedAt: this.env.clock.now(),
-    });
+      barsHeld: 0, reason, tag, extreme: fillPx, worst: fillPx, openedAt: this.env.clock.now(),
+      learnMult: learn.sizeMult, probe: learn.probe,
+    };
+    this.plans.set(symbol, plan);
+    this.learner.onOpened(res.position?.trade?.id, learn, plan);
     this.day.entries++;
     this.setup.armed = false;
     const rr = target != null ? Math.abs(target - fillPx) / Math.abs(fillPx - stop) : null;
     this.note(
       `${long ? 'Bought' : 'Sold'} ${fmtQty(qty)} ${symbol} @ ${this.px(fillPx, symbol)} · stop ${this.px(stop, symbol)}` +
-        (target != null ? ` · target ${this.px(target, symbol)} (${rr.toFixed(1)}R)` : ''),
+        (target != null ? ` · target ${this.px(target, symbol)} (${rr.toFixed(1)}R)` : '') +
+        (learn.probe ? ' · small test trade' : learn.sizeMult !== 1 ? ` · size ×${learn.sizeMult} from experience` : ''),
       'entry',
       { symbol, side, price: fillPx, qty },
     );
@@ -192,11 +209,14 @@ export class TraderAgent {
     if (trade.r != null) { this.lifetime.sumR += trade.r; this.lifetime.countR++; }
     this.lifetime.best = Math.max(this.lifetime.best, trade.pnl);
     this.lifetime.worst = Math.min(this.lifetime.worst, trade.pnl);
-    if (!win && !this.profile.noCooldown) this.cooldownBars = this.profile.cooldownBars ?? 3;
+    if (!win && !this.profile.noCooldown) this.cooldownBars = this.learner.cooldownBars(this.profile.cooldownBars ?? 3);
     if (!this.profile.quietTrades || Math.abs(trade.pnl) > this.allocation * 0.0015) {
       this.moodEvent = { mood: win ? 'celebrating' : 'frustrated', until: Date.now() + 7000 };
       const rText = trade.r != null ? ` (${trade.r >= 0 ? '+' : ''}${trade.r.toFixed(2)}R)` : '';
       this.note(`${win ? 'Closed for a win' : 'Took a loss'} on ${trade.symbol}: ${fmtUsd(trade.pnl, { sign: true })}${rText} — ${trade.exitReason || 'exit'}`, 'exit', { symbol: trade.symbol, pnl: trade.pnl });
+    }
+    for (const lesson of this.learner.onClosed(trade) || []) {
+      this.note(`Lesson learned — ${lesson.title}. ${lesson.text.split(/(?<=\.)\s/)[0]}`, 'learn');
     }
   }
 
@@ -227,6 +247,7 @@ export class TraderAgent {
   #manageTick(plan, price) {
     const long = plan.side === 'LONG';
     plan.extreme = long ? Math.max(plan.extreme, price) : Math.min(plan.extreme, price);
+    plan.worst = long ? Math.min(plan.worst ?? price, price) : Math.max(plan.worst ?? price, price);
     const stopHit = long ? price <= plan.stop : price >= plan.stop;
     if (stopHit) {
       const moved = long ? plan.stop > plan.initialStop : plan.stop < plan.initialStop;
@@ -380,6 +401,7 @@ export class TraderAgent {
       lossLimit: this.risk.deskLossLimit(this),
       exposure: this.broker.grossExposure(this.id),
       stats: this.statsView(),
+      learning: this.learner.summary(),
       log: this.log.slice(-10),
     };
   }
@@ -422,6 +444,8 @@ export class TraderAgent {
     } else {
       lines.push(`On the day I'm ${spokenPnl(this.dayPnl())} with ${tradesTxt}. Since inception the desk is ${spokenPnl(this.totalPnl())}.`);
     }
+    const learned = this.learner.briefingLine();
+    if (learned) lines.push(learned);
     lines.push(this.#closer());
     return { greeting: 'Hello boss!', lines, text: lines.join(' ') };
   }

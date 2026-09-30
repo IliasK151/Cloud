@@ -1,7 +1,7 @@
 // Agent voices.
-//  - "natural": Kokoro, a neural text-to-speech model that runs on this computer in a Web
-//    Worker (tts-worker.js). Downloaded once, then cached by the browser. Each agent has
-//    their own voice and the audio drives their lip sync.
+//  - "natural": Kokoro, a neural text-to-speech model that the floor's server runs on this
+//    Mac (server/voices). Set up once on demand; each agent has their own voice and the audio
+//    drives their lip sync. Any failure falls back to system voices, never silence.
 //  - "system": the operating system's voices through the Web Speech API, ranked so the
 //    best installed voices (Premium / Enhanced / Natural) win and novelty or robotic voices
 //    are never used, with a distinct voice per agent where possible.
@@ -15,10 +15,8 @@ const store = {
 };
 
 let engine = store.get('floor.voiceEngine') || (store.get('floor.voice') === 'off' ? 'off' : 'system');
-const neural = { state: 'idle', progress: 0, loaded: 0, total: 0, device: null, error: null };
-let worker = null;
-let reqSeq = 0;
-const pending = new Map();
+// Mirrors the server's voice engine: absent | installed | installing | loading | ready | error.
+const neural = { state: 'absent', step: '', progress: null, loaded: 0, total: 0, error: null, lastError: null };
 
 let ctx = null;
 let analyser = null;
@@ -145,14 +143,12 @@ function audio() {
   return ctx;
 }
 
-function playSamples(samples, rate) {
+function playBuffer(audioBuffer) {
   return new Promise((resolve) => {
     const ac = audio();
     if (!ac) return resolve(false);
-    const b = ac.createBuffer(1, samples.length, rate);
-    b.copyToChannel(samples, 0);
     const src = ac.createBufferSource();
-    src.buffer = b;
+    src.buffer = audioBuffer;
     src.connect(analyser);
     let done = false;
     const finish = (ok) => {
@@ -166,69 +162,19 @@ function playSamples(samples, rate) {
   });
 }
 
-function generate(text, voiceId) {
-  return new Promise((resolve) => {
-    const id = ++reqSeq;
-    pending.set(id, resolve);
-    worker.postMessage({ type: 'speak', id, text, voice: voiceId });
-  });
+// One sentence of speech from the server, decoded and ready to play.
+async function fetchSpeech(text, voiceId) {
+  const res = await fetch('/api/voices/speak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, voice: voiceId }) });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  const bytes = await res.arrayBuffer();
+  return audio().decodeAudioData(bytes);
 }
 
-async function hasWebGPU() {
-  try {
-    return !!(navigator.gpu && (await navigator.gpu.requestAdapter()));
-  } catch {
-    return false;
-  }
-}
-
-function startNeural() {
-  if (worker || neural.state === 'loading' || neural.state === 'ready') return;
-  neural.state = 'loading';
-  neural.error = null;
-  emit();
-  try {
-    worker = new Worker(new URL('./tts-worker.js', import.meta.url), { type: 'module' });
-  } catch (err) {
-    neural.state = 'error';
-    neural.error = String(err?.message || err);
-    emit();
-    return;
-  }
-  worker.onmessage = ({ data: m }) => {
-    if (m.type === 'progress') {
-      neural.loaded = m.loaded;
-      neural.total = m.total;
-      neural.progress = m.total ? m.loaded / m.total : 0;
-      emit();
-    } else if (m.type === 'ready') {
-      neural.state = 'ready';
-      neural.device = m.device;
-      neural.progress = 1;
-      store.set('floor.neuralReady', '1');
-      emit();
-    } else if (m.type === 'error') {
-      neural.state = 'error';
-      neural.error = m.message;
-      worker.terminate();
-      worker = null;
-      emit();
-    } else if (m.type === 'audio') {
-      const r = pending.get(m.id);
-      pending.delete(m.id);
-      r?.(m.error ? null : m);
-    }
-  };
-  worker.onerror = (e) => {
-    neural.state = 'error';
-    neural.error = e.message || 'The voice engine could not start';
-    worker?.terminate();
-    worker = null;
-    for (const r of pending.values()) r(null);
-    pending.clear();
-    emit();
-  };
-  hasWebGPU().then((webgpu) => worker?.postMessage({ type: 'load', webgpu }));
+function requestSetup() {
+  fetch('/api/voices/setup', { method: 'POST' }).catch(() => {});
 }
 
 // ---- public API ---------------------------------------------------------------------------
@@ -252,17 +198,25 @@ export const voice = {
   },
 
   setEngine(next) {
+    const was = engine;
     engine = next;
     store.set('floor.voiceEngine', next);
     if (next === 'off') this.stop();
-    if (next === 'natural') startNeural();
+    if (next === 'natural' && neural.state !== 'ready') requestSetup();
+    if (was === 'natural' && next !== 'natural') fetch('/api/voices/disable', { method: 'POST' }).catch(() => {});
     emit();
   },
 
-  // Call on startup: resumes the natural engine if it was chosen before.
-  prepare() {
-    if (engine === 'natural') startNeural();
+  // Server status for the realistic voice engine (pushed over the WebSocket).
+  setServerStatus(st) {
+    if (!st) return;
+    Object.assign(neural, { state: st.state, step: st.step, progress: st.progress, loaded: st.loaded, total: st.total, error: st.error });
+    // Chosen in this browser but not set up on this server yet (or it restarted): ask for it.
+    if (engine === 'natural' && !st.wanted && st.state !== 'ready') requestSetup();
+    emit();
   },
+
+  prepare() {},
 
   // Browsers only allow audio after a click; call from click handlers.
   unlock() {
@@ -280,8 +234,6 @@ export const voice = {
     current = null;
     this.speakerId = null;
     synth?.cancel();
-    for (const r of pending.values()) r(null);
-    pending.clear();
   },
 
   speakerId: null,
@@ -325,14 +277,24 @@ export const voice = {
     this.speakerId = profile.id;
     if (engine === 'natural' && neural.state === 'ready' && profile.voice?.neural) {
       this.unlock();
-      // Generate every sentence up front (the worker queues them); play in order.
-      const jobs = lines.map((l) => generate(speechText(l, { neuralEngine: true }), profile.voice.neural));
+      // Ask for every sentence up front (the server makes them one by one); play in order.
+      const jobs = lines.map((l) => fetchSpeech(speechText(l, { neuralEngine: true }), profile.voice.neural));
+      jobs.forEach((j) => j.catch(() => {}));
       for (let i = 0; i < jobs.length; i++) {
-        const out = await jobs[i];
+        let buffer;
+        try {
+          buffer = await jobs[i];
+        } catch (err) {
+          // Never go silent: finish the briefing with the system voice and say why in settings.
+          neural.lastError = err.message;
+          emit();
+          current = null;
+          if (token !== speakToken) return false;
+          return speakSystem(lines.slice(i), profile, token, (k) => onLine?.(i + k));
+        }
         if (token !== speakToken) return false;
-        if (!out) break;
         onLine?.(i);
-        const ok = await playSamples(out.samples, out.rate);
+        const ok = await playBuffer(buffer);
         if (!ok || token !== speakToken) return false;
         if (i < jobs.length - 1) await new Promise((r) => setTimeout(r, 140));
       }

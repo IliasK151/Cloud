@@ -102,6 +102,8 @@ button { font: inherit; color: inherit; }
 .set-note { color: var(--text-2); font-size: 12px; line-height: 1.5; margin: 10px 0; }
 .progress { height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; margin: -2px 0 10px; }
 .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+.progress.indeterminate i { animation: indeterminate 1.4s ease-in-out infinite; }
+@keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
 .btn.small { flex: none; padding: 6px 10px; font-size: 12px; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn.ghost:hover { color: var(--text-1); background: rgba(255, 255, 255, 0.05); }
@@ -320,6 +322,10 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 1px 5px; border-radi
 .banner.crit { background: rgba(208, 59, 59, 0.14); border: 1px solid rgba(208, 59, 59, 0.4); color: #ffb3b3; }
 .banner.info { background: var(--accent-soft); border: 1px solid rgba(57, 135, 229, 0.35); color: #b9d5f7; }
 
+/* dashboard header with its own FTMO / Paper switch */
+.dash-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.book-switch.big button { font-size: 12.5px; padding: 7px 14px; }
+
 /* TradingView view */
 .tv-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
 .steps { margin: 0; padding-left: 20px; line-height: 1.7; color: var(--text-2); }
@@ -482,3 +488,17 @@ select, input[type="text"] { background: var(--surface-2); border: 1px solid var
 .steps .test-row { margin: 8px 0 0; }
 .steps .field { margin: 8px 0 4px; }
 .form-grid input[type="text"], .form-grid input[type="password"] { background: var(--surface-2); border: 1px solid var(--hairline-strong); color: var(--text-1); border-radius: 6px; padding: 7px 9px; font: inherit; }
+
+/* Learning tab */
+.learn-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.learn-strip div { background: var(--surface-1); border-radius: 8px; padding: 8px 10px; }
+.learn-strip span { display: block; font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.learn-strip b { font-size: 15px; font-weight: 600; }
+.learn-adj { margin: 0; padding-left: 18px; display: grid; gap: 5px; color: var(--text-1); line-height: 1.4; }
+.learn-lessons { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.learn-lessons li { background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 10px; padding: 10px 12px; }
+.learn-lessons .lh { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.learn-lessons p { margin: 5px 0 4px; color: var(--text-2); line-height: 1.45; }
+.learn-lessons time { font-size: 11px; color: var(--text-3); }
+.learn-table tr.avoided td { background: rgba(217, 69, 79, 0.06); }
+.lessons-card li { cursor: pointer; }

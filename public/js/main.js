@@ -22,18 +22,23 @@ try {
 
 const hud = new Hud(store, { onSelect: (id) => select(id) });
 const panel = new AgentPanel(store, floor);
-const dashboard = new Dashboard(store, document.getElementById('dashboard-view'), { onSelect: (id) => select(id) });
+const dashboard = new Dashboard(store, document.getElementById('dashboard-view'), {
+  onSelect: (id, opts) => select(id, opts),
+  onBookChange: () => bookChanged(),
+  onView: (v) => setView(v),
+});
 const tvView = new TradingViewView(store, document.getElementById('tv-view'));
 const liveView = new LiveView(store, document.getElementById('live-view'));
 let view = 'floor';
 
 // ---- selection -------------------------------------------------------------------------
-function select(id) {
+function select(id, { tab } = {}) {
   if (!store.profileById[id]) return;
   if (view !== 'floor') setView('floor');
   store.select(id);
   floor?.focusAgent(id);
   panel.open(id);
+  if (tab) panel.showTab(tab);
   hud.update();
   hideHint();
 }
@@ -92,10 +97,11 @@ function voiceNoteText(st) {
   const n = st.neural;
   if (st.engine === 'off') return 'Traders answer in text only.';
   if (st.engine === 'natural') {
-    if (n.state === 'ready') return `Realistic voices are ready${n.device === 'webgpu' ? ' (running on your graphics chip)' : ''}. Everything runs on this computer.`;
-    if (n.state === 'loading') return n.total ? `Downloading the voice model: ${mb(n.loaded)} of ${mb(n.total)}. Only needed once; Mac voices fill in meanwhile.` : 'Starting the voice engine…';
-    if (n.state === 'error') return `Realistic voices could not load (${n.error}). Check your internet connection for the one-time download; Mac voices are used meanwhile.`;
-    return 'Natural AI voices that run privately on this computer. One-time download of about 100–330 MB.';
+    if (n.state === 'ready') return `Realistic voices are ready. They run on this Mac, and nothing you hear is sent anywhere.${n.lastError ? ` (Last problem: ${n.lastError}; Mac voices filled in.)` : ''}`;
+    if (n.state === 'installing') return `${n.step} Mac voices fill in meanwhile.`;
+    if (n.state === 'loading') return n.total ? `${n.step} ${mb(n.loaded)} of ${mb(n.total)}. Mac voices fill in meanwhile.` : `${n.step || 'Starting the voice engine…'} Mac voices fill in meanwhile.`;
+    if (n.state === 'error') return `Realistic voices aren't working: ${n.error} Mac voices are used meanwhile. Pick Realistic again to retry.`;
+    return 'Setting up realistic voices… The first time, the floor installs its voice engine (about 400 MB) and downloads the voice model (about 90 MB). After that they start in seconds.';
   }
   const names = [...new Set(Object.values(st.assigned))];
   if (!st.systemVoices) return 'No English system voices found in this browser.';
@@ -105,9 +111,10 @@ function voiceNoteText(st) {
 function syncVoiceUi(st = voice.status()) {
   voiceSeg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.engine === st.engine)));
   voiceNote.textContent = voiceNoteText(st);
-  const loading = st.engine === 'natural' && st.neural.state === 'loading';
-  voiceBar.hidden = !loading;
-  voiceBar.firstElementChild.style.width = `${Math.round((st.neural.progress || 0) * 100)}%`;
+  const busy = st.engine === 'natural' && (st.neural.state === 'loading' || st.neural.state === 'installing');
+  voiceBar.hidden = !busy;
+  voiceBar.classList.toggle('indeterminate', busy && st.neural.progress == null);
+  voiceBar.firstElementChild.style.width = st.neural.progress == null ? '35%' : `${Math.round(st.neural.progress * 100)}%`;
   document.getElementById('set-voice-preview').disabled = st.engine === 'off';
   welcome.syncVoice(st);
 }
@@ -127,6 +134,7 @@ function previewVoice() {
 }
 document.getElementById('set-voice-preview').addEventListener('click', previewVoice);
 voice.on((st) => syncVoiceUi(st));
+store.on('voices', (st) => voice.setServerStatus(st));
 
 let hq = true;
 try { hq = localStorage.getItem('floor.hq') !== 'off'; } catch { /* ignore */ }
@@ -251,10 +259,11 @@ store.on('event', (ev) => {
   if (!ev.agentId || !floor || view !== 'floor') return;
   if (ev.agentId === store.selected) return;
   const liveFill = ev.kind === 'live' && /filled|closed/.test(ev.text);
-  if (!['entry', 'exit', 'partial', 'halt', 'signal', 'alert'].includes(ev.kind) && !liveFill) return;
-  if (floor.bubbles.size >= 3 && !['halt', 'alert'].includes(ev.kind)) return;
+  if (!['entry', 'exit', 'partial', 'halt', 'signal', 'alert', 'learn'].includes(ev.kind) && !liveFill) return;
+  if (floor.bubbles.size >= 3 && !['halt', 'alert', 'learn'].includes(ev.kind)) return;
   const p = store.profileById[ev.agentId];
-  floor.showBubble(ev.agentId, `<b>${escapeHtml(p.name.split(' ')[0])}</b>${escapeHtml(ev.text)}`, { duration: 4500 });
+  const learned = ev.kind === 'learn';
+  floor.showBubble(ev.agentId, `<b>${escapeHtml(p.name.split(' ')[0])}${learned ? ' · 💡 learned something' : ''}</b>${escapeHtml(learned ? ev.text.replace(/^Lesson learned — /, '') : ev.text)}`, { duration: learned ? 9000 : 4500 });
 });
 
 store.on('equity', (sample) => dashboard.onEquity(sample));
@@ -297,11 +306,16 @@ store.on('live', (v) => {
   panel.setLive(v);
   hud.update();
   floor?.sync();
+  dashboard.render();
 });
-hud.onBookChange = () => {
+// The FTMO / Paper switch (top bar or dashboard) re-renders everything that shows P&L.
+function bookChanged() {
+  hud.update();
   floor?.sync();
   panel.update();
-};
+  dashboard.render(true);
+}
+hud.onBookChange = bookChanged;
 
 // Handy for tinkering from the browser console: floorApp.select('amara')
 window.floorApp = { store, floor, panel, select, deselect, setView };

@@ -110,7 +110,13 @@ export function equityChart(container) {
   let lastTime = 0;
   let baseline = null;
   return {
-    setData(points, start) {
+    // compact: millions ($99.681M) for the paper fund; full dollars for an FTMO account.
+    setData(points, start, { compact = true } = {}) {
+      series.applyOptions({
+        priceFormat: compact
+          ? { type: 'custom', formatter: (v) => `$${(v / 1e6).toFixed(3)}M`, minMove: 1 }
+          : { type: 'custom', formatter: (v) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, minMove: 0.01 },
+      });
       series.setData(points);
       lastTime = points.length ? points[points.length - 1].time : 0;
       if (baseline) series.removePriceLine(baseline);

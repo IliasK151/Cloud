@@ -104,6 +104,7 @@
         <button role="tab" data-tab="chart" aria-selected="false">Chart</button>
         <button role="tab" data-tab="tv" aria-selected="false">TradingView</button>
         <button role="tab" data-tab="trades" aria-selected="false">Trades</button>
+        <button role="tab" data-tab="learn" aria-selected="false">Learning</button>
       </nav>
       <div class="ap-body">
         <div class="ap-tab" data-tab="setup">
@@ -139,6 +140,9 @@
           <table class="table compact" id="ap-trades"></table>
           <h3>Desk log</h3>
           <ol class="log" id="ap-log"></ol>
+        </div>
+        <div class="ap-tab" data-tab="learn" hidden>
+          <div id="ap-learn"><p class="muted">Loading…</p></div>
         </div>
       </div>
     </section>
@@ -185,7 +189,7 @@
           <p class="modal-kicker">Step 2 of 3</p>
           <h2>How should they sound?</h2>
           <div class="wc-options" role="radiogroup" aria-label="Agent voices">
-            <button class="wc-opt" role="radio" data-engine="natural"><b>Realistic voices <em>Recommended</em></b><span>Natural, human-sounding AI voices that run privately on this computer. One-time download of about 100–330 MB.</span></button>
+            <button class="wc-opt" role="radio" data-engine="natural"><b>Realistic voices <em>Recommended</em></b><span>Natural, human-sounding AI voices that run privately on this Mac. Sets itself up once in the background (about 500 MB); Mac voices fill in until it's ready.</span></button>
             <button class="wc-opt" role="radio" data-engine="system"><b>Mac voices</b><span>Your computer's built-in voices. Instant, no download.</span></button>
             <button class="wc-opt" role="radio" data-engine="off"><b>No voices</b><span>Traders answer in text only.</span></button>
           </div>

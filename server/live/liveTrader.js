@@ -473,7 +473,8 @@ export class LiveTrader extends EventEmitter {
       + [...this.links.values()].filter((l) => l.state === 'pending').length;
     if (ours >= p.maxPositions) return this.#skip(agent, pos, key, `already ${ours} live positions (max ${p.maxPositions})`);
 
-    const riskMoney = acc.balance * (p.riskPerTradePct / 100) * (agent.profile.riskScale ?? 1);
+    // Learning may size a desk's trade down on the account, never up.
+    const riskMoney = acc.balance * (p.riskPerTradePct / 100) * (agent.profile.riskScale ?? 1) * Math.min(1, plan.learnMult ?? 1);
     const lots = lotsForRisk(riskMoney, plan.risk, spec);
     if (!lots) return this.#skip(agent, pos, key, `position would be below the ${spec.volMin} lot minimum`);
     const actualRisk = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue) * lots;
@@ -554,6 +555,33 @@ export class LiveTrader extends EventEmitter {
     return this.armed ? `I'm cleared to trade your FTMO account and flat there right now.` : `I'm set up for your FTMO account, waiting for you to arm live trading.`;
   }
 
+  // Floor trades on this account for the dashboard: blotter rows and simple stats.
+  #tradesView(links) {
+    const mine = links.filter((l) => l.login === this.login && !l.previousSession && ['open', 'closing', 'closed'].includes(l.state));
+    const isToday = (l) => (l.closedDay ? l.closedDay === this.bridge.serverDay : l.closedAt >= Date.now() - 86_400_000);
+    const closed = mine.filter((l) => l.state === 'closed');
+    const today = closed.filter(isToday);
+    const floating = this.bridge.positions.filter((x) => this.#ours(x)).reduce((sum, x) => sum + (x.profit || 0), 0);
+    return {
+      stats: {
+        closedToday: today.length,
+        winsToday: today.filter((l) => l.pnl > 0).length,
+        realizedToday: today.reduce((sum, l) => sum + (l.pnl || 0), 0),
+        closedTotal: closed.length,
+        winsTotal: closed.filter((l) => l.pnl > 0).length,
+        realizedTotal: closed.reduce((sum, l) => sum + (l.pnl || 0), 0),
+        floating,
+      },
+      trades: mine
+        .sort((a, b) => (b.closedAt || b.createdAt) - (a.closedAt || a.createdAt))
+        .slice(0, 40)
+        .map((l) => ({
+          agentId: l.agentId, symbol: l.brokerSymbol, side: l.side, volume: l.volume0, state: l.state,
+          pnl: l.state === 'closed' ? l.pnl : l.profit ?? 0, entry: l.liveEntry, openedAt: l.createdAt, closedAt: l.closedAt || null, reason: l.reason || '',
+        })),
+    };
+  }
+
   view() {
     const acc = this.account;
     const p = this.profile;
@@ -604,6 +632,7 @@ export class LiveTrader extends EventEmitter {
         };
       }),
       equityHistory: this.equityHistory.slice(-240),
+      ...this.#tradesView(links),
       positions: this.bridge.positions.map((x) => ({ ...x, agentId: this.#ours(x) ? this.agentForMagic(x.magic) : null, floor: this.#ours(x) })),
       links: links.filter((l) => !l.previousSession).slice(-25).reverse(),
       events: this.events.slice(-40).reverse(),

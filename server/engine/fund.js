@@ -181,6 +181,12 @@ export class Fund extends EventEmitter {
       case 'reset-paper':
         this.resetPaper();
         return { ok: true };
+      case 'reset-learning':
+        for (const a of agent ? [agent] : this.agents) {
+          a.learner.reset();
+          a.note('Cleared everything I had learned; starting fresh', 'learn');
+        }
+        return { ok: true };
       case 'flatten':
         if (agent) agent.flatten('Boss ordered flat');
         else this.flattenAll('Boss ordered the whole floor flat');
@@ -328,6 +334,7 @@ export class Fund extends EventEmitter {
       profile: publicProfile(a.profile),
       snapshot: a.snapshot(),
       briefing: a.briefing(),
+      learning: a.learner.view(),
       trades: book.trades.slice(-60).reverse(),
       fills: book.fills.slice(-40).reverse(),
       log: a.log.slice(-60),
@@ -348,6 +355,7 @@ export class Fund extends EventEmitter {
         maxDrawdown: a.maxDrawdown, equityPeak: a.equityPeak,
         halted: a.halted, paused: a.paused,
         dayCurve: this.dayCurves.get(a.id),
+        learning: a.learner.serialize(),
       };
     }
     return {
@@ -375,6 +383,7 @@ export class Fund extends EventEmitter {
       a.maxDrawdown = s.maxDrawdown || 0;
       a.equityPeak = s.equityPeak || 0;
       a.paused = !!s.paused;
+      a.learner.restore(s.learning);
       if (sameDay) {
         b.realizedDay = s.realizedDay || 0;
         b.feesDay = s.feesDay || 0;
