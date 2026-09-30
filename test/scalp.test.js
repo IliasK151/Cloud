@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { ROSTER } from '../server/engine/roster.js';
 import { LiquidityScalp, KILLZONES } from '../server/engine/strategies/ajScalp.js';
@@ -58,9 +61,9 @@ function londonSweep(d) {
   const { step, bar, sec } = d;
   for (let m = 0; m < 30; m++) step(bar(sec(2, m), 1.3417, 1.3419 + (m === 5 ? 0.0006 : 0), 1.3415 - (m === 9 ? 0.0003 : 0), 1.3418));
   step(bar(sec(2, 30), 1.3412, 1.3413, 1.3401, 1.3403));
-  step(bar(sec(2, 31), 1.3403, 1.3404, 1.3392, 1.3396)); // through the Asia low
-  step(bar(sec(2, 32), 1.3396, 1.3399, 1.3390, 1.3395)); // the run's extreme
-  step(bar(sec(2, 33), 1.3396, 1.3412, 1.3395, 1.3410)); // back inside, engulfs the sweep candle
+  step(bar(sec(2, 31), 1.3403, 1.3404, 1.3396, 1.3398)); // through the Asia low
+  step(bar(sec(2, 32), 1.3398, 1.3399, 1.3394, 1.3397)); // the run's extreme
+  step(bar(sec(2, 33), 1.3397, 1.3408, 1.3396, 1.3406)); // back inside, engulfs the sweep candle
 }
 
 test('the scalping desk: five AJ-style scalpers appended after the original fifteen', () => {
@@ -92,7 +95,8 @@ test('a London run of the Asia low, trapped and shifted, is bought on the pullba
   const p = agent.pending;
   assert.ok(p, 'a pending pullback entry');
   assert.equal(p.side, 'LONG');
-  assert.ok(p.stop < 1.339, `stop below the run (${p.stop})`);
+  assert.ok(p.stop < 1.3394, `stop below the run's extreme (${p.stop})`);
+  assert.ok(Math.abs(p.entry - 1.34) < 1e-9, `entry at the middle of the move off the sweep (${p.entry})`);
   assert.ok(p.entry - p.stop <= 0.0010 + 1e-9, `stop within the 10-pip scalp stop (${((p.entry - p.stop) * 1e4).toFixed(1)} pips)`);
   assert.ok((p.target - p.entry) / (p.entry - p.stop) >= 2, 'target at least 2R');
   assert.match(p.reason, /London scalp: ran the Asia low/);
@@ -104,7 +108,7 @@ test('a London run of the Asia low, trapped and shifted, is bought on the pullba
   const plan = agent.plan;
   assert.ok(plan && !agent.pending);
   assert.equal(plan.partialAt, 1);
-  assert.equal(plan.timeStopBars, 20);
+  assert.equal(plan.timeStopBars, 30);
   const oneR = plan.entry + plan.risk * 1.05;
   d.md.applyTick(SYM, oneR, 1, d.clock.t);
   agent.onTick(SYM, oneR);
@@ -161,4 +165,23 @@ test('a run too deep for the scalp stop is skipped, not chased', () => {
   assert.equal(d.agent.pending, null);
   assert.equal(d.agent.position(SYM), null);
   assert.ok(d.agent.log.some((l) => /too deep for a scalp stop/.test(l.text)), d.agent.log.map((l) => l.text).join('\n'));
+});
+
+test('npm run scalp-test replays a scalper through the floor\'s own code on a run of 1-minute bars', async () => {
+  const { replay, loadBars } = await import('../scripts/scalp-test.js');
+  // The same London morning as above, as plain bars.
+  const d = desk();
+  londonSweep(d);
+  const after = d.bars.at(-1).time;
+  for (let m = 1; m <= 60; m++) d.bars.push(d.bar(after + m * 60, 1.3406, 1.3409, 1.3398, 1.3401));
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'scalp-')), 'GBPUSD.json');
+  fs.writeFileSync(file, JSON.stringify({ symbol: 'GBPUSD', bars: d.bars.map((b) => [b.time, b.open, b.high, b.low, b.close, 1]) }));
+  const bars = loadBars(file);
+  assert.equal(bars.length, d.bars.length);
+  const res = replay({ profile: jake, bars, committee: 'off', warmup: 450 });
+  assert.ok(res.funnel.sessions >= 1, 'saw the London killzone');
+  assert.ok(res.funnel.swept >= 1, 'saw the run of the Asia low');
+  assert.ok(res.entries.length >= 1, 'took the pullback entry');
+  assert.equal(res.entries[0].side, 'LONG');
+  assert.ok(res.trades.length >= 1, 'and closed it by the end');
 });

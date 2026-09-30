@@ -103,7 +103,22 @@ export class Committee extends EventEmitter {
     const ed = this.edge(ag, symbol, side);
     a.f.edge = { value: ed.value, text: ed.text };
     a.edge = ed;
+    if (style === 'scalper') this.#scalpTerms(a, symbol);
     return a;
+  }
+
+  // A scalp is judged on scalping terms. Its target is the liquidity on the other side, and
+  // the small 5- and 15-minute swings on the way are the stops it trades through, so room is
+  // measured to that target. And a run of liquidity is a volatility burst by definition, so
+  // high volatility is the setup, not a strike against it. (On real history the committee's
+  // swing-trade view graded every gold and EURUSD scalp C, including the winners.)
+  #scalpTerms(a, symbol) {
+    const dec = SYMBOLS[symbol]?.decimals ?? 2;
+    if (a.rr != null) {
+      const v = a.rr >= 2 ? 0.5 : a.rr >= 1.5 ? 0.2 : -0.5;
+      a.f.room = { value: v, text: `the scalp targets liquidity ${a.rr.toFixed(1)}R away at ${Number(a.target).toFixed(dec)}` };
+    }
+    if (a.read.volPct >= 0.93) a.f.volatility = { value: 0.1, text: `volatility is high (${Math.round(a.read.volPct * 100)}th percentile): that's when liquidity runs happen` };
   }
 
   #reviewers(proposer, symbol) {
@@ -119,11 +134,15 @@ export class Committee extends EventEmitter {
   // Hard stops, kept only where the evidence backs them (tested on 956 simulated trades:
   // entries shortly before news averaged -0.30R, in extreme volatility -0.24R and in a
   // dead-quiet market -0.21R, against -0.05R for everything else), plus basic arithmetic.
-  #vetoes(a) {
+  //
+  // Liquidity scalpers are exempt from the extreme-volatility veto: a run of liquidity is a
+  // volatility burst by definition, and on real history (scripts/scalp-test.js) the scalps
+  // this veto would have stopped did better than the rest, not worse.
+  #vetoes(a, proposerId = null) {
     const out = [];
     const r = a.read;
     if (r.news && r.news.minutes <= (r.news.impact === 'high' ? 45 : 20)) out.push(`${r.news.label} is due in ${r.news.minutes} minutes`);
-    if (r.volPct >= 0.93) out.push(`volatility is extreme (${Math.round(r.volPct * 100)}th percentile)`);
+    if (r.volPct >= 0.93 && styleKey(proposerId) !== 'scalper') out.push(`volatility is extreme (${Math.round(r.volPct * 100)}th percentile)`);
     if (r.volPct <= 0.07) out.push('the market is dead quiet, costs eat small moves');
     if (a.rr != null && a.rr < 0.9) out.push(`the target is only ${a.rr.toFixed(1)}R, less than the risk`);
     return out;
@@ -167,7 +186,7 @@ export class Committee extends EventEmitter {
     }
 
     // The head of research signs off on risk.
-    const vetoes = this.#vetoes(a);
+    const vetoes = this.#vetoes(a, agent.id);
     const chairOp = opinion(CHAIR, a.f);
     if (agent.id !== CHAIR) votes.push({ id: CHAIR, score: chairOp.score, stance: chairOp.stance, chair: true });
     const reviewAvg = votes.length ? votes.reduce((s, v) => s + v.score, 0) / votes.length : proposerScore;

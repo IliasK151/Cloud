@@ -15,15 +15,20 @@ import { SYMBOLS } from '../../market/symbols.js';
 //      do; against it, only a run of major liquidity (Asia, London, the previous day, the
 //      killzone's opening range), and the committee weighs the trend as well;
 //   2. liquidity: the Asia range, the previous day's high and low, the London range (for
-//      the New York desks), the killzone's opening range, equal highs and lows, and the 5-
-//      and 1-minute swing highs and lows;
+//      the New York desks), the killzone's opening range, and equal highs and lows (the 5-
+//      and 1-minute swings are mapped too, but traded only with pools: 'all');
 //   3. the run: price trades through a pool, then closes back inside (the trap);
 //   4. the shift: a 1-minute close back through the candle that made the run's extreme,
 //      with displacement;
-//   5. in at once when the stop beyond the run fits the scalp stop, otherwise on the pullback
-//      to where it fits (while that is still the upper part of the move off the sweep);
+//   5. entry on the pullback to the middle of the move off the sweep (a limit, given up
+//      after 8 minutes or if price jumps through it), stop beyond the run, never tighter than
+//      10 spreads nor wider than the scalp stop;
 //   6. target: the liquidity on the other side, at least 2R. Half off at 1R with the stop
-//      to breakeven; out after 20 minutes if it isn't working and after 45 regardless.
+//      to breakeven; out after 30 minutes if it isn't working and after 45 regardless.
+//
+// Tested on real 1-minute history with scripts/scalp-test.js (npm run scalp-test): entering
+// at market right after the shift lost about 0.27R a trade; the pullback entry at major
+// liquidity was about breakeven to slightly positive. A small sample: judge it live.
 
 export const KILLZONES = {
   london: { name: 'London', open: 'London open', from: 2 * 60, to: 5 * 60, local: '07:00–10:00 London' },
@@ -53,7 +58,7 @@ const RETRACE_BARS = 8; // minutes to wait for the pullback entry
 const MIN_RR = 2;
 const DEFAULT_RR = 2.5;
 const MAX_RR = 6;
-const TIME_STOP_BARS = 20;
+const TIME_STOP_BARS = 30;
 const MAX_HOLD_BARS = 45;
 const PER_KILLZONE = 3;
 
@@ -64,10 +69,23 @@ const lc = (label) => (/^(Asia|London|New York|Session|Late)/.test(label) ? labe
 
 export class LiquidityScalp extends TraderAgent {
   static strategyName = 'Liquidity Scalp (AJ Currency style)';
-  static strategyBlurb = 'Reads the higher timeframe first, marks the liquidity (Asia range, previous day, session highs and lows, equal highs and lows) and scalps the killzone: a run through a pool, a close back inside, a 1-minute structure shift with displacement, in at once or on the pullback. Tight capped stop, target the liquidity on the other side, fast in and out.';
+  static strategyBlurb = 'Reads the higher timeframe first, marks the liquidity (Asia range, previous day, session highs and lows, equal highs and lows) and scalps the killzone: a run through a pool, a close back inside, a 1-minute structure shift with displacement, then in on the pullback to the middle of the move. Tight capped stop, target the liquidity on the other side, fast in and out.';
 
   constructor(profile, env) {
     super(profile, env);
+    // How this desk scalps (profile.scalp overrides; scripts/scalp-test.js compares them on
+    // real history).
+    const o = profile.scalp || {};
+    this.opt = {
+      // The defaults won on real history (May 2014 gold and EURUSD, S&P futures; see the README):
+      entry: o.entry || 'pullback', // pullback: the retrace to the middle of the move · auto: at once when the stop fits
+      pools: o.pools || 'major', // major: Asia, London, previous day, opening range, equal highs/lows · all: + 5m/1m swings
+      htf: o.htf || 'soft', // soft: against the trend only at major liquidity · strict: never against it
+      minStopSpreads: o.minStopSpreads ?? 10, // the stop is at least this many spreads, so costs stay small
+      timeStop: o.timeStop ?? TIME_STOP_BARS,
+      minRR: o.minRR ?? MIN_RR,
+      defaultRR: o.defaultRR ?? DEFAULT_RR,
+    };
     this.used = new Set();
     this.perZone = new Map();
     this.pending = null;
@@ -233,7 +251,8 @@ export class LiquidityScalp extends TraderAgent {
     const kzStart = Math.floor(kz.start / 1000);
     const buf = Math.max(0.05 * a, SYMBOLS[this.symbol].tick);
     const progress = { swept: null, trapped: false, shifted: false, displaced: false };
-    const mine = pools.filter((p) => p.side === (long ? 'below' : 'above') && p.takenAt != null && (!majorOnly || p.major))
+    const majorPools = this.opt.pools === 'major';
+    const mine = pools.filter((p) => p.side === (long ? 'below' : 'above') && p.takenAt != null && (!(majorOnly || majorPools) || p.major || (majorPools && /Equal/.test(p.label))))
       .sort((x, y) => Math.abs(x.price - bar.close) - Math.abs(y.price - bar.close));
     for (const p of mine) {
       const key = `${kz.key}|${p.label}|${p.price}`;
@@ -282,14 +301,19 @@ export class LiquidityScalp extends TraderAgent {
     const spread = (price * SYMBOLS[this.symbol].spreadBps) / 1e4;
     const buf = Math.max(0.1 * a, 1.5 * spread);
     const cap = this.#stopCap(a);
-    const minStop = Math.max(0.3 * a, 3 * spread);
+    const minStop = Math.max(0.3 * a, this.opt.minStopSpreads * spread);
     let stop = long ? s.extreme - buf : s.extreme + buf;
     // In at once when the stop beyond the sweep fits the scalp stop. Otherwise wait for the
     // pullback to where it fits, as long as that is still the upper part of the move off
     // the sweep (deeper than that the trap has failed).
     let entry = price;
     let limit = false;
-    if (Math.abs(price - stop) > cap.dist) {
+    if (this.opt.entry === 'pullback') {
+      // The retrace to the middle of the move off the sweep (its equilibrium).
+      const mid = s.extreme + 0.5 * (s.close - s.extreme);
+      if (long ? price - mid >= 0.1 * a : mid - price >= 0.1 * a) { entry = mid; limit = true; }
+      if (Math.abs(entry - stop) > cap.dist) return { skip: `the run went too deep for a scalp stop (${this.#pips(Math.abs(entry - stop))} ${cap.unit}, my limit is ${cap.text})` };
+    } else if (Math.abs(price - stop) > cap.dist) {
       entry = long ? stop + 0.95 * cap.dist : stop - 0.95 * cap.dist;
       const leg = Math.abs(s.close - s.extreme);
       const depth = leg > 0 ? Math.abs(entry - s.extreme) / leg : 0;
@@ -301,14 +325,15 @@ export class LiquidityScalp extends TraderAgent {
     // Target: the next untouched liquidity on the other side, at least 2R away.
     const opp = pools.filter((q) => q.side === (long ? 'above' : 'below') && q.takenAt == null)
       .map((q) => ({ ...q, r: (long ? q.price - entry : entry - q.price) / risk }))
-      .filter((q) => q.r >= MIN_RR && q.r <= MAX_RR)
+      .filter((q) => q.r >= this.opt.minRR && q.r <= MAX_RR)
       .sort((x, y) => x.r - y.r)[0];
-    const target = opp ? opp.price : long ? entry + DEFAULT_RR * risk : entry - DEFAULT_RR * risk;
-    return { entry, stop, target, limit, risk, targetText: opp ? `${lc(opp.label)} ${this.px(opp.price)}` : `${DEFAULT_RR}R` };
+    const dflt = this.opt.defaultRR;
+    const target = opp ? opp.price : long ? entry + dflt * risk : entry - dflt * risk;
+    return { entry, stop, target, limit, risk, targetText: opp ? `${lc(opp.label)} ${this.px(opp.price)}` : `${dflt}R` };
   }
 
   #take(side, p, reason) {
-    const ok = this.openTrade({ side, stop: p.stop, target: p.target, reason, partialAt: 1, trail: null, timeStopBars: TIME_STOP_BARS });
+    const ok = this.openTrade({ side, stop: p.stop, target: p.target, reason, partialAt: 1, trail: null, timeStopBars: this.opt.timeStop });
     if (ok && this.ctx.kz) this.perZone.set(this.ctx.kz.key, (this.perZone.get(this.ctx.kz.key) || 0) + 1);
     return ok;
   }
@@ -344,6 +369,7 @@ export class LiquidityScalp extends TraderAgent {
     if (kz.active && !this.position() && !this.pending && room) {
       for (const side of ['LONG', 'SHORT']) {
         const against = (side === 'LONG' && htf.bias === 'SHORT') || (side === 'SHORT' && htf.bias === 'LONG');
+        if (against && this.opt.htf === 'strict') continue;
         const s = this.#setup(B, pools, side, a, kz, against);
         if (s.progress.swept && !progress.swept) progress = s.progress;
         if (!s.pool) continue;
@@ -423,7 +449,7 @@ export class LiquidityScalp extends TraderAgent {
         ...below.slice(0, 2).map((p) => ({ label: `SSL · ${p.label}`, price: p.price })),
         ...(this.pending ? [{ label: 'Pullback entry', price: this.pending.entry }] : []),
       ],
-      thesis: `${htf.text.charAt(0).toUpperCase()}${htf.text.slice(1)}. ${above[0] ? `Buy-side liquidity rests above ${this.px(above[0].price)} (${lc(above[0].label)})` : 'No untouched buy-side liquidity above'}, ${below[0] ? `sell-side below ${this.px(below[0].price)} (${lc(below[0].label)})` : 'none below'}. I scalp the ${kz.name} killzone (${kz.local}): a run through a pool that traps the breakout traders, a close back inside, a 1-minute structure shift with displacement, then in with a ${cap.text} stop, aiming for the liquidity on the other side.`,
+      thesis: `${htf.text.charAt(0).toUpperCase()}${htf.text.slice(1)}. ${above[0] ? `Buy-side liquidity rests above ${this.px(above[0].price)} (${lc(above[0].label)})` : 'No untouched buy-side liquidity above'}, ${below[0] ? `sell-side below ${this.px(below[0].price)} (${lc(below[0].label)})` : 'none below'}. I scalp the ${kz.name} killzone (${kz.local}): a run through a pool that traps the breakout traders, a close back inside, a 1-minute structure shift with displacement, then in on the pullback to the middle of the move with a ${cap.text} stop, aiming for the liquidity on the other side.`,
       checklist: [
         { label: `Inside the ${kz.name} killzone (${kz.local})`, ok: kz.active },
         { label: `Higher timeframe read: ${htf.bias === 'NEUTRAL' ? 'no trend, both ways' : htf.bias === 'LONG' ? 'up, sells only at major liquidity' : 'down, buys only at major liquidity'}`, ok: true },

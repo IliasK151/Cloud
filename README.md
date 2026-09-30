@@ -117,18 +117,31 @@ AJ is known for the first three. The Nasdaq desk applies the same method to the 
 How each scalper trades, on the 1-minute chart, inside its killzone only:
 
 1. **Higher timeframe first.** The hourly trend (15-minute while history is short). With it, any pool of liquidity will do; against it, only a run of *major* liquidity (below), and the committee weighs the trend too.
-2. **Mark the liquidity.** The Asia range (19:00–02:00 New York), the previous day's high and low, the London range (for the New York desks), the killzone's opening range, equal highs and lows, and 5- and 1-minute swing highs and lows. The first four are major.
+2. **Mark the liquidity.** The Asia range (19:00–02:00 New York), the previous day's high and low, the London range (for the New York desks), the killzone's opening range, and equal highs and lows. These are the pools it trades. The 5- and 1-minute swings are mapped too, but on real history trading them lost, so they're only the small stops a scalp trades through.
 3. **The run and the trap.** Price trades through a pool (the stops get run), then closes back inside: the breakout traders are trapped.
 4. **The shift.** A 1-minute close back through the candle that made the run's extreme, with displacement (a big body, a big range or a fair value gap).
-5. **Entry and stop.** The stop goes just beyond the run. If that fits the scalp stop, the desk is in at once. Otherwise it waits up to 8 minutes for the pullback to where the stop fits, and lets it go if price jumps through. **Scalp stop:** 20 pips on gold (AJ's number), 10 on GBPUSD, 8 on EURUSD, 20 points on the Nasdaq, stretched to at most 1.5× the 1-minute ATR when the market is fast. A deeper run is skipped, never chased.
-6. **Target and exits.** The liquidity on the other side, at least 2R away (2.5R when there's none within 6R). Half comes off at 1R with the stop to breakeven. Out after 20 minutes if it isn't working (below +0.5R), and after 45 minutes regardless. At most three scalps per killzone.
+5. **Entry and stop.** A limit on the pullback to the middle of the move off the sweep, given up after 8 minutes or if price jumps through it. The stop goes just beyond the run, never tighter than 10 spreads (so costs stay small) and never wider than the **scalp stop:** 20 pips on gold (AJ's number), 10 on GBPUSD, 8 on EURUSD, 20 points on the Nasdaq, stretched to at most 1.5× the 1-minute ATR when the market is fast. A deeper run is skipped, never chased.
+6. **Target and exits.** The liquidity on the other side, at least 2R away (2.5R when there's none within 6R). Half comes off at 1R with the stop to breakeven. Out after 30 minutes if it isn't working (below +0.5R), and after 45 minutes regardless. At most three scalps per killzone.
+
+**How the committee judges a scalp.** Like every idea, a scalp is argued by its department, but on scalping terms: room is measured to the scalp's liquidity target (the small swings on the way are the stops it trades through), and high volatility counts as the moment liquidity runs happen, so scalps are exempt from the extreme-volatility veto. The news, dead-market and reward-smaller-than-risk vetoes still apply, and the desk's measured edge on real prices still counts most: a scalper that keeps losing on paper stays on paper.
+
+**Tested on real history.** `npm run scalp-test` replays each scalper minute by minute through the floor's own code (strategy, broker costs, risk desk and committee) on real 1-minute bars and prints the funnel (killzones, liquidity runs, traps, shifts, setups, what stopped each one) and the results. On your Mac it uses the real bars the floor saves in `data/history/` (your MT5 broker's prices once MT5 is connected), so run it after the floor has been connected for a few days. `--desk jake` tests one scalper; `--file bars.json --symbol EURUSD` tests your own data; `--set entry=auto,pools=all` tries other settings; `--committee shadow` grades every idea without blocking.
+
+The first version was tested on the real 1-minute data available here (QuantConnect Lean's samples: OANDA gold and EURUSD, 1–15 May 2014; CME S&P futures, 12 days in late 2013), with trading costs:
+
+| Version | Scalps | Average | Win rate |
+| --- | --- | --- | --- |
+| At market right after the shift, all pools | 117 | −0.27R | 40% |
+| Pullback entry, major liquidity only, stop ≥ 10 spreads, 30-minute time stop (now the default) | 45 | +0.05R | 60% |
+
+45% of the first version's scalps never went half a risk-unit in their favour and lost almost 1R each: entering right after the shift candle meant buying the top of the move. The committee also vetoed nearly every setup for "extreme volatility" and graded the rest C (paper only), which is why the scalpers weren't reaching the account. Both are fixed. It's a small sample, about breakeven: treat the scalpers' first weeks as the real test and watch their numbers on the daily report card.
 
 In demo mode the clock only runs New York's cash session, so there the London scalpers work its first two hours (09:30–11:30) and the New York scalpers 11:00–13:00. On the FTMO account the scalpers follow the same rules as every desk: they need a proven edge (or **Proven desks only** off for half risk), and one position per correlated group, so Jake and Layla share the FX slot and Ryan and Mia the gold one.
 
 ### Institutional risk framework
 
 - A **$100M fund** split evenly across the 20 desks ($5M each). Every trade is sized so that a stop-out costs **0.5% of the desk's allocation**, capped at **4× leverage**.
-- **Trade management:** half the position is taken off at +1R and the stop moves to breakeven. After that the runner is trailed with an ATR chandelier stop, and some strategies use time stops. The scalpers don't trail: the runner goes for the liquidity target, with a 20-minute time stop and a 45-minute limit.
+- **Trade management:** half the position is taken off at +1R and the stop moves to breakeven. After that the runner is trailed with an ATR chandelier stop, and some strategies use time stops. The scalpers don't trail: the runner goes for the liquidity target, with a 30-minute time stop and a 45-minute limit.
 - **Desk daily loss limit (2%):** when it's hit, the CRO flattens and halts the desk until the next trading day.
 - **Fund daily loss limit (1.2% of NAV):** when it's hit, the whole floor goes risk-off.
 - **News:** no new trades around high and medium-impact releases for the markets they move, and every desk goes flat 5 minutes before high-impact news (below).
@@ -530,6 +543,7 @@ npm run doctor         # checks every connection (floor, dashboard, MT5, Trading
 npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow (MOCK_PNL=-100 rehearses a drawdown)
 npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
 npm run backtest -- 5  # fast-forward 5 simulated sessions (news + research lab included) and print each desk's results
+npm run scalp-test     # replay the Scalping Desk on the real 1-minute bars saved in data/history
 npm run reset          # wipe the saved track record (keeps your webhook secret)
 ```
 
