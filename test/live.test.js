@@ -10,7 +10,7 @@ import { Broker } from '../server/engine/broker.js';
 import { RiskManager } from '../server/engine/risk.js';
 import { Fund } from '../server/engine/fund.js';
 import { Mt5Bridge } from '../server/live/bridge.js';
-import { LiveTrader, MAGIC_BASE } from '../server/live/liveTrader.js';
+import { LiveTrader, MAGIC_BASE, LATEST_EA, eaOutdated } from '../server/live/liveTrader.js';
 import { lotsForRisk, normalizeProfile, guardMetrics } from '../server/live/rules.js';
 import { autoMap } from '../server/live/symbolMap.js';
 
@@ -333,4 +333,31 @@ test('the floor never says a desk is on FTMO while its trades stay on paper; the
   live.reconcile();
   assert.equal(sync().filter((c) => c[0] === 'open').length, 0);
   assert.match([...live.links.values()].at(-1).reason, /test alert/);
+});
+
+test('an outdated EA gets a doable update: one click copies it into MT5, then it turns green', () => {
+  const { live, bridge } = setup();
+  const acc = { login: 555, server: 'FTMO-Demo', balance: 10_000, equity: 10_000, initialDeposit: 10_000, tradeAllowed: true, expertAllowed: true, algoAllowed: true, connected: true, marginMode: 2 };
+  bridge.handleSync({ version: '1.0.0', account: acc, positions: [], deals: [], quotes: {}, symbols: [] });
+  assert.match(LATEST_EA, /^\d+\.\d+\.\d+$/);
+  assert.equal(eaOutdated('1.0.0'), true);
+  assert.equal(eaOutdated(LATEST_EA), false);
+  let ea = live.view().ea;
+  assert.equal(ea.outdated, true);
+  assert.equal(ea.latest, LATEST_EA);
+
+  // "Put the update into MT5": the shipped EA lands in MT5's Experts folder.
+  const experts = fs.mkdtempSync(path.join(os.tmpdir(), 'mt5-experts-'));
+  const res = live.installEa({ locate: () => [experts] });
+  assert.equal(res.ok, true);
+  assert.match(fs.readFileSync(path.join(experts, 'MeridianBridge.mq5'), 'utf8'), new RegExp(`EA_VERSION\\s+"${LATEST_EA.replace(/\./g, '\\.')}"`));
+  assert.equal(live.installEa({ locate: () => [] }).ok, false, 'MT5 not on this Mac: says so');
+
+  // Compiled in MetaEditor: MT5 reloads it, the floor sees the new version.
+  bridge.handleSync({ version: LATEST_EA, caps: { maxRiskPct: 1, maxPositions: 8 }, account: acc, positions: [], deals: [], quotes: {}, symbols: [] });
+  ea = live.view().ea;
+  assert.equal(ea.outdated, false);
+  assert.ok(ea.updated, 'confirmed once');
+  assert.ok(live.events.some((e) => /EA updated to/.test(e.text)));
+  assert.equal(live.view().warnings.some((w) => /older version/.test(w)), false);
 });

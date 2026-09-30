@@ -188,8 +188,9 @@ async function sync() {
   }
   const body = {
     token: TOKEN,
-    version: 'mock-1.1',
-    caps: { maxRiskPct: 1, maxPositions: 8 },
+    // MOCK_EA_VERSION=1.0.0 pretends to be an old EA (no safety caps) to try the update flow.
+    version: process.env.MOCK_EA_VERSION || 'mock-1.1',
+    caps: process.env.MOCK_EA_VERSION && process.env.MOCK_EA_VERSION < '1.1' ? undefined : { maxRiskPct: 1, maxPositions: 8 },
     account: {
       login: LOGIN, server: SERVER, company: 'FTMO S.R.O. (mock)', name: 'Demo Trader', currency: 'USD',
       balance: +balance.toFixed(2), equity: +(balance + floating).toFixed(2), margin: 0, freeMargin: +(balance + floating).toFixed(2),

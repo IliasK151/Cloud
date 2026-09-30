@@ -191,6 +191,7 @@ app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
     close: () => live.closeTicket(b.ticket),
     'reset-halt': () => live.resetHalt(),
     plan: () => live.setPlan(b),
+    'install-ea': () => live.installEa(),
   };
   const fn = actions[req.params.action];
   if (!fn) return res.status(404).json({ ok: false, error: 'unknown action' });

@@ -33,6 +33,7 @@ export class LiveView {
       <h1>FTMO live trading</h1>
       <p class="lede">Let the desks trade your FTMO account through MetaTrader 5. Every order carries a stop-loss, lots are sized for your account, and nothing trades for real until you arm it. Your FTMO password stays in MT5.</p>
       <div class="card steps-card" id="live-steps"></div>
+      <div class="card ea-card" id="live-ea" hidden></div>
       <div id="live-warnings"></div>
       <div class="grid live-top">
         <div class="card" id="live-status"></div>
@@ -120,6 +121,11 @@ export class LiveView {
       if (confirm(`Close position #${btn.dataset.ticket} on MT5?`)) await this.#post('close', { ticket: btn.dataset.ticket });
     } else if (act === 'reset-halt') {
       if (confirm('Clear the halt? Trading stays disarmed until you arm it again.')) await this.#post('reset-halt');
+    } else if (act === 'install-ea') {
+      btn.disabled = true;
+      const res = await this.#post('install-ea');
+      this.eaMsg = res.ok ? `✓ Copied into MT5 (${res.folders.length} folder${res.folders.length === 1 ? '' : 's'}). Now do step 2.` : res.error ? `✗ ${res.error}` : null;
+      this.render(true);
     } else if (act === 'enable-all') {
       for (const d of v.desks.filter((x) => x.eligible && !x.enabled)) await this.#post('desk', { agentId: d.id, enabled: true });
     } else if (act === 'copy-ea') {
@@ -179,6 +185,37 @@ export class LiveView {
     };
   }
 
+  // The EA in MT5 is older than the one this floor ships: a short, doable update, right here.
+  #renderEa(v) {
+    const el = this.root.querySelector('#live-ea');
+    const ea = v.ea;
+    if (!ea || (!ea.outdated && !ea.updated)) {
+      el.hidden = true;
+      el.dataset.key = '';
+      return;
+    }
+    el.hidden = false;
+    const key = `${ea.outdated}|${ea.version}|${this.eaMsg || ''}`;
+    if (el.dataset.key === key) return; // stable while the boss works through the steps
+    el.dataset.key = key;
+    if (!ea.outdated) {
+      const c = ea.caps;
+      el.classList.add('done');
+      el.innerHTML = `<h2>✓ MeridianBridge EA updated to ${escapeHtml(ea.version)}</h2><p class="sub">MT5 now enforces the safety caps itself: every order needs a stop-loss${c ? `, at most ${c.maxRiskPct}% risk per order and ${c.maxPositions} floor positions` : ''}, and the EA never touches your own trades.</p>`;
+      return;
+    }
+    el.classList.remove('done');
+    el.innerHTML = `
+      <h2>Update the MT5 bridge EA <span class="pill warn">${escapeHtml(ea.version || 'old')} → ${escapeHtml(ea.latest || 'new')}</span></h2>
+      <p class="sub">The new version adds safety limits inside MT5 itself, as a last line of defence: every order must carry a stop-loss, the risk per order and the number of floor positions are capped, it never touches your own trades, and it can't open the same order twice. Takes about a minute. Disarm first and arm again afterwards; open positions keep their stop-loss.</p>
+      <ol class="steps ea-steps">
+        <li><button class="btn primary" data-act="install-ea">Put the update into MT5</button> <span class="fine">${escapeHtml(this.eaMsg || 'Copies the new code into MT5\'s Expert Advisors folder on this Mac.')}</span></li>
+        <li>In MT5, in the <b>Navigator</b> panel, open <b>Expert Advisors</b>, right-click <b>MeridianBridge</b> → <b>Modify</b>. MetaEditor opens the EA${this.eaMsg?.startsWith('✓') ? ' (if it asks, reload the file)' : ''}.</li>
+        <li>Press <b>Compile</b> (the button in MetaEditor's toolbar, or F7). MT5 reloads the EA on your chart by itself, keeping your bridge token. This box turns green within a second.</li>
+      </ol>
+      <p class="fine">Step 1 says it can't find MT5 (e.g. MT5 runs in Parallels or on another PC)? <button class="mini-btn" data-act="copy-ea">Copy EA code</button> then, in MetaEditor after step 2, select all (Cmd+A), paste (Cmd+V) and press Compile.</p>`;
+  }
+
   // Five-step checklist that ticks itself off as MT5 connects and the account is set up.
   #renderSteps(v) {
     const acc = v.account;
@@ -197,7 +234,7 @@ export class LiveView {
       { text: 'Tell the floor what kind of account this is so it can respect FTMO\'s loss limits.', btn: ['setup', 'Set up the account'] },
       { text: 'Switch on the desks that may trade your account. Everyone keeps paper trading either way.', btn: ['desks-card', 'Choose desks'] },
       { text: v.mode === 'live' ? 'Ready. Arm live trading when you want the enabled desks to start trading.' : 'Restart the floor with npm start (live mode) to trade the account.', btn: v.mode === 'live' ? ['arm', 'Arm live trading'] : null },
-    ][now] || { text: 'All set: enabled desks are trading your account. Close all & disarm is always one click away.', btn: null };
+    ][now] || { text: 'All set: live trading is armed. Your TradingView alerts go to the account; each desk\'s own trades go once the account brain has cleared it (see "Status on the account" below). Close all & disarm is always one click away.', btn: null };
     const btn = next.btn
       ? next.btn[0] === 'arm'
         ? `<button class="btn arm" data-act="arm">${next.btn[1]}</button>`
@@ -218,6 +255,7 @@ export class LiveView {
     const p = v.profile;
 
     this.#renderSteps(v);
+    this.#renderEa(v);
 
     $('#live-warnings').innerHTML = [
       ...(v.halt ? [`<div class="banner crit">⛔ <span><b>Trading halted:</b> ${escapeHtml(v.halt.reason)}.${v.halt.kind === 'daily' ? ' It resets at the start of the next FTMO server day.' : ''} <button class="mini-btn" data-act="reset-halt">Clear halt</button></span></div>`] : []),

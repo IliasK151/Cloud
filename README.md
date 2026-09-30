@@ -416,7 +416,12 @@ The **Firewall** card in the TradingView tab shows all of this live, with the se
 - a stop-loss can only be tightened, never removed;
 - it only ever touches the floor's own positions, never your manual trades.
 
-Update the EA in MT5 to get these limits: copy the code again from the FTMO tab's install steps, compile it, and re-attach it. The FTMO tab warns while the EA is outdated.
+While MT5 runs an older EA, the FTMO tab shows an **Update the MT5 bridge EA** box:
+1. **Put the update into MT5** copies the new EA into MT5's Expert Advisors folder on this Mac.
+2. In MT5's Navigator, right-click **MeridianBridge → Modify**.
+3. Press **Compile** in MetaEditor.
+
+MT5 reloads the EA on the chart with your token, and the box turns green. If MT5 runs in Parallels or on another PC, use **Copy EA code** and paste it in MetaEditor instead.
 
 **Secrets:**
 - Your FTMO password never leaves MT5.

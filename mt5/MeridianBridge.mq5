@@ -17,7 +17,7 @@
 //|  FTMO tab into the inputs, and switch on "Algo Trading".         |
 //+------------------------------------------------------------------+
 #property copyright   "Meridian Trading Floor"
-#property version     "1.10"
+#property version     "1.11"
 #property description "Bridge between this MT5 account and the Meridian Trading Floor (http://127.0.0.1:3000)."
 
 #include <Trade\Trade.mqh>
@@ -29,7 +29,7 @@ input int    InpSyncMs = 500;                                     // Sync interv
 input double InpMaxRiskPct   = 1.0;                                 // Max risk per order, % of balance (stop-loss distance x volume)
 input int    InpMaxPositions = 8;                                   // Max floor positions open at the same time
 
-#define EA_VERSION  "1.1.0"
+#define EA_VERSION  "1.1.1"
 #define MAGIC_MIN   771000
 #define MAGIC_MAX   771099
 #define DONE_SLOTS  256
@@ -533,6 +533,16 @@ void DoOpen(string &f[])
    if(f[3] != "BUY" && f[3] != "SELL")
      {
       Ack(id, false, 0, 0, 0, 0, "refused by the EA: bad side");
+      return;
+     }
+   // Already placed (e.g. the EA was reloaded before its confirmation reached the floor):
+   // every floor order has a unique comment, so never open it twice.
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || PositionGetString(POSITION_COMMENT) != comment || !IsFloorMagic(PositionGetInteger(POSITION_MAGIC)))
+         continue;
+      Ack(id, true, 0, t, PositionGetDouble(POSITION_PRICE_OPEN), PositionGetDouble(POSITION_VOLUME), "already open");
       return;
      }
    if(InpMaxPositions > 0 && FloorPositions() >= InpMaxPositions)

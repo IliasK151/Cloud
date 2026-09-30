@@ -1,14 +1,38 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { ACCOUNT_TYPES, DEFAULTS, normalizeProfile, guardMetrics, lotsForRisk, positionRisk } from './rules.js';
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
+import { locateExpertsFolders } from '../../scripts/install-ea.js';
 import { fmtUsd } from '../util/format.js';
 
 export const MAGIC_BASE = 771000;
+
+// The EA version this floor ships (mt5/MeridianBridge.mq5), to spot an outdated EA in MT5.
+const EA_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'mt5', 'MeridianBridge.mq5');
+export const LATEST_EA = (() => {
+  try {
+    return fs.readFileSync(EA_FILE, 'utf8').match(/#define EA_VERSION\s+"([\d.]+)"/)?.[1] || null;
+  } catch {
+    return null;
+  }
+})();
+
+// "1.0.0" < "1.1.0"; unknown or non-numeric versions (e.g. the mock) count as current.
+export function eaOutdated(version, latest = LATEST_EA) {
+  const nums = (v) => String(v).split('.').map((x) => Number(x));
+  if (!version || !latest || !/^\d+(\.\d+)*$/.test(version)) return false;
+  const a = nums(version);
+  const b = nums(latest);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0);
+  }
+  return false;
+}
 const ENTRY_WINDOW_MS = 90_000; // never chase a desk's paper entry older than this
 const MISSING_SYNCS_TO_CLOSE = 3;
 const PLAN_KEYS = ['minGrade', 'dailyStopPct', 'dailyStopOn', 'maxTradesPerDay', 'streakStop'];
@@ -191,6 +215,31 @@ export class LiveTrader extends EventEmitter {
     const name = this.fund.byId.get(agentId).profile.name;
     this.#note(`${name} ${enabled ? 'may now trade' : 'no longer trades'} the FTMO account`, 'live', agentId);
     return { ok: true };
+  }
+
+  // "Put the update into MT5": copy the EA this floor ships into MT5's Expert Advisors
+  // folder(s) on this Mac. Compiling it is one click in MetaEditor.
+  installEa({ locate = locateExpertsFolders } = {}) {
+    let folders = [];
+    try {
+      folders = locate();
+    } catch {
+      folders = [];
+    }
+    if (!folders.length) return { ok: false, error: 'Couldn\'t find MetaTrader 5\'s Expert Advisors folder on this Mac (for example if MT5 runs in Parallels or on another PC). Use "Copy EA code" instead.' };
+    const copied = [];
+    let lastErr = null;
+    for (const f of folders) {
+      try {
+        fs.copyFileSync(EA_FILE, path.join(f, 'MeridianBridge.mq5'));
+        copied.push(f);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (!copied.length) return { ok: false, error: `Could not write into MT5's folder: ${lastErr?.message}. Use "Copy EA code" instead.` };
+    this.#note(`New MeridianBridge EA ${LATEST_EA} copied into MT5 (${copied.length} folder${copied.length === 1 ? '' : 's'}): open it in MetaEditor and press Compile`);
+    return { ok: true, folders: copied, version: LATEST_EA };
   }
 
   // Quick switches for the account plan (the Brain and FTMO tabs), without the setup form.
@@ -666,6 +715,22 @@ export class LiveTrader extends EventEmitter {
     };
   }
 
+  // Is the EA in MT5 the version this floor ships? (Updated this session → say so once.)
+  #eaView() {
+    const version = this.bridge.version;
+    const connected = !!this.account && this.bridge.connected;
+    const outdated = connected && (eaOutdated(version) || !this.bridge.caps);
+    if (outdated) this.eaWasOutdated = version || '?';
+    else if (connected && this.eaWasOutdated && !this.eaUpdatedAt) {
+      this.eaUpdatedAt = Date.now();
+      this.#note(`MeridianBridge EA updated to ${version}: MT5 now enforces the safety caps itself`, 'risk');
+    }
+    return {
+      version, latest: LATEST_EA, outdated, caps: this.bridge.caps,
+      updated: !outdated && !!this.eaUpdatedAt && Date.now() - this.eaUpdatedAt < 5 * 60_000 ? { from: this.eaWasOutdated, at: this.eaUpdatedAt } : null,
+    };
+  }
+
   view() {
     const acc = this.account;
     const p = this.profile;
@@ -684,8 +749,7 @@ export class LiveTrader extends EventEmitter {
     const issue = this.bridgeIssue && Date.now() - this.bridgeIssue.at < 2 * 60_000 ? this.bridgeIssue : null;
     if (issue) warnings.unshift(issue.text);
     const caps = this.bridge.caps;
-    if (acc && this.bridge.connected && !caps) warnings.push('Your MeridianBridge EA is an older version without the built-in safety caps. Update it: copy the new EA code from the steps below into MetaEditor, compile, and re-attach it to the chart.');
-    else if (caps && p) {
+    if (caps && p) {
       if (caps.maxRiskPct > 0 && p.riskPerTradePct > caps.maxRiskPct) warnings.push(`The EA refuses orders risking more than ${caps.maxRiskPct}% but the account is set to ${p.riskPerTradePct}% per trade. Lower the risk in Edit setup, or raise "Max risk per order" in the EA's inputs.`);
       if (caps.maxPositions > 0 && p.maxPositions > caps.maxPositions) warnings.push(`The EA allows at most ${caps.maxPositions} floor positions, fewer than the ${p.maxPositions} set here, so extra trades will be refused by MT5.`);
     }
@@ -703,6 +767,7 @@ export class LiveTrader extends EventEmitter {
       lastSync: this.bridge.lastSync || null,
       eaVersion: this.bridge.version,
       eaCaps: this.bridge.caps,
+      ea: this.#eaView(),
       bridgeIssue: issue ? { kind: issue.kind, text: issue.text, at: issue.at, count: issue.count } : null,
       token: this.token,
       account: acc,
