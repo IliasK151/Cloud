@@ -17,13 +17,30 @@ const ACTIONS = {
   ping: 'ping', // connection check: answered, never traded
 };
 
+// Keys are copied into prototype-free objects, so a crafted "__proto__" key is plain data.
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function lowerKeys(raw) {
+  const out = Object.create(null);
+  for (const [k, v] of Object.entries(raw)) {
+    const key = String(k).toLowerCase();
+    if (!FORBIDDEN_KEYS.has(key)) out[key] = v;
+  }
+  return out;
+}
+
+const str = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+
 function parseText(text) {
-  const out = {};
+  const out = Object.create(null);
   const tokens = text.trim().split(/\s+/);
   for (const tok of tokens) {
     const eq = tok.indexOf('=');
-    if (eq > 0) out[tok.slice(0, eq).toLowerCase()] = tok.slice(eq + 1);
-    else if (!out.action && ACTIONS[tok.toLowerCase()]) out.action = tok;
+    if (eq > 0) {
+      const key = tok.slice(0, eq).toLowerCase();
+      if (!FORBIDDEN_KEYS.has(key)) out[key] = tok.slice(eq + 1);
+    }
+    else if (!out.action && Object.hasOwn(ACTIONS, tok.toLowerCase())) out.action = tok;
     else if (!out.symbol) out.symbol = tok;
   }
   return out;
@@ -35,39 +52,51 @@ export function parseBody(body) {
   if (!text.trim()) return null;
   try {
     const obj = JSON.parse(text);
-    if (obj && typeof obj === 'object') return obj;
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) return obj;
+    if (obj && typeof obj === 'object') return null;
   } catch {
     /* fall through to text */
   }
   return parseText(text);
 }
 
+// Prices must be real positive numbers; anything else is ignored.
 const num = (v) => {
-  const n = typeof v === 'string' ? Number(v.replace(/,/g, '')) : Number(v);
-  return Number.isFinite(n) ? n : undefined;
+  if (typeof v !== 'number' && typeof v !== 'string') return undefined;
+  const n = typeof v === 'string' ? Number(v.replace(/,/g, '').slice(0, 32)) : v;
+  return Number.isFinite(n) && n > 0 && n < 1e9 ? n : undefined;
 };
+
+// The secret an alert carries (looked at before anything else in it).
+export function alertSecret(raw) {
+  if (!raw || typeof raw !== 'object') return '';
+  const lower = lowerKeys(raw);
+  const s = lower.secret ?? lower.passphrase ?? lower.key ?? '';
+  return typeof s === 'string' || typeof s === 'number' ? String(s).slice(0, 200) : '';
+}
 
 export function normalizeAlert(raw) {
   if (!raw) return { ok: false, error: 'Empty alert body' };
-  const lower = {};
-  for (const [k, v] of Object.entries(raw)) lower[k.toLowerCase()] = v;
-  let action = ACTIONS[String(lower.action ?? lower.side ?? lower.signal ?? '').toLowerCase().trim()];
+  const lower = lowerKeys(raw);
+  const actKey = String(lower.action ?? lower.side ?? lower.signal ?? '').toLowerCase().trim();
+  // Own keys only: "constructor" or "toString" are not actions.
+  let action = Object.hasOwn(ACTIONS, actKey) ? ACTIONS[actKey] : undefined;
   const position = String(lower.position ?? lower.market_position ?? '').toLowerCase();
   if (position === 'flat') action = 'close';
-  if (!action) return { ok: false, error: `Unknown action "${lower.action ?? ''}"` };
-  const rawSymbol = lower.symbol ?? lower.ticker ?? lower.instrument ?? '';
+  if (!action) return { ok: false, error: `Unknown action "${str(lower.action, 24)}"` };
+  const rawSymbol = str(lower.symbol ?? lower.ticker ?? lower.instrument ?? '', 40);
   return {
     ok: true,
     alert: {
-      secret: lower.secret ?? lower.passphrase ?? lower.key ?? '',
-      agent: lower.agent ? String(lower.agent).toLowerCase().trim() : null,
-      rawSymbol: String(rawSymbol),
+      secret: alertSecret(raw),
+      agent: lower.agent ? str(lower.agent, 32).toLowerCase() : null,
+      rawSymbol,
       symbol: resolveSymbol(rawSymbol),
       action,
       price: num(lower.price),
       stop: num(lower.stop ?? lower.sl ?? lower.stop_loss),
       target: num(lower.target ?? lower.tp ?? lower.take_profit),
-      comment: lower.comment ? String(lower.comment).slice(0, 120) : '',
+      comment: lower.comment ? str(lower.comment, 120) : '',
     },
   };
 }

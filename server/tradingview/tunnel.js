@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 
@@ -23,6 +24,8 @@ const ASSETS = {
   'win32-x64': 'cloudflared-windows-amd64.exe',
 };
 const RELEASES = 'https://github.com/cloudflare/cloudflared/releases/latest/download/';
+const RELEASE_API = 'https://api.github.com/repos/cloudflare/cloudflared/releases/latest';
+const OFFICIAL = 'https://github.com/cloudflare/cloudflared/releases/download/';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -114,21 +117,40 @@ export class TunnelManager extends EventEmitter {
     return null;
   }
 
+  // The release's own download link and SHA-256 checksum, as published on GitHub.
+  async #releaseInfo(asset) {
+    try {
+      const res = await this.fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'trading-floor' } });
+      if (!res.ok) return null;
+      const rel = await res.json();
+      const a = (rel.assets || []).find((x) => x.name === asset);
+      if (!a || !String(a.browser_download_url).startsWith(OFFICIAL)) return null;
+      const m = String(a.digest || '').match(/^sha256:([0-9a-f]{64})$/i);
+      return { url: a.browser_download_url, sha256: m ? m[1].toLowerCase() : null, version: rel.tag_name };
+    } catch {
+      return null;
+    }
+  }
+
   async #download() {
     const asset = ASSETS[`${process.platform}-${process.arch}`];
     if (!asset) throw new Error(`No cloudflared download for ${process.platform}/${process.arch}. Install it yourself (brew install cloudflared).`);
     fs.mkdirSync(this.binDir, { recursive: true });
     this.#set({ status: 'installing', progress: 0, error: null });
     this.log.info?.(`[tunnel] downloading Cloudflare's tunnel app (${asset})…`);
-    const res = await this.fetch(RELEASES + asset, { redirect: 'follow' });
+    const release = await this.#releaseInfo(asset);
+    if (!release?.sha256) this.log.warn?.('[tunnel] GitHub did not publish a checksum for this download; relying on HTTPS from github.com');
+    const res = await this.fetch(release?.url || RELEASES + asset, { redirect: 'follow' });
     if (!res.ok || !res.body) throw new Error(`Download failed (HTTP ${res.status}). Check your internet connection, or install it with: brew install cloudflared`);
     const total = Number(res.headers.get('content-length')) || 0;
     const tmp = path.join(this.binDir, `${asset}.part`);
     const out = fs.createWriteStream(tmp);
     let loaded = 0;
     let lastEmit = 0;
+    const hash = crypto.createHash('sha256');
     for await (const chunk of res.body) {
       loaded += chunk.length;
+      hash.update(chunk);
       if (!out.write(chunk)) await new Promise((r) => out.once('drain', r));
       if (total && Date.now() - lastEmit > 250) {
         lastEmit = Date.now();
@@ -136,6 +158,13 @@ export class TunnelManager extends EventEmitter {
       }
     }
     await new Promise((r, j) => out.end((err) => (err ? j(err) : r())));
+    // Integrity: the file must be exactly the one Cloudflare published, or it never runs.
+    const got = hash.digest('hex');
+    if (release?.sha256 && got !== release.sha256) {
+      fs.rmSync(tmp, { force: true });
+      throw new Error('The downloaded tunnel app failed its integrity check (checksum mismatch), so it was deleted and not run. Try again, or install it with: brew install cloudflared');
+    }
+    if (release?.sha256) this.log.info?.(`[tunnel] checksum verified (cloudflared ${release.version})`);
     const exe = path.join(this.binDir, process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared');
     if (asset.endsWith('.tgz')) {
       await new Promise((resolve, reject) => execFile('tar', ['-xzf', tmp, '-C', this.binDir], (err) => (err ? reject(new Error(`Could not unpack cloudflared: ${err.message}`)) : resolve())));

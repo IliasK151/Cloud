@@ -366,6 +366,68 @@ The **Dashboard** tab follows the **FTMO / Paper** switch (in the top bar, or on
 
 ---
 
+## Security
+
+The floor can trade a real account, so it's built like a small trading firm's network. Each layer holds even if another one fails.
+
+**What's reachable from where**
+
+| From | Can reach | Protection |
+| --- | --- | --- |
+| The internet | Only the TradingView webhook, through the tunnel | The webhook firewall (below) |
+| Web pages in your browser | Nothing | Other sites can't read the page, so they never get the floor key |
+| Devices on your Wi-Fi | Nothing, unless you set `HOST=0.0.0.0` | Then a password login is required |
+| This Mac | The dashboard | Every request carries a floor key that changes each launch |
+
+**The webhook firewall.** This is the only part of the floor on the internet. Every request passes through it in this order:
+- Banned addresses are refused. Five wrong secrets from one address means a one-hour ban.
+- Flood limits apply per address and overall.
+- Bodies are small and treated as data only. Crafted fields are ignored.
+- The secret is checked first, in constant time, before anything in the alert is looked at.
+- Trade alerts are only accepted from **TradingView's own servers**. The addresses come from TradingView's published list; the tunnel reports the real sender, and outsiders can't fake it. Connection tests work from anywhere.
+- If your correct secret arrives from anywhere else, it has leaked. The alert is refused, an alarm shows on the floor, and **Rotate webhook secret** issues a new one in one click.
+
+The **Firewall** card in the TradingView tab shows all of this live, with the security log and the bans. The webhook listener only accepts connections from this Mac, where the tunnel app runs.
+
+**The dashboard.** Every request is checked:
+- **Floor key:** every API call and the live feed need the key, which only the dashboard page receives. Cross-site requests are refused, which stops a malicious web page from placing or closing trades.
+- **Host check:** only localhost, 127.0.0.1 and this Mac's own names are accepted. This blocks DNS rebinding.
+- **Page security headers:** a strict Content-Security-Policy (no inline or third-party scripts), no framing (blocks clickjacking), and no referrer.
+- **TradingView chart:** it runs isolated on its own origin, so its code can never see your account.
+
+**MT5 is the last line of defence.** The bridge EA (version 1.1) enforces its own limits, whatever the floor asks for:
+- every order needs a stop-loss;
+- risk per order is capped (**Max risk per order**, default 1% of balance);
+- floor positions are capped (**Max floor positions**, default 8);
+- a stop-loss can only be tightened, never removed;
+- it only ever touches the floor's own positions, never your manual trades.
+
+Update the EA in MT5 to get these limits: copy the code again from the FTMO tab's install steps, compile it, and re-attach it. The FTMO tab warns while the EA is outdated.
+
+**Secrets:**
+- Your FTMO password never leaves MT5.
+- The webhook secret, bridge token, account setup and track record live in `data/`. That folder is readable by your macOS user only (0700/0600), and git never commits it.
+- The terminal shows only the first characters of the webhook secret.
+- The cloudflared download is checked against the SHA-256 checksum published for that release. A mismatched file is deleted and never run.
+
+**What you should do**
+
+- Keep **Trade alerts only from TradingView's servers** on.
+- Turn on two-factor authentication for TradingView and FTMO.
+- Never share your alert message: it contains the webhook secret. If you think it leaked, rotate it.
+- Use `HOST=0.0.0.0` only on your home Wi-Fi, with a strong `FLOOR_PASSWORD`. Wi-Fi access is plain HTTP, so it isn't meant for public networks.
+- Keep macOS updated, turn on FileVault (encrypts `data/` on disk) and lock your screen.
+
+`npm test` includes the attacks themselves:
+- cross-site trade requests;
+- WebSocket hijacking;
+- DNS rebinding;
+- brute-forced and leaked secrets;
+- crafted alerts and oversized bodies;
+- a tampered cloudflared download.
+
+Every one of them is refused.
+
 ## Configuration
 
 Copy `.env.example` to `.env`. The most useful settings:
@@ -374,9 +436,11 @@ Copy `.env.example` to `.env`. The most useful settings:
 | --- | --- | --- |
 | `FEED` | `live` | `live` or `sim` |
 | `SIM_SPEED` | `20` | Simulation speed (market seconds per real second) |
-| `PORT` / `WEBHOOK_PORT` | `3000` / `3001` | Dashboard port and webhook-only port |
-| `HOST` | `127.0.0.1` | Set `0.0.0.0` to open the floor from an iPad on your Wi-Fi |
-| `WEBHOOK_SECRET` | auto | TradingView webhook secret |
+| `PORT` / `WEBHOOK_PORT` / `WIDGET_PORT` | `3000` / `3001` / `3002` | Dashboard, webhook-only port (this Mac only, for the tunnel), isolated TradingView chart |
+| `HOST` | `127.0.0.1` | Set `0.0.0.0` to open the floor from an iPad on your Wi-Fi. Requires `FLOOR_PASSWORD` |
+| `FLOOR_PASSWORD` | — | Password for other devices on your Wi-Fi (at least 10 characters). This Mac never needs it |
+| `ALLOWED_HOSTS` | — | Extra host names allowed to open the dashboard (comma-separated), e.g. a custom local DNS name |
+| `WEBHOOK_SECRET` | auto | TradingView webhook secret (auto: random, in `data/webhook-secret.txt`, rotatable from the TradingView tab) |
 | `STARTING_CAPITAL` | `100000000` | Fund size, split evenly across the 15 desks |
 | `RISK_PER_TRADE_PCT`, `DESK_DAILY_LOSS_PCT`, `FUND_DAILY_LOSS_PCT`, `MAX_LEVERAGE` | 0.5 / 2 / 1.2 / 4 | Risk framework |
 

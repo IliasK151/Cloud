@@ -1,4 +1,4 @@
-import { api, command } from '../net.js';
+import { api, command, widgetPort } from '../net.js';
 import { voice } from '../voice.js';
 import { candleChart } from './charts.js';
 import { money, price as fmtPrice, qty as fmtQty, signClass, initials, nyTime, escapeHtml } from '../format.js';
@@ -350,7 +350,9 @@ export class AgentPanel {
     this.chart.setMarkers(markers);
   }
 
-  // Official TradingView Advanced Chart widget for the desk's market.
+  // Official TradingView Advanced Chart widget for the desk's market. TradingView's code
+  // runs in an isolated frame on its own origin (the floor's widget port), so it can never
+  // see this page, the floor key or your account. It can't navigate this page either.
   #ensureTradingView() {
     if (!this.id) return;
     const sym = this.#sym();
@@ -358,28 +360,19 @@ export class AgentPanel {
     if (this.tvSymbol === tvSym) return;
     this.tvSymbol = tvSym;
     const host = this.el.tv;
-    host.innerHTML = '<div class="tradingview-widget-container"><div class="tradingview-widget-container__widget"></div></div>';
-    const script = document.createElement('script');
-    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
-    script.async = true;
-    script.type = 'text/javascript';
-    script.textContent = JSON.stringify({
-      autosize: true,
-      symbol: tvSym,
-      interval: '1',
-      timezone: 'America/New_York',
-      theme: 'dark',
-      style: '1',
-      locale: 'en',
-      allow_symbol_change: true,
-      hide_side_toolbar: false,
-      studies: ['STD;VWAP'],
-      support_host: 'https://www.tradingview.com',
-    });
-    script.onerror = () => {
-      host.innerHTML = '<p class="fine" style="padding:16px">TradingView could not be loaded — check your internet connection. The Chart tab still shows the floor\'s own feed.</p>';
-    };
-    host.firstChild.appendChild(script);
+    const link = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSym)}`;
+    if (!widgetPort) {
+      host.innerHTML = `<p class="fine" style="padding:16px">The TradingView chart is not available here. <a href="${link}" target="_blank" rel="noopener noreferrer">Open ${escapeHtml(tvSym)} on TradingView</a>. The Chart tab shows the floor's own feed.</p>`;
+      return;
+    }
+    const hostName = location.hostname.includes(':') ? `[${location.hostname}]` : location.hostname;
+    const frame = document.createElement('iframe');
+    frame.className = 'tv-frame';
+    frame.title = `TradingView chart for ${tvSym}`;
+    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms');
+    frame.referrerPolicy = 'no-referrer';
+    frame.src = `http://${hostName}:${widgetPort}/tv?symbol=${encodeURIComponent(tvSym)}`;
+    host.replaceChildren(frame);
   }
 
   async #loadTrades() {

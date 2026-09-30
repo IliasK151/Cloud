@@ -17,7 +17,7 @@
 //|  FTMO tab into the inputs, and switch on "Algo Trading".         |
 //+------------------------------------------------------------------+
 #property copyright   "Meridian Trading Floor"
-#property version     "1.00"
+#property version     "1.10"
 #property description "Bridge between this MT5 account and the Meridian Trading Floor (http://127.0.0.1:3000)."
 
 #include <Trade\Trade.mqh>
@@ -25,8 +25,11 @@
 input string InpUrl    = "http://127.0.0.1:3000/api/bridge/sync"; // Floor bridge URL
 input string InpToken  = "";                                      // Bridge token (copy it from the floor's FTMO tab)
 input int    InpSyncMs = 500;                                     // Sync interval in milliseconds
+// Safety caps enforced here in MT5, whatever the floor sends (the last line of defence):
+input double InpMaxRiskPct   = 1.0;                                 // Max risk per order, % of balance (stop-loss distance x volume)
+input int    InpMaxPositions = 8;                                   // Max floor positions open at the same time
 
-#define EA_VERSION  "1.0.0"
+#define EA_VERSION  "1.1.0"
 #define MAGIC_MIN   771000
 #define MAGIC_MAX   771099
 #define DONE_SLOTS  256
@@ -339,6 +342,7 @@ void Sync()
 
    string body = "{\"token\":" + Q(InpToken)
                  + ",\"version\":" + Q(EA_VERSION)
+                 + ",\"caps\":{\"maxRiskPct\":" + D(InpMaxRiskPct, 2) + ",\"maxPositions\":" + IntegerToString(InpMaxPositions) + "}"
                  + ",\"account\":" + AccountJson(closedToday)
                  + ",\"positions\":" + PositionsJson()
                  + ",\"deals\":" + deals
@@ -441,6 +445,25 @@ void Handle(const string text)
      }
   }
 
+// Positions the floor opened (its magic numbers). The floor never touches your own trades.
+bool IsFloorMagic(const long mg)
+  {
+   return(mg > MAGIC_MIN && mg <= MAGIC_MAX);
+  }
+
+int FloorPositions()
+  {
+   int n = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionGetTicket(i) == 0)
+         continue;
+      if(IsFloorMagic(PositionGetInteger(POSITION_MAGIC)))
+         n++;
+     }
+   return(n);
+  }
+
 bool Seen(const string id)
   {
    for(int i = 0; i < ArraySize(g_done); i++)
@@ -502,6 +525,21 @@ void DoOpen(string &f[])
    double tpDist = StringToDouble(f[6]);
    ulong magic = (ulong)StringToInteger(f[7]);
    string comment = f[8];
+   if(!IsFloorMagic((long)magic))
+     {
+      Ack(id, false, 0, 0, 0, 0, "refused by the EA: not a floor order");
+      return;
+     }
+   if(f[3] != "BUY" && f[3] != "SELL")
+     {
+      Ack(id, false, 0, 0, 0, 0, "refused by the EA: bad side");
+      return;
+     }
+   if(InpMaxPositions > 0 && FloorPositions() >= InpMaxPositions)
+     {
+      Ack(id, false, 0, 0, 0, 0, "refused by the EA: " + IntegerToString(InpMaxPositions) + " floor positions already open (EA safety cap)");
+      return;
+     }
    if(!SymbolSelect(sym, true))
      {
       Ack(id, false, 0, 0, 0, 0, "unknown symbol " + sym);
@@ -525,6 +563,22 @@ void DoOpen(string &f[])
       slDist = minDist;
    if(tpDist > 0 && tpDist < minDist)
       tpDist = minDist;
+   // Risk cap: what this order loses if its stop-loss is hit, against the balance.
+   double tickSize = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
+   double tickLoss = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE_LOSS);
+   if(tickLoss <= 0)
+      tickLoss = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE);
+   if(InpMaxRiskPct > 0)
+     {
+      double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+      double risk = (tickSize > 0 && tickLoss > 0) ? slDist / tickSize * tickLoss * vol : -1.0;
+      if(risk < 0 || risk > balance * InpMaxRiskPct / 100.0)
+        {
+         Ack(id, false, 0, 0, 0, 0, risk < 0 ? "refused by the EA: cannot measure the order's risk"
+             : "refused by the EA: risk " + DoubleToString(risk, 2) + " is above the " + DoubleToString(InpMaxRiskPct, 2) + "% cap (EA safety cap)");
+         return;
+        }
+     }
    double price = buy ? SymbolInfoDouble(sym, SYMBOL_ASK) : SymbolInfoDouble(sym, SYMBOL_BID);
    double sl = NormalizeDouble(buy ? price - slDist : price + slDist, dg);
    double tp = (tpDist > 0) ? NormalizeDouble(buy ? price + tpDist : price - tpDist, dg) : 0.0;
@@ -551,6 +605,16 @@ void DoClose(string &f[])
    if(!PositionSelectByTicket(ticket))
      {
       Ack(id, true, 0, ticket, 0, 0, "position already closed");
+      return;
+     }
+   if(!IsFloorMagic(PositionGetInteger(POSITION_MAGIC)))
+     {
+      Ack(id, false, 0, ticket, 0, 0, "refused by the EA: not a floor position");
+      return;
+     }
+   if(frac <= 0)
+     {
+      Ack(id, false, 0, ticket, 0, 0, "refused by the EA: bad close fraction");
       return;
      }
    string sym = PositionGetString(POSITION_SYMBOL);
@@ -592,9 +656,22 @@ void DoModify(string &f[])
       Ack(id, true, 0, ticket, 0, 0, "position already closed");
       return;
      }
+   if(!IsFloorMagic(PositionGetInteger(POSITION_MAGIC)))
+     {
+      Ack(id, false, 0, ticket, 0, 0, "refused by the EA: not a floor position");
+      return;
+     }
    string sym = PositionGetString(POSITION_SYMBOL);
    int dg = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
    double sl = NormalizeDouble(StringToDouble(f[3]), dg);
+   // The floor only ever tightens a stop. Removing it or moving it further away is refused.
+   double curSl = PositionGetDouble(POSITION_SL);
+   bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+   if(sl <= 0 || (curSl > 0 && (isBuy ? sl < curSl : sl > curSl)))
+     {
+      Ack(id, false, 0, ticket, 0, 0, "refused by the EA: a stop-loss can only be tightened");
+      return;
+     }
    double tp = (f[4] == "keep") ? PositionGetDouble(POSITION_TP) : NormalizeDouble(StringToDouble(f[4]), dg);
    bool ok = g_trade.PositionModify(ticket, sl, tp);
    uint rc = g_trade.ResultRetcode();
@@ -602,7 +679,7 @@ void DoModify(string &f[])
    Ack(id, ok, rc, ticket, sl, 0, g_trade.ResultRetcodeDescription());
   }
 
-// closeall|id|bridge   (only positions opened by the floor)   or   closeall|id|all
+// closeall|id|bridge   (only ever positions opened by the floor; your own trades are never touched)
 void DoCloseAll(string &f[])
   {
    string id = f[1];
@@ -612,7 +689,6 @@ void DoCloseAll(string &f[])
       return;
      }
    Remember(id);
-   bool all = (f[2] == "all");
    int failed = 0;
    int closed = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -621,7 +697,7 @@ void DoCloseAll(string &f[])
       if(t == 0)
          continue;
       long mg = PositionGetInteger(POSITION_MAGIC);
-      if(!all && (mg < MAGIC_MIN || mg > MAGIC_MAX))
+      if(!IsFloorMagic(mg))
          continue;
       g_trade.SetTypeFillingBySymbol(PositionGetString(POSITION_SYMBOL));
       if(g_trade.PositionClose(t) && Done(g_trade.ResultRetcode()))

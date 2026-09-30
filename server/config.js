@@ -7,8 +7,21 @@ import { loadEnv } from './util/env.js';
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv(path.join(ROOT, '.env'));
 
+// Everything the floor writes (secrets, account setup, track record) is readable by your
+// macOS user only: new files 0600, folders 0700.
+process.umask(0o077);
+
 const DATA_DIR = path.resolve(ROOT, process.env.DATA_DIR || 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
+try {
+  fs.chmodSync(DATA_DIR, 0o700);
+  for (const f of fs.readdirSync(DATA_DIR)) {
+    const full = path.join(DATA_DIR, f);
+    if (fs.statSync(full).isFile()) fs.chmodSync(full, 0o600);
+  }
+} catch {
+  /* best effort (e.g. a read-only or foreign-owned folder) */
+}
 
 // The webhook secret protects the TradingView endpoint. If you don't set one,
 // a random secret is generated once and kept in data/webhook-secret.txt.
@@ -16,7 +29,7 @@ function resolveWebhookSecret() {
   if (process.env.WEBHOOK_SECRET) return process.env.WEBHOOK_SECRET;
   const file = path.join(DATA_DIR, 'webhook-secret.txt');
   if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8').trim();
-  const secret = crypto.randomBytes(12).toString('hex');
+  const secret = crypto.randomBytes(16).toString('hex');
   fs.writeFileSync(file, secret + '\n', { mode: 0o600 });
   return secret;
 }
@@ -26,7 +39,7 @@ function resolveBridgeToken() {
   if (process.env.BRIDGE_TOKEN) return process.env.BRIDGE_TOKEN;
   const file = path.join(DATA_DIR, 'bridge-token.txt');
   if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8').trim();
-  const token = crypto.randomBytes(12).toString('hex');
+  const token = crypto.randomBytes(16).toString('hex');
   fs.writeFileSync(file, token + '\n', { mode: 0o600 });
   return token;
 }
@@ -43,12 +56,18 @@ export const config = {
   // Webhook-only listener for TradingView (tunnel this port, never the dashboard).
   webhookPort: num(process.env.WEBHOOK_PORT, num(process.env.PORT, 3000) + 1),
   host: process.env.HOST || '127.0.0.1',
+  // Opening the floor from another device on your Wi-Fi (HOST=0.0.0.0) requires a password.
+  floorPassword: process.env.FLOOR_PASSWORD || '',
+  allowedHosts: (process.env.ALLOWED_HOSTS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  // Separate origin that hosts the TradingView chart widget, isolated from the floor.
+  widgetPort: num(process.env.WIDGET_PORT, num(process.env.PORT, 3000) + 2),
   feed,
   // Market-seconds that pass per real second in simulation mode.
   simSpeed: Math.max(1, num(process.env.SIM_SPEED, 20)),
   fundName: process.env.FUND_NAME || 'Meridian Capital',
   startingCapital: num(process.env.STARTING_CAPITAL, 100_000_000),
   webhookSecret: resolveWebhookSecret(),
+  webhookSecretFromEnv: !!process.env.WEBHOOK_SECRET,
   bridgeToken: resolveBridgeToken(),
   openBrowser: process.env.OPEN_BROWSER !== '0',
   dataDir: DATA_DIR,

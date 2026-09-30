@@ -23,6 +23,7 @@ export class Mt5Bridge extends EventEmitter {
     super();
     this.lastSync = 0;
     this.version = null;
+    this.caps = null;
     this.account = null;
     this.positions = [];
     this.deals = [];
@@ -45,6 +46,8 @@ export class Mt5Bridge extends EventEmitter {
     const now = Date.now();
     this.lastSync = now;
     this.version = msg.version ?? this.version;
+    // The EA's own safety caps (EA 1.1+): max risk per order and max floor positions.
+    if (msg.caps && typeof msg.caps === 'object') this.caps = { maxRiskPct: Number(msg.caps.maxRiskPct) || 0, maxPositions: Number(msg.caps.maxPositions) || 0 };
     const prevLogin = this.account?.login;
     this.account = msg.account ?? this.account;
     this.positions = Array.isArray(msg.positions) ? msg.positions : [];

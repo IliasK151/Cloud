@@ -15,6 +15,12 @@ export class TradingViewView {
     this.error = null;
     store.on('tunnel', () => this.visible && this.#renderTunnel());
     store.on('alert', () => this.visible && this.#renderAlerts());
+    store.on('firewall', (msg) => {
+      if (!this.info) return;
+      this.info.firewall = msg.firewall;
+      this.info.guard = msg.guard;
+      if (this.visible) this.#renderFirewall();
+    });
   }
 
   async show() {
@@ -30,6 +36,7 @@ export class TradingViewView {
     if (!this.built) this.#build();
     this.#renderTunnel();
     this.#renderAlerts();
+    this.#renderFirewall();
   }
 
   hide() {
@@ -118,6 +125,7 @@ export class TradingViewView {
           <p class="fine" id="tv-test-result"></p>
         </div>
       </div>
+      <div class="card fw-card" id="tv-firewall" style="margin-top:14px"></div>
       <div class="grid tv-grid" style="margin-top:14px">
         <div class="card">
           <h2>Received alerts</h2>
@@ -142,16 +150,21 @@ export class TradingViewView {
     const renderMessage = () => {
       const agent = $('#tv-agent').value;
       const kind = $('#tv-kind').value;
+      const secret = this.info.secret;
       const msg = kind === 'strategy'
-        ? `{"secret":"${i.secret}","agent":"${agent}","symbol":"{{ticker}}","action":"{{strategy.order.action}}","position":"{{strategy.market_position}}","price":{{close}},"comment":"{{strategy.order.comment}}"}`
-        : `{"secret":"${i.secret}","agent":"${agent}","symbol":"{{ticker}}","action":"${kind}","price":{{close}},"comment":"{{interval}} alert"}`;
+        ? `{"secret":"${secret}","agent":"${agent}","symbol":"{{ticker}}","action":"{{strategy.order.action}}","position":"{{strategy.market_position}}","price":{{close}},"comment":"{{strategy.order.comment}}"}`
+        : `{"secret":"${secret}","agent":"${agent}","symbol":"{{ticker}}","action":"${kind}","price":{{close}},"comment":"{{interval}} alert"}`;
       $('#tv-message').textContent = msg;
     };
     $('#tv-agent').addEventListener('change', renderMessage);
     $('#tv-kind').addEventListener('change', renderMessage);
     renderMessage();
+    this.renderMessage = renderMessage;
 
     this.root.addEventListener('click', (e) => this.#onClick(e));
+    this.root.addEventListener('change', (e) => {
+      if (e.target.id === 'fw-tvonly') this.#firewall({ tradingViewOnly: e.target.checked }, e.target);
+    });
     $('#tv-copy-pine').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
       const res = await fetch('/tradingview/institutional_agents_alerts.pine');
@@ -212,6 +225,10 @@ export class TradingViewView {
       const token = this.root.querySelector('#tv-ngrok-token').value.trim();
       const domain = this.root.querySelector('#tv-ngrok-domain').value.trim();
       await this.#post('start', { provider: 'ngrok', authtoken: token || undefined, domain });
+    } else if (act === 'rotate') {
+      await this.#rotate();
+    } else if (act === 'unban') {
+      await this.#firewall({ unban: btn.dataset.ip });
     } else if (act === 'goto') {
       const el = this.root.querySelector(`#${btn.dataset.target}`);
       if (el?.tagName === 'DETAILS') el.open = true;
@@ -293,6 +310,90 @@ export class TradingViewView {
       <div class="next-step"><span>${escapeHtml(next.text)}</span>${busy && now < 2 ? '' : next.btn}</div>`;
   }
 
+  async #firewall(body, input = null) {
+    if (body.tradingViewOnly === false && !confirm('Accept trade alerts from any internet address that knows your secret?\n\nOnly do this if your alerts come from somewhere other than TradingView. With it on, a leaked secret can\'t be used to trade and the floor raises an alarm instead.')) {
+      if (input) input.checked = true;
+      return;
+    }
+    try {
+      const res = await api('/api/tradingview/firewall', { method: 'POST', body: JSON.stringify(body) });
+      if (res.firewall) this.info.firewall = res.firewall;
+    } catch (err) {
+      if (input) input.checked = !input.checked;
+      alert(`Could not reach the floor: ${err.message}`);
+    }
+    this.#renderFirewall();
+  }
+
+  async #rotate() {
+    if (!confirm('Make a new webhook secret?\n\nThe old secret stops working immediately. You then paste the new alert message (step 2) into each of your TradingView alerts, and the new secret into our Pine indicator if you use it.')) return;
+    try {
+      const res = await api('/api/tradingview/rotate-secret', { method: 'POST' });
+      if (!res.ok) return alert(res.error || 'Could not rotate the secret');
+      this.info = res;
+      this.renderMessage?.();
+      this.#renderFirewall();
+      alert('New secret made. Now update the message in your TradingView alerts (step 2 → Copy message).');
+    } catch (err) {
+      alert(`Could not reach the floor: ${err.message}`);
+    }
+    return undefined;
+  }
+
+  // The firewall: what protects the floor, and what it has blocked.
+  #renderFirewall() {
+    const el = this.root.querySelector('#tv-firewall');
+    const fw = this.info?.firewall;
+    if (!el || !fw) return;
+    const g = this.info.guard || { blocked: {} };
+    const caps = this.store.live?.eaCaps;
+    const acc = this.store.live?.account;
+    const st = fw.status;
+    const pill = st === 'alarm' ? ['no', 'ALARM'] : st === 'under-attack' ? ['no', 'UNDER ATTACK'] : st === 'watching' ? ['warn', 'WATCHING'] : ['ok', 'ALL QUIET'];
+    const localBlocked = Object.values(g.blocked || {}).reduce((a, b) => a + b, 0);
+    const time = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const kinds = { 'bad-secret': 'Wrong secret', ban: 'Banned', leak: 'Secret used outside TradingView', rate: 'Too many requests', setting: 'Setting', rotate: 'Secret rotated' };
+    const protections = [
+      [true, g.lan ? 'Dashboard open on your Wi-Fi with a password; controls never reachable from the internet' : 'Dashboard and controls only on this Mac, never reachable from the internet'],
+      [true, 'Every dashboard request carries a key that changes each launch, so other websites can\'t place trades, read your account or change settings'],
+      [true, 'The internet reaches one thing only, the webhook: secret checked first, 5 wrong secrets from one address = banned for an hour, flood limits'],
+      [fw.settings.tradingViewOnly, fw.settings.tradingViewOnly ? 'Trade alerts only from TradingView\'s own servers' : 'Trade alerts accepted from any address with the secret (TradingView-only is off)'],
+      [!!caps, caps ? `MT5 EA safety caps: every order needs a stop-loss, at most ${caps.maxRiskPct}% risk per order and ${caps.maxPositions} floor positions, and it never touches your own trades` : acc ? 'Update the MeridianBridge EA to get its built-in safety caps (FTMO tab, step "Install the bridge")' : 'MT5 EA safety caps: every order needs a stop-loss and a capped risk, and your own trades are never touched'],
+      [true, 'Your FTMO password never leaves MT5; secrets on disk are readable by your Mac user only'],
+      [true, 'TradingView\'s chart runs isolated in its own sandbox, away from your account data'],
+    ];
+    el.innerHTML = `
+      <div class="plan-head"><div><h2>Firewall</h2><p class="sub">Everything that protects the floor and your FTMO account, live.</p></div><span class="plan-status ${pill[0]}">${pill[1]}</span></div>
+      ${fw.alarm ? `<div class="banner crit">⛔ <span><b>Security alarm:</b> ${escapeHtml(fw.alarm.text)} <button class="mini-btn" data-act="rotate">Rotate secret now</button></span></div>` : ''}
+      ${st === 'under-attack' ? `<div class="banner crit">▲ <span>${fw.recentBad} blocked attempts on the webhook in the last hour. They're being refused and banned automatically. If you're worried, rotate the secret or turn the public address off.</span></div>` : ''}
+      <div class="fw-grid">
+        <div>
+          <ul class="plan-rules">${protections.map(([ok, text]) => `<li class="${ok ? 'ok' : 'warn'}">${escapeHtml(text)}</li>`).join('')}</ul>
+          <div class="plan-switch ${fw.settings.tradingViewOnly ? '' : 'off'}" style="margin-top:14px">
+            <label class="switch safe"><input type="checkbox" id="fw-tvonly" ${fw.settings.tradingViewOnly ? 'checked' : ''} aria-label="Trade alerts only from TradingView"><span></span></label>
+            <div><b>Trade alerts only from TradingView's servers: ${fw.settings.tradingViewOnly ? 'ON' : 'OFF'}</b><small>TradingView sends webhooks from ${fw.tradingViewIps.map(escapeHtml).join(', ')}. Connection tests work from anywhere. If TradingView ever adds a server and a real alert gets refused, the log below shows its address.</small></div>
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn" data-act="rotate">Rotate webhook secret</button>
+          </div>
+          ${config(this.info)}
+        </div>
+        <div>
+          <div class="mini-tiles fw-tiles">
+            <div><span>Alerts let in</span><b class="num">${fw.stats.allowed}</b></div>
+            <div><span>Blocked (internet)</span><b class="num ${fw.stats.blocked ? 'neg' : ''}">${fw.stats.blocked}</b></div>
+            <div><span>Wrong secrets</span><b class="num">${fw.stats.badSecret}</b></div>
+            <div><span>Blocked (other websites)</span><b class="num ${localBlocked ? 'neg' : ''}">${localBlocked}</b></div>
+          </div>
+          ${fw.bans.length ? `<h3>Banned now</h3><div class="fw-bans">${fw.bans.map((b) => `<span class="fw-ban"><code>${escapeHtml(b.ip)}</code> until ${new Date(b.until).toLocaleTimeString()} <button class="mini-btn" data-act="unban" data-ip="${escapeHtml(b.ip)}">Unban</button></span>`).join('')}</div>` : ''}
+          <h3>Security log</h3>
+          <div class="table-wrap" style="max-height:220px"><table class="table compact"><tbody>${
+            fw.events.map((e) => `<tr><td class="muted">${time(e.time)}</td><td>${escapeHtml(kinds[e.kind] || e.kind)}</td><td style="white-space:normal">${escapeHtml(e.text)}</td></tr>`).join('') || '<tr><td class="muted">Nothing blocked yet.</td></tr>'
+          }</tbody></table></div>
+        </div>
+      </div>`;
+  }
+
   #renderAlerts() {
     const el = this.root.querySelector('#tv-alerts');
     if (!el) return;
@@ -302,6 +403,10 @@ export class TradingViewView {
       '<tr><td colspan="4" class="muted">No alerts received yet.</td></tr>'
     }</tbody>`;
   }
+}
+
+function config(info) {
+  return info.secretFromEnv ? '<p class="fine">Your secret is set in <code>.env</code> (WEBHOOK_SECRET): change it there to rotate it.</p>' : '';
 }
 
 async function copy(text, btn) {

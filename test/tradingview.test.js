@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -124,8 +125,13 @@ test('cloudflared is downloaded when it is not installed', { skip: process.platf
   const oldPath = process.env.PATH;
   process.env.PATH = dir; // hide any real cloudflared
   const payload = Buffer.from('#!/bin/sh\necho fake\n');
+  const official = 'https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-amd64';
+  let digest = crypto.createHash('sha256').update(payload).digest('hex');
   const fetchImpl = async (url) => {
-    assert.match(url, /cloudflared-linux-amd64$/);
+    if (url.includes('api.github.com')) {
+      return { ok: true, status: 200, json: async () => ({ tag_name: '2026.9.0', assets: [{ name: 'cloudflared-linux-amd64', browser_download_url: official, digest: `sha256:${digest}` }] }) };
+    }
+    assert.equal(url, official, 'downloads the exact release file GitHub lists');
     return { ok: true, status: 200, headers: new Map([['content-length', String(payload.length)]]), body: (async function* () { yield payload; })() };
   };
   const child = fakeProcess();
@@ -135,8 +141,17 @@ test('cloudflared is downloaded when it is not installed', { skip: process.platf
   await t.start('cloudflare');
   process.env.PATH = oldPath;
   assert.equal(spawnedBin, path.join(dir, 'bin', 'cloudflared'));
-  assert.equal(fs.statSync(spawnedBin).mode & 0o111, 0o111);
+  assert.equal(fs.statSync(spawnedBin).mode & 0o100, 0o100);
   await t.stop();
+
+  // A tampered download (checksum mismatch) is deleted and never run.
+  fs.rmSync(path.join(dir, 'bin'), { recursive: true, force: true });
+  digest = '0'.repeat(64);
+  spawnedBin = null;
+  await assert.rejects(() => t.start('cloudflare'), /integrity check/);
+  assert.equal(spawnedBin, null);
+  assert.equal(fs.existsSync(path.join(dir, 'bin', 'cloudflared')), false);
+  assert.deepEqual(fs.readdirSync(path.join(dir, 'bin')), []);
 });
 
 test('ngrok needs an authtoken before it starts', async () => {

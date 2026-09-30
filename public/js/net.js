@@ -4,13 +4,32 @@ import { store } from './store.js';
 let ws = null;
 let retry = 0;
 
+// The floor key: new on every launch of the floor, handed to this page only. Every API
+// call and the live feed carry it, so other websites can't drive the floor.
+export const floorKey = document.querySelector('meta[name="floor-key"]')?.content || '';
+export const widgetPort = Number(document.querySelector('meta[name="floor-widget-port"]')?.content) || null;
+
+// The floor was restarted (new key): load the page again to pick it up.
+async function reloadIfKeyStale() {
+  try {
+    const res = await fetch('/api/session', { headers: { 'X-Floor-Key': floorKey } });
+    if (res.status === 401 && !sessionStorage.getItem('floor.reloaded')) {
+      sessionStorage.setItem('floor.reloaded', '1');
+      location.reload();
+    }
+  } catch {
+    /* floor not running yet: keep retrying */
+  }
+}
+
 export function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws = new WebSocket(`${proto}://${location.host}/ws?key=${encodeURIComponent(floorKey)}`);
   store.emit('conn', 'connecting');
 
   ws.onopen = () => {
     retry = 0;
+    try { sessionStorage.removeItem('floor.reloaded'); } catch { /* private mode */ }
     store.emit('conn', 'ok');
   };
   ws.onmessage = (e) => {
@@ -27,6 +46,7 @@ export function connect() {
       case 'voices': store.emit('voices', msg.voices); break;
       case 'tunnel': store.setTunnel(msg.tunnel); break;
       case 'live': store.setLive(msg.live); break;
+      case 'firewall': store.emit('firewall', msg); break;
       case 'snapshot': if (store.ready) store.snapshot(msg); break;
       case 'event': store.addEvent(msg.event); break;
       case 'equity': store.addEquity(msg.sample); break;
@@ -39,6 +59,7 @@ export function connect() {
   ws.onclose = () => {
     store.emit('conn', 'down');
     retry++;
+    if (retry >= 2) reloadIfKeyStale();
     setTimeout(connect, Math.min(8000, 500 * 2 ** Math.min(retry, 4)));
   };
   ws.onerror = () => ws.close();
@@ -48,8 +69,15 @@ export function command(cmd, agentId) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'command', cmd, agentId }));
 }
 
+// fetch() for the floor's API, with the floor key.
+export async function apiFetch(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { ...(opts.headers || {}), 'X-Floor-Key': floorKey } });
+  if (res.status === 401) reloadIfKeyStale();
+  return res;
+}
+
 export async function api(path, opts = {}) {
-  const res = await fetch(path, {
+  const res = await apiFetch(path, {
     ...opts,
     headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });

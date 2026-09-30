@@ -1,4 +1,6 @@
 import http from 'node:http';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import express from 'express';
@@ -16,7 +18,9 @@ import { Broker } from './engine/broker.js';
 import { RiskManager } from './engine/risk.js';
 import { Fund } from './engine/fund.js';
 import { Store } from './store.js';
-import { parseBody, normalizeAlert, secretMatches, rateLimiter } from './tradingview/webhook.js';
+import { parseBody, normalizeAlert, alertSecret, secretMatches, rateLimiter } from './tradingview/webhook.js';
+import { LocalGuard, isLoopbackBind } from './security/localGuard.js';
+import { WebhookFirewall, newSecret } from './security/webhookFirewall.js';
 import { TunnelManager } from './tradingview/tunnel.js';
 import { VoiceEngine, toWav } from './voices/engine.js';
 import { Mt5Bridge } from './live/bridge.js';
@@ -53,9 +57,30 @@ feeds.on('recovered', (id, source) => {
   fund.pushEvent({ kind: 'info', text: `${id} is now on ${via} (it was simulated while its feed was down).` });
 });
 
+// ---- security --------------------------------------------------------------------------------
+// Opening the floor to the network (HOST=0.0.0.0) is only allowed with a password.
+let bindHost = config.host;
+if (!isLoopbackBind(bindHost) && config.floorPassword.length < 10) {
+  log.warn(`\n  [security] HOST=${bindHost} would open the floor to your whole network, but FLOOR_PASSWORD is not set`);
+  log.warn('  [security] (at least 10 characters). Listening on this Mac only (127.0.0.1) instead.\n');
+  bindHost = '127.0.0.1';
+}
+const lanMode = !isLoopbackBind(bindHost);
+const guard = new LocalGuard({
+  port: config.port, lan: lanMode, extraHosts: config.allowedHosts,
+  password: lanMode ? config.floorPassword : null, widgetPort: config.widgetPort,
+});
+const secrets = { webhook: config.webhookSecret };
+const firewall = new WebhookFirewall({ file: path.join(config.dataDir, 'security-log.json'), log });
+const INDEX_HTML = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+
 // ---- HTTP ----------------------------------------------------------------------------------
 const app = express();
 app.disable('x-powered-by');
+app.set('etag', false);
+// The local firewall runs first: host allowlist, floor key, origin checks, headers, login.
+app.use(guard.middleware({ exempt: ['/api/bridge/sync', '/api/tradingview/webhook', '/api/health'] }));
+app.get(['/', '/index.html'], (req, res) => guard.sendIndex(req, res, INDEX_HTML));
 
 // Requests arriving through a tunnel (cloudflared / ngrok) carry forwarding headers.
 // Control endpoints only answer direct local requests.
@@ -67,8 +92,10 @@ app.use('/vendor/three', express.static(nm('three'), { maxAge: '1d' }));
 app.use('/vendor/lightweight-charts', express.static(nm('lightweight-charts/dist'), { maxAge: '1d' }));
 app.use('/tradingview', express.static(path.join(ROOT, 'tradingview')));
 app.use('/mt5', express.static(path.join(ROOT, 'mt5'), { setHeaders: (res) => res.setHeader('Content-Disposition', 'attachment') }));
-app.use(express.static(path.join(ROOT, 'public')));
+app.use(express.static(path.join(ROOT, 'public'), { index: false }));
 
+// The page checks its floor key here after the floor restarts (a new key means reload).
+app.get('/api/session', (req, res) => res.json({ ok: true }));
 app.get('/api/health', (req, res) => res.json({ ok: true, mode: config.feed, uptime: process.uptime(), notes: feeds.notes }));
 app.get('/api/state', localOnly, (req, res) => res.json(fund.initPayload()));
 app.get('/api/agents/:id', localOnly, (req, res) => {
@@ -95,8 +122,12 @@ app.post('/api/news/refresh', localOnly, async (req, res) => {
 });
 
 // ---- MT5 bridge + FTMO live trading --------------------------------------------------------
+const bridgeFails = { n: 0, since: 0, until: 0 };
 app.post('/api/bridge/sync', express.text({ type: '*/*', limit: '4mb' }), (req, res) => {
   if (!isDirect(req)) return res.status(403).type('text').send('ERR local only');
+  // MT5 never sends an Origin header; a web page always does.
+  if (req.headers.origin || /site/.test(req.headers['sec-fetch-site'] || '')) return res.status(403).type('text').send('ERR browsers may not use the bridge');
+  if (bridgeFails.until > Date.now()) return res.status(429).type('text').send('ERR too many wrong bridge tokens, wait a minute');
   let msg;
   try {
     msg = JSON.parse(req.body);
@@ -104,7 +135,11 @@ app.post('/api/bridge/sync', express.text({ type: '*/*', limit: '4mb' }), (req, 
     return res.status(400).type('text').send('ERR bad json');
   }
   const token = req.headers['x-bridge-token'] || msg.token;
-  if (!secretMatches(token, config.bridgeToken)) return res.status(401).type('text').send('ERR bad bridge token — copy it from the FTMO tab');
+  if (!secretMatches(token, config.bridgeToken)) {
+    if (Date.now() - bridgeFails.since > 60_000) Object.assign(bridgeFails, { n: 0, since: Date.now() });
+    if (++bridgeFails.n >= 20) bridgeFails.until = Date.now() + 60_000;
+    return res.status(401).type('text').send('ERR bad bridge token — copy it from the FTMO tab');
+  }
   res.type('text').send(bridge.handleSync(msg));
 });
 app.get('/api/live', localOnly, (req, res) => res.json(live.view()));
@@ -156,33 +191,73 @@ const tvInfo = () => ({
   webhookPath: '/api/tradingview/webhook',
   localUrl: `http://localhost:${config.port}/api/tradingview/webhook`,
   webhookPort: config.webhookPort,
-  secret: config.webhookSecret,
+  secret: secrets.webhook,
+  secretFromEnv: config.webhookSecretFromEnv,
+  firewall: firewall.view(),
+  guard: guard.view(),
   agents: fund.agents.map((a) => ({ id: a.id, name: a.profile.name, desk: a.profile.desk, symbol: a.symbol })),
   symbols: Object.values(SYMBOLS).map((s) => ({ id: s.id, tv: s.tv, aliases: s.aliases })),
   alerts: fund.alerts.slice(-30).reverse(),
 });
 app.get('/api/tradingview/config', localOnly, (req, res) => res.json(tvInfo()));
 
-const allowAlert = rateLimiter(40, 60_000);
+// The TradingView webhook, behind the internet firewall (security/webhookFirewall.js).
+const allowAlert = rateLimiter(40, 60_000); // authenticated trade alerts: runaway protection
+const reply = (res, status, body) => res.status(status).json(body);
 function webhookHandler(req, res) {
-  if (!allowAlert()) return res.status(429).json({ ok: false, error: 'rate limited' });
-  const parsed = normalizeAlert(parseBody(req.body));
-  if (!parsed.ok) return res.status(400).json({ ok: false, error: parsed.error });
-  if (!secretMatches(parsed.alert.secret, config.webhookSecret)) {
-    log.warn('[tradingview] rejected alert with a bad secret');
-    return res.status(401).json({ ok: false, error: 'bad secret' });
+  res.setHeader('Cache-Control', 'no-store');
+  const client = firewall.clientIp(req);
+  // TradingView and the tunnels never send an Origin header; a web page always does.
+  if (req.headers.origin || /site/.test(req.headers['sec-fetch-site'] || '')) return reply(res, 403, { ok: false, error: 'forbidden' });
+  const gate = firewall.admit(client);
+  if (!gate.ok) return reply(res, gate.status, { ok: false, error: gate.error });
+  const raw = parseBody(req.body);
+  // The secret first: nothing about the alert is examined or answered without it.
+  if (!secretMatches(alertSecret(raw), secrets.webhook)) {
+    const r = firewall.badSecret(client);
+    if (client.local) log.warn('[tradingview] rejected alert with a bad secret');
+    return reply(res, r.status, { ok: false, error: r.error });
   }
-  const remote = !isDirect(req);
+  const parsed = normalizeAlert(raw);
+  if (!parsed.ok) return reply(res, 400, { ok: false, error: parsed.error });
+  const auth = firewall.authorize(client, parsed.alert.action);
+  if (!auth.ok) return reply(res, auth.status, { ok: false, error: auth.error });
+  const remote = !client.local;
   if (parsed.alert.action === 'ping') {
     if (remote) tunnel.markReached();
     return res.json({ ok: true, result: 'Connection OK. The floor received this check and placed no trade.' });
   }
+  if (!allowAlert()) return reply(res, 429, { ok: false, error: 'rate limited' });
   const result = fund.handleAlert(parsed.alert);
   if (remote) tunnel.noteAlert(parsed.alert, result);
   return res.json({ ok: result.ok, result: result.ok ? result.text : result.reason });
 }
-const textBody = express.text({ type: '*/*', limit: '16kb' });
+const textBody = express.text({ type: '*/*', limit: '8kb' });
 app.post('/api/tradingview/webhook', textBody, webhookHandler);
+
+// Firewall controls (local, floor key required like every API call).
+app.post('/api/tradingview/firewall', localOnly, express.json(), (req, res) => {
+  const b = req.body || {};
+  if (typeof b.unban === 'string') firewall.unban(b.unban);
+  res.json({ ok: true, firewall: firewall.setSettings({ tradingViewOnly: b.tradingViewOnly }) });
+  pushFirewall();
+});
+// New webhook secret: the old one stops working at once (update your TradingView alerts).
+app.post('/api/tradingview/rotate-secret', localOnly, (req, res) => {
+  if (config.webhookSecretFromEnv) return res.json({ ok: false, error: 'The secret is set in .env (WEBHOOK_SECRET). Change it there and restart the floor.' });
+  const next = newSecret();
+  try {
+    fs.writeFileSync(path.join(config.dataDir, 'webhook-secret.txt'), `${next}\n`, { mode: 0o600 });
+  } catch (err) {
+    return res.json({ ok: false, error: `Could not save the new secret: ${err.message}` });
+  }
+  secrets.webhook = next;
+  tunnel.secret = next;
+  firewall.secretRotated();
+  fund.pushEvent({ kind: 'risk', text: 'SECURITY · Webhook secret rotated. Paste the new alert message into your TradingView alerts.' });
+  res.json({ ok: true, ...tvInfo() });
+  pushFirewall();
+});
 
 // Public address for TradingView (one-click tunnel), local controls only.
 app.post('/api/tradingview/tunnel/:action', localOnly, express.json(), async (req, res) => {
@@ -214,16 +289,74 @@ const server = http.createServer(app);
 // TradingView can reach the webhook without exposing the dashboard or its controls.
 const hookApp = express();
 hookApp.disable('x-powered-by');
+hookApp.set('etag', false);
+hookApp.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 hookApp.post(['/', '/webhook', '/api/tradingview/webhook'], textBody, webhookHandler);
-hookApp.use((req, res) => res.status(404).json({ ok: false, error: 'webhook only: POST /webhook' }));
+hookApp.use((req, res) => res.status(404).json({ ok: false, error: 'not found' }));
+// Never an error page or stack trace to the internet.
+hookApp.use((err, req, res, next) => res.status(err.status === 413 ? 413 : 400).json({ ok: false, error: err.status === 413 ? 'too large' : 'bad request' })); // eslint-disable-line no-unused-vars
 const hookServer = http.createServer(hookApp);
+// Slow or half-open connections are cut off quickly.
+Object.assign(hookServer, { headersTimeout: 10_000, requestTimeout: 15_000, keepAliveTimeout: 5_000, maxHeadersCount: 60 });
+Object.assign(server, { headersTimeout: 20_000, requestTimeout: 60_000 });
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+  res.status(err.status && err.status < 500 ? err.status : 500).json({ ok: false, error: err.status === 413 ? 'too large' : 'request failed' });
+});
+
+// The TradingView chart widget runs third-party code, so it lives on its own origin (its
+// own port) where it can't see the floor's page, key or data.
+const widgetServer = http.createServer((req, res) => serveWidget(req, res));
+Object.assign(widgetServer, { headersTimeout: 10_000, requestTimeout: 15_000 });
+function serveWidget(req, res) {
+  let url;
+  try {
+    url = new URL(req.url, 'http://x');
+  } catch {
+    url = null;
+  }
+  const hostOk = guard.names.has(String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '').replace(/^\[|\]$/g, ''));
+  const symbol = url?.searchParams.get('symbol') || '';
+  if (req.method !== 'GET' || url?.pathname !== '/tv' || !hostOk || !/^[A-Za-z0-9:!._-]{1,40}$/.test(symbol)) {
+    res.writeHead(404, { 'Content-Type': 'text/plain', 'X-Content-Type-Options': 'nosniff' });
+    return res.end('not found');
+  }
+  const nonce = crypto.randomBytes(16).toString('base64');
+  // CSP host sources can't be IPv6 literals; the floor is opened by name or IPv4 anyway.
+  const floorOrigins = [...guard.names].filter((n) => !n.includes(':')).map((n) => `http://${n}:${config.port}`).join(' ');
+  const cfg = JSON.stringify({
+    autosize: true, symbol, interval: '1', timezone: 'America/New_York', theme: 'dark', style: '1', locale: 'en',
+    allow_symbol_change: true, hide_side_toolbar: false, studies: ['STD;VWAP'], support_host: 'https://www.tradingview.com',
+  }).replace(/</g, '\\u003c');
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}' https://s3.tradingview.com https://*.tradingview.com; frame-src https:; connect-src https: wss:; img-src https: data:; style-src 'unsafe-inline' https:; font-src https: data:; frame-ancestors ${floorOrigins}; base-uri 'none'; form-action 'none'`,
+  });
+  return res.end(`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#0b0c0e}</style></head><body>
+<div class="tradingview-widget-container" style="height:100%;width:100%"><div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
+<script nonce="${nonce}" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>${cfg}</script></div></body></html>`);
+}
 
 // ---- WebSocket -------------------------------------------------------------------------------
-const wss = new WebSocketServer({ noServer: true });
+// The live feed carries the whole account: same firewall as the API (host, origin, key).
+const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
 server.on('upgrade', (req, socket, head) => {
-  if (!req.url.startsWith('/ws') || !isDirect(req)) return socket.destroy();
+  const refused = !isDirect(req) ? 'forwarded' : guard.upgradeOk(req);
+  if (refused) {
+    const status = refused === 'key' || refused === 'login' ? '401 Unauthorized' : '403 Forbidden';
+    socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    return;
+  }
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
+const COMMANDS = new Set(['reset-paper', 'research', 'reset-learning', 'flatten', 'pause', 'resume', 'pause-all', 'resume-all']);
 
 function broadcast(msg) {
   if (!wss.clients.size) return;
@@ -233,10 +366,14 @@ function broadcast(msg) {
 
 wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view(), brain: brainView() }));
+  let window = { start: Date.now(), n: 0 };
   ws.on('message', (buf) => {
+    // At most 20 messages per 10 seconds from one page; anything malformed is ignored.
+    if (Date.now() - window.start > 10_000) window = { start: Date.now(), n: 0 };
+    if (++window.n > 20) return;
     try {
       const msg = JSON.parse(buf.toString());
-      if (msg.type === 'command') {
+      if (msg?.type === 'command' && COMMANDS.has(msg.cmd) && (msg.agentId == null || (typeof msg.agentId === 'string' && fund.byId.has(msg.agentId)))) {
         const result = fund.command(msg.cmd, msg.agentId);
         ws.send(JSON.stringify({ type: 'command-result', cmd: msg.cmd, agentId: msg.agentId, ...result }));
       }
@@ -266,6 +403,19 @@ fund.committee?.on('debate', () => setImmediate(() => broadcast({ type: 'brain',
 news.on('change', pushNews);
 news.on('announce', () => setImmediate(pushNews));
 setInterval(pushNews, config.feed === 'sim' ? 5000 : 30_000);
+
+// Firewall activity goes to the TradingView tab as it happens; a leaked secret also
+// raises an alarm on the floor.
+let firewallTimer = null;
+function pushFirewall() {
+  if (firewallTimer) return;
+  firewallTimer = setTimeout(() => {
+    firewallTimer = null;
+    broadcast({ type: 'firewall', firewall: firewall.view(), guard: guard.view() });
+  }, 250);
+}
+firewall.on('event', pushFirewall);
+firewall.on('alarm', (a) => fund.pushEvent({ kind: 'risk', text: `SECURITY ALARM · ${a.text}` }));
 
 // Push the FTMO panel state when it changes (and at least every few seconds).
 let lastLive = '';
@@ -315,7 +465,7 @@ async function main() {
     lab.start();
   }).catch((err) => log.warn(`[research] ${err.message}`));
 
-  server.listen(config.port, config.host, () => {
+  server.listen(config.port, bindHost, () => {
     const url = `http://localhost:${config.port}`;
     log.info('');
     log.info(`  ${config.fundName} — Institutional Trading Floor`);
@@ -324,13 +474,21 @@ async function main() {
     log.info(`  Market data:        ${config.feed === 'sim' ? `SIMULATION (${config.simSpeed}x speed)` : 'LIVE (Binance + Yahoo Finance)'}`);
     for (const n of feeds.notes) log.info(`                      ${n}`);
     log.info(`  TradingView hook:   http://localhost:${config.webhookPort}/webhook   (public address: TradingView tab)`);
-    log.info(`  Webhook secret:     ${config.webhookSecret}`);
+    log.info(`  Webhook secret:     ${secrets.webhook.slice(0, 4)}…  (full secret in the TradingView tab, kept off this screen)`);
+    log.info(`  Security:           ${lanMode ? 'open to your network, password required (FLOOR_PASSWORD)' : 'dashboard on this Mac only'} · webhook firewall on · trades from TradingView only: ${firewall.settings.tradingViewOnly ? 'on' : 'OFF'}`);
     log.info(`  FTMO / MT5 bridge:  http://127.0.0.1:${config.port}/api/bridge/sync  (token in the FTMO tab)`);
     log.info(`  Paper trading unless you connect MT5 and arm live trading in the FTMO tab.`);
     log.info('');
     if (config.openBrowser && !process.env.CI) openBrowser(url);
   });
-  hookServer.listen(config.webhookPort, config.host, () => tunnel.init());
+  // The webhook listener only ever accepts connections from this Mac: the tunnel app runs
+  // here and forwards TradingView's requests to it.
+  hookServer.listen(config.webhookPort, '127.0.0.1', () => tunnel.init());
+  widgetServer.listen(config.widgetPort, bindHost);
+  widgetServer.on('error', (err) => {
+    guard.widgetPort = null;
+    log.warn(`[security] TradingView chart widget port ${config.widgetPort} unavailable (${err.message}); the desk panels link to TradingView instead`);
+  });
   voices.init();
   hookServer.on('error', (err) => log.warn(`[webhook] port ${config.webhookPort} unavailable: ${err.message}`));
 }
@@ -360,6 +518,7 @@ async function shutdown() {
   news.stop();
   lab.stop();
   history.stop();
+  firewall.flush();
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

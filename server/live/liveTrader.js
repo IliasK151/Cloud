@@ -631,6 +631,12 @@ export class LiveTrader extends EventEmitter {
     if (acc && acc.connected !== false && !acc.expertAllowed) warnings.push('The broker has disabled Expert Advisor trading on this account.');
     if (acc && !acc.algoAllowed) warnings.push('Algo Trading is off in MT5 — turn on the "Algo Trading" toolbar button, and tick "Allow Algo Trading" in the EA settings (click the chart, press F7).');
     if (acc && acc.marginMode === 0) warnings.push('This is a netting account: desks trading the same symbol will net against each other.');
+    const caps = this.bridge.caps;
+    if (acc && this.bridge.connected && !caps) warnings.push('Your MeridianBridge EA is an older version without the built-in safety caps. Update it: copy the new EA code from the steps below into MetaEditor, compile, and re-attach it to the chart.');
+    else if (caps && p) {
+      if (caps.maxRiskPct > 0 && p.riskPerTradePct > caps.maxRiskPct) warnings.push(`The EA refuses orders risking more than ${caps.maxRiskPct}% but the account is set to ${p.riskPerTradePct}% per trade. Lower the risk in Edit setup, or raise "Max risk per order" in the EA's inputs.`);
+      if (caps.maxPositions > 0 && p.maxPositions > caps.maxPositions) warnings.push(`The EA allows at most ${caps.maxPositions} floor positions, fewer than the ${p.maxPositions} set here, so extra trades will be refused by MT5.`);
+    }
     const simulated = SYMBOL_IDS.filter((id) => this.md.get(id)?.source === 'sim');
     if (this.mode === 'live' && simulated.length) {
       const how = !p ? ' Set up the account below and MT5 will price the mapped ones with your broker\'s feed.' : '';
@@ -643,6 +649,7 @@ export class LiveTrader extends EventEmitter {
       connected: this.bridge.connected,
       lastSync: this.bridge.lastSync || null,
       eaVersion: this.bridge.version,
+      eaCaps: this.bridge.caps,
       token: this.token,
       account: acc,
       isFtmo,

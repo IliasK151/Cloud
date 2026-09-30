@@ -7,6 +7,8 @@
 //    are never used, with a distinct voice per agent where possible.
 //  - "off"
 
+import { apiFetch } from './net.js';
+
 const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
 const listeners = new Set();
 const store = {
@@ -164,7 +166,7 @@ function playBuffer(audioBuffer) {
 
 // One sentence of speech from the server, decoded and ready to play.
 async function fetchSpeech(text, voiceId) {
-  const res = await fetch('/api/voices/speak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, voice: voiceId }) });
+  const res = await apiFetch('/api/voices/speak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, voice: voiceId }) });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -174,7 +176,7 @@ async function fetchSpeech(text, voiceId) {
 }
 
 function requestSetup() {
-  fetch('/api/voices/setup', { method: 'POST' }).catch(() => {});
+  apiFetch('/api/voices/setup', { method: 'POST' }).catch(() => {});
 }
 
 // ---- public API ---------------------------------------------------------------------------
@@ -203,7 +205,7 @@ export const voice = {
     store.set('floor.voiceEngine', next);
     if (next === 'off') this.stop();
     if (next === 'natural' && neural.state !== 'ready') requestSetup();
-    if (was === 'natural' && next !== 'natural') fetch('/api/voices/disable', { method: 'POST' }).catch(() => {});
+    if (was === 'natural' && next !== 'natural') apiFetch('/api/voices/disable', { method: 'POST' }).catch(() => {});
     emit();
   },
 
