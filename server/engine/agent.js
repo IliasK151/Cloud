@@ -28,7 +28,7 @@ export class TraderAgent {
     this.plans = new Map();
     this.day = freshDayStats();
     // realN / realSumR: trades on real market prices only (live mode), the record the
-    // prop account trusts. Trades on a simulated fallback feed never count there.
+    // prop account trusts. Demo-mode (simulated) trades never count there.
     this.lifetime = { trades: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0, sumR: 0, countR: 0, best: 0, worst: 0, realN: 0, realSumR: 0 };
     this.equityPeak = 0;
     this.maxDrawdown = 0;
@@ -243,6 +243,7 @@ export class TraderAgent {
   handleSignal({ action, symbol = this.symbol, stop, target, comment, test = false }) {
     const label = `TradingView alert${comment ? ` (${comment})` : ''}`;
     if (!this.md.get(symbol)) return { ok: false, reason: `Unknown symbol ${symbol}` };
+    if (this.noPrices(symbol)) return { ok: false, reason: `No real prices for ${symbol} yet (its live feed isn't answering)` };
     if (action === 'close') {
       if (!this.position(symbol)) return { ok: false, reason: `No ${symbol} position to close` };
       this.closeTrade(symbol, label);
@@ -330,12 +331,19 @@ export class TraderAgent {
     if (kind !== 'quiet') this.note(stage, kind);
   }
 
+  // Live mode never simulates: a market whose real feed hasn't answered has no prices.
+  noPrices(symbol = this.symbol) {
+    const s = this.md.get(symbol);
+    return s?.status === 'WAITING' && !Number.isFinite(s.price);
+  }
+
   status() {
     if (this.paused) return 'PAUSED';
     if (this.halted) return 'HALTED';
     if (this.book.positions.size) return 'IN TRADE';
     if (this.session.isFlattenWindow()) return 'FLAT · CLOSE';
     const st = this.md.get(this.symbol)?.status;
+    if (this.noPrices()) return 'NO PRICES';
     if (st === 'CLOSED') return 'MARKET CLOSED';
     if (this.bars().length < 30) return 'WARMING UP';
     if (this.newsHold()) return 'NEWS';
@@ -472,6 +480,8 @@ export class TraderAgent {
       lines.push(`Bad news first: risk has me benched for the rest of the day. ${this.halted}.`);
     } else if (this.paused) {
       lines.push(`You paused my desk, so I'm on my hands until you say go.`);
+    } else if (this.noPrices()) {
+      lines.push(`There are no real prices for ${this.symbol} right now: its live feed isn't answering, and we never trade on made-up prices. I'm standing aside and start the moment real prices come in.`);
     } else {
       lines.push(this.pitch());
     }

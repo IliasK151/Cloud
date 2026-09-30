@@ -9,13 +9,13 @@ const LOOP_MS = 250;
 const RECOVER_DELAYS_MS = [90_000, 3 * 60_000, 6 * 60_000, 10 * 60_000];
 
 // Wires the right data source to every instrument.
-//  FEED=sim  → everything simulated on an accelerated virtual clock (always works offline)
-//  FEED=live → Binance (crypto) + Yahoo (futures/FX). A market whose source can't be reached
-//              runs on a real-time simulation so the floor keeps running (paper only: those
-//              prices never trade the prop account), and the real feed is retried in the
-//              background until it answers. MT5, when connected, takes over mapped markets
-//              with the broker's own prices.
-// Emits 'recovered' (id, source) when a simulated market switches to real prices.
+//  FEED=sim  → everything simulated on an accelerated virtual clock (demo mode, works offline)
+//  FEED=live → real prices only: Binance (crypto) + Yahoo (futures/FX), and MT5, when
+//              connected, takes over mapped markets with the broker's own prices. Nothing is
+//              ever simulated here: a market whose source can't be reached has no prices
+//              (status WAITING) and its desks stand aside, while the real feed is retried in
+//              the background until it answers.
+// Emits 'recovered' (id, source) when a waiting market gets real prices.
 export class FeedManager extends EventEmitter {
   constructor({ md, clock, mode, log = console, calendar = null, yahooOptions = {}, recoverDelaysMs = RECOVER_DELAYS_MS }) {
     super();
@@ -32,12 +32,13 @@ export class FeedManager extends EventEmitter {
     this.timer = null;
     this.recoverTimer = null;
     this.recoverAttempt = 0;
-    this.simulated = new Set();
+    this.binance = null;
+    this.waiting = new Set(); // live mode: markets with no real prices yet
     this.hooks = { sessionClose: () => {}, sessionOpen: () => {} };
     this.notes = [];
-    // Real prices taking over a simulated market (Yahoo recovered, or MT5's broker feed).
+    // Real prices arriving for a waiting market (Yahoo answering again, or MT5's broker feed).
     md.on('claim', (id, source) => {
-      if (this.simulated.has(id) && source !== 'sim') this.#promote(id, source);
+      if (this.waiting.has(id) && source !== 'sim') this.#promote(id, source);
     });
   }
 
@@ -64,9 +65,10 @@ export class FeedManager extends EventEmitter {
 
       if (bRes.status === 'fulfilled') {
         this.feeds.push(binance);
+        this.binance = binance;
         this.notes.push(`Binance live: ${binanceSyms.map((s) => s.id).join(', ')}`);
       } else {
-        this.log.warn(`[feed] ${bRes.reason.message} → simulating ${binanceSyms.map((s) => s.id).join(', ')}`);
+        this.log.warn(`[feed] ${bRes.reason.message}: ${binanceSyms.map((s) => s.id).join(', ')} wait for real prices (retrying in the background)`);
         fallback.push(...binanceSyms.map((s) => s.id));
       }
       if (yRes.status === 'fulfilled') {
@@ -75,12 +77,12 @@ export class FeedManager extends EventEmitter {
         const failed = yRes.value.failed;
         const limited = failed.filter((f) => f.rateLimited).map((f) => f.id);
         if (limited.length) {
-          this.log.warn(`[feed] Yahoo Finance is rate-limiting this internet connection (HTTP 429), so ${limited.join(', ')} start on simulated prices.`);
-          this.log.warn('[feed]   The floor retries Yahoo in the background and switches them to real prices when it answers.');
-          this.log.warn('[feed]   With MT5 connected, those markets use your broker\'s prices instead. Simulated prices never trade the FTMO account.');
+          this.log.warn(`[feed] Yahoo Finance is rate-limiting this internet connection (HTTP 429), so ${limited.join(', ')} have no prices yet.`);
+          this.log.warn('[feed]   Nothing is simulated: their desks stand aside until real prices arrive. The floor retries Yahoo in the background,');
+          this.log.warn('[feed]   and with MT5 connected, every market your broker lists is priced from your broker\'s feed instead.');
         }
         for (const f of failed) {
-          if (!f.rateLimited) this.log.warn(`[feed] Yahoo ${f.id}: ${f.error} → simulating for now (retrying in the background)`);
+          if (!f.rateLimited) this.log.warn(`[feed] Yahoo ${f.id}: ${f.error}: waiting for real prices (retrying in the background)`);
           fallback.push(f.id);
         }
       } else {
@@ -88,17 +90,21 @@ export class FeedManager extends EventEmitter {
       }
 
       if (fallback.length) {
-        this.sim = new SimFeed(this.md, this.clock, fallback, { useSessionShape: false, calendar: this.calendar });
-        this.sim.warmup(420);
         for (const id of fallback) {
-          this.md.setStatus(id, 'SIM', 'sim');
-          this.simulated.add(id);
+          this.md.setStatus(id, 'WAITING', 'none');
+          this.waiting.add(id);
         }
-        this.notes.push(`Simulated (live source unreachable): ${fallback.join(', ')}`);
-        if (fallback.some((id) => SYMBOLS[id].source.type === 'yahoo')) this.#scheduleRecovery();
+        this.#noteWaiting();
+        this.#scheduleRecovery();
       }
     }
     this.#loop();
+  }
+
+  #noteWaiting() {
+    const left = [...this.waiting].join(', ');
+    this.notes = this.notes.filter((n) => !n.startsWith('Waiting for real prices'));
+    if (left) this.notes.push(`Waiting for real prices (live source unreachable, nothing simulated): ${left}`);
   }
 
   #scheduleRecovery() {
@@ -109,30 +115,45 @@ export class FeedManager extends EventEmitter {
     this.recoverTimer.unref?.();
   }
 
-  // One market at a time; a rate limit ends the round (the client is paused anyway).
+  // Yahoo one market at a time (a rate limit ends the round: the client is paused anyway),
+  // and Binance for the coins the broker doesn't already price.
   async #recover() {
     this.recoverAttempt++;
-    const pending = [...this.simulated].filter((id) => SYMBOLS[id].source.type === 'yahoo');
+    const pending = [...this.waiting].filter((id) => SYMBOLS[id].source.type === 'yahoo');
     for (const id of pending) {
       try {
-        if (await this.yahoo.recover(id)) this.log.info(`[feed] Yahoo is answering again: ${id} is back on real prices`);
+        if (await this.yahoo.recover(id)) this.log.info(`[feed] Yahoo is answering again: ${id} is on real prices`);
       } catch (err) {
         if (err.rateLimited) break;
       }
     }
-    if ([...this.simulated].some((id) => SYMBOLS[id].source.type === 'yahoo')) this.#scheduleRecovery();
-    else if (this.yahoo && !this.feeds.includes(this.yahoo)) this.feeds.push(this.yahoo);
+    const coins = [...this.waiting].filter((id) => SYMBOLS[id].source.type === 'binance' && this.md.ownerOf(id) !== 'mt5');
+    if (coins.length) {
+      const feed = new BinanceFeed(this.md, coins.map((id) => SYMBOLS[id]), this.log);
+      try {
+        await feed.start();
+        this.binance?.stop();
+        this.binance = feed;
+        this.feeds = this.feeds.filter((f) => !(f instanceof BinanceFeed)).concat(feed);
+        this.log.info(`[feed] Binance is answering again: ${coins.join(', ')} ${coins.length === 1 ? 'is' : 'are'} on real prices`);
+        for (const id of coins) this.#promote(id, 'binance');
+      } catch {
+        feed.stop();
+      }
+    }
+    if (this.waiting.size) this.#scheduleRecovery();
+    if (this.yahoo && !this.feeds.includes(this.yahoo)) this.feeds.push(this.yahoo);
   }
 
   #promote(id, source) {
-    this.simulated.delete(id);
-    this.sim?.remove(id);
-    const left = [...this.simulated].join(', ');
-    this.notes = this.notes.map((n) => (n.startsWith('Simulated') ? (left ? `Simulated (live source unreachable): ${left}` : null) : n)).filter(Boolean);
+    if (!this.waiting.delete(id)) return;
+    this.#noteWaiting();
     this.emit('recovered', id, source);
   }
 
+  // Demo mode only: the simulator runs on its own accelerated clock.
   #loop() {
+    if (this.mode !== 'sim') return;
     let lastReal = Date.now();
     this.timer = setInterval(() => {
       const nowReal = Date.now();

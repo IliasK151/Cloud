@@ -49,7 +49,7 @@ export class Hud {
     const live = s.config.mode === 'live';
     this.el.mode.textContent = live ? 'Live' : `Sim ${s.config.speed}×`;
     this.el.mode.className = `mode-badge ${live ? 'live' : 'sim'}`;
-    this.el.mode.title = live ? 'Live market data (Binance + Yahoo Finance), paper execution' : 'Simulated markets on an accelerated clock';
+    this.el.mode.title = live ? 'Real market data only (Binance, Yahoo Finance, your MT5 broker feed); nothing is simulated' : 'Simulated markets on an accelerated clock';
     this.el.list.innerHTML = '';
     this.rows.clear();
     s.profiles.forEach((p, i) => {

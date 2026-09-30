@@ -65,10 +65,16 @@ test('the Yahoo client opens a cookie session, and backs off on HTTP 429 instead
   assert.equal(client.strikes, 0);
 });
 
-test('a market that fell back to simulation switches to real prices when Yahoo answers again', async () => {
+test('live mode never simulates: a market whose feed is down has no prices until real ones arrive', async () => {
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error('offline'); }; // Binance unreachable in this test
   let answer = false;
+  // Binance's REST klines (the websocket after it may fail here; that's fine).
+  globalThis.fetch = async () => {
+    if (!answer) throw new Error('offline');
+    const end = Math.floor(Date.now() / 60_000) * 60_000;
+    const rows = Array.from({ length: 100 }, (_, i) => [end - (99 - i) * 60_000, '100000', '100010', '99990', '100005', '5']);
+    return { ok: true, json: async () => rows };
+  };
   const client = {
     paused: false,
     chart: async () => {
@@ -83,18 +89,27 @@ test('a market that fell back to simulation switches to real prices when Yahoo a
   feeds.on('recovered', (id, source) => recovered.push([id, source]));
   try {
     await feeds.start();
-    assert.equal(md.get('XAUUSD').source, 'sim');
-    assert.equal(md.get('XAUUSD').status, 'SIM');
+    assert.equal(feeds.sim, null, 'no simulator in live mode');
+    for (const id of ['XAUUSD', 'GBPUSD', 'BTCUSD']) {
+      assert.equal(md.get(id).status, 'WAITING', id);
+      assert.equal(Number.isFinite(md.price(id)), false, `${id} has no made-up price`);
+      assert.equal(md.bars(id).length, 0, `${id} has no made-up bars`);
+    }
+    assert.ok(feeds.notes.some((n) => /Waiting for real prices.*GBPUSD/.test(n)));
+
+    // The real feeds answer: Yahoo's markets and Binance's coins get real prices.
     answer = true;
-    const deadline = Date.now() + 3000;
-    while (feeds.simulated.has('XAUUSD') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    const deadline = Date.now() + 4000;
+    while (feeds.waiting.size && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(feeds.waiting.size, 0, `still waiting: ${[...feeds.waiting]}`);
     assert.equal(md.get('XAUUSD').source, 'yahoo');
     assert.equal(md.ownerOf('XAUUSD'), 'yahoo');
     assert.ok(Math.abs(md.price('XAUUSD') - 3800) < 5, `price ${md.price('XAUUSD')}`);
+    assert.equal(md.get('BTCUSD').source, 'binance');
+    assert.ok(Math.abs(md.price('BTCUSD') - 100005) < 1, `price ${md.price('BTCUSD')}`);
     assert.ok(recovered.some(([id, src]) => id === 'XAUUSD' && src === 'yahoo'));
-    assert.equal(feeds.sim.state.has('XAUUSD'), false, 'no longer simulated');
-    // Crypto (Binance offline here) is not a Yahoo market: it stays simulated.
-    assert.equal(md.get('BTCUSD').source, 'sim');
+    assert.ok(recovered.some(([id, src]) => id === 'BTCUSD' && src === 'binance'));
+    assert.ok(!feeds.notes.some((n) => /Waiting for real prices/.test(n)));
   } finally {
     feeds.stop();
     globalThis.fetch = realFetch;
@@ -133,7 +148,7 @@ test('trades on simulated prices are tagged and never count as a real record', (
   assert.ok(live.edge(lab, 'XAUUSD', 'LONG').e > 0);
 });
 
-test('research history: only real data is saved, old caches are ignored, broker bars replace simulated history', async () => {
+test('research history: only real data, never generated in live mode; broker bars fill a market that had none', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hist-'));
   const dir = path.join(dataDir, 'history');
   fs.mkdirSync(dir);
@@ -147,18 +162,18 @@ test('research history: only real data is saved, old caches are ignored, broker 
   md.seed('EURUSD', mk(100, 1.1));
   md.setStatus('EURUSD', 'LIVE', 'yahoo');
   for (const id of ['NAS100', 'SPX500', 'USOIL', 'USDJPY', 'XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD']) md.setStatus(id, 'LIVE', id.endsWith('USD') && id !== 'XAUUSD' && id !== 'USDJPY' ? 'binance' : 'yahoo');
-  md.setStatus('XAUUSD', 'SIM', 'sim');
+  md.setStatus('XAUUSD', 'WAITING', 'none'); // gold's feed is down: no prices at all
   const fetchers = { binance: async () => [], yahoo: async () => { throw new Error('HTTP 429'); } };
   const history = new HistoryStore({ md, mode: 'live', dataDir, log: quiet, fetchers });
   await history.load();
 
   assert.ok(history.bars('EURUSD').every((b) => b.time !== 1), 'the old cache was ignored');
   assert.equal(history.isReal('EURUSD'), true);
-  assert.equal(history.isReal('XAUUSD'), false, 'gold is simulated');
-  assert.ok(history.bars('XAUUSD').length > 1000);
+  assert.equal(history.bars('XAUUSD').length, 0, 'no history for gold yet, and none is made up');
+  assert.notEqual(history.status().XAUUSD.source, 'simulated');
 
   history.save();
-  assert.equal(fs.existsSync(path.join(dir, 'XAUUSD.json')), false, 'simulated history is never saved');
+  assert.equal(fs.existsSync(path.join(dir, 'XAUUSD.json')), false, 'nothing to save for gold yet');
   const saved = JSON.parse(fs.readFileSync(path.join(dir, 'EURUSD.json'), 'utf8'));
   assert.equal(saved.v, 2);
   assert.equal(saved.level, 'yahoo');

@@ -39,15 +39,7 @@ A 3D institutional trading floor that runs in your browser, served by a small se
 | Clock | Real time; desks go flat 16:50–18:00 New York | 20× accelerated New York session, 09:30–16:00, then the next day |
 | Best for | Watching the agents trade the real market | Non-stop action, weekends, offline |
 
-If a live source can't be reached, that market automatically falls back to a real-time simulation. Every price is labelled `LIVE`, `DELAYED`, `CLOSED` or `SIM`, so you always know what you're looking at. Futures and FX desks go quiet on weekends in live mode, while crypto trades 24/7.
-
-**Simulated prices never touch real money.** A market running on the simulated stand-in (`SIM`) is paper practice only:
-
-- nothing on it is sent to your FTMO account;
-- trades on it don't count toward a desk's real track record, and the desks don't learn from them;
-- the research desks don't trust strategies validated on its generated history.
-
-When real prices come back, the desks re-test on the real data.
+**Live mode uses real prices only. Nothing is ever simulated.** If a market's live source can't be reached, that market has no prices (`WAITING`) until real ones arrive: its desks show **NO PRICES**, stand aside, say why in their briefing, and refuse TradingView alerts on it. No paper trades, no research on made-up history. Every price is labelled `LIVE`, `DELAYED`, `CLOSED` or `WAITING`, so you always know what you're looking at. Futures and FX desks go quiet on weekends in live mode, while crypto trades 24/7. (`npm run demo` is the only place prices are simulated.)
 
 **"Yahoo … HTTP 429" at startup.** Yahoo Finance rate-limits some internet connections. The floor handles this politely:
 
@@ -55,7 +47,7 @@ When real prices come back, the desks re-test on the real data.
 - it sends one request at a time;
 - after a 429 it pauses instead of retrying.
 
-In the meantime those markets run simulated. The floor keeps retrying in the background, after about 1½, 3 and 6 minutes and then every 10 minutes, and switches each market to real prices the moment Yahoo answers. With MT5 connected and the account set up in the FTMO tab, it doesn't matter: every mapped market (NAS100, SPX500, gold, oil, EURUSD, GBPUSD, USDJPY and the coins your broker lists) runs on **your broker's own prices** instead. It also gets about 6,000 of the broker's one-minute bars as research history.
+In the meantime those markets wait, with no prices. The floor keeps retrying in the background (Yahoo, and Binance for the coins), after about 1½, 3 and 6 minutes and then every 10 minutes, and each market gets real prices the moment its feed answers. With MT5 connected and the account set up in the FTMO tab, it doesn't matter: every mapped market (NAS100, SPX500, gold, oil, EURUSD, GBPUSD, USDJPY and the coins your broker lists) runs on **your broker's own prices** instead. It also gets about 6,000 of the broker's one-minute bars as research history. A market added to the floor after you set up the account (like GBPUSD) is mapped to your broker's symbol automatically on the next sync.
 
 ---
 
@@ -226,7 +218,7 @@ Run `npm run backtest -- 5` to fast-forward five sessions and see the results yo
 
 The paper desks can experiment; the account only gets the best ideas, sized by where the account stands. This is the plan a professional prop trader follows to pass a challenge and keep getting paid:
 
-- **Only A-grade trades from proven desks.** A desk needs 10+ paper trades **on real market prices** and a positive measured edge before it risks real money. For a research desk, a strategy validated on real history counts instead. Trades on simulated prices (a market whose live feed is down) never count, and a trade decided on simulated prices is never sent to the account. The Brain tab lists who is cleared and who is still proving themselves.
+- **Only A-grade trades from proven desks.** A desk needs 10+ paper trades **on real market prices** and a positive measured edge before it risks real money. For a research desk, a strategy validated on real history counts instead. Demo-mode trades never count, and live mode never simulates a market: one without real prices simply isn't traded. The Brain tab lists who is cleared and who is still proving themselves.
 - **Your own TradingView alerts are your decision.** They go to the account without the proven-desk and grade checks. The committee can still veto them (news, extreme volatility, poor reward), and every risk rule below applies. Test alerts from the TradingView tab's button never trade the account.
 - **Switched on is not the same as trading.** A desk's own trades reach MT5 only once it's cleared. Everywhere the floor shows where each desk really stands, and never claims a paper trade is on FTMO:
   - desk list chips: **FTMO LIVE**, **FTMO**, or **FTMO · PAPER** while it's proving itself;
@@ -403,7 +395,7 @@ It then prints what to fix. It only reads; it never trades. The FTMO tab shows t
 | The FTMO tab says "Algo Trading is off" | Turn on the Algo Trading toolbar button and tick *Allow Algo Trading* in the EA's settings |
 | Can't drag the file into the Experts folder | Use the MetaEditor paste method or `npm run install-ea` (step 4 above) |
 | A market shows "not mapped" | Pick the matching MT5 symbol in **Edit setup → Symbols on your account** |
-| A desk's trade says "not sent to FTMO: … simulated prices" | That market's live feed is down (e.g. Yahoo HTTP 429). Map it to your MT5 symbol and its broker prices take over within seconds |
+| A desk says **NO PRICES** / the FTMO tab says "No real prices for …" | That market's live feed isn't answering (e.g. Yahoo HTTP 429) and nothing is simulated. Map it to your MT5 symbol in **Edit setup** and your broker's prices take over within seconds |
 
 ---
 

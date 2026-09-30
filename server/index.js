@@ -53,8 +53,8 @@ feeds.onSession({
   sessionOpen: () => fund.housekeeping(),
 });
 feeds.on('recovered', (id, source) => {
-  const via = source === 'mt5' ? 'your broker\'s MT5 prices' : 'live Yahoo Finance prices';
-  fund.pushEvent({ kind: 'info', text: `${id} is now on ${via} (it was simulated while its feed was down).` });
+  const via = { mt5: 'your broker\'s MT5 prices', binance: 'live Binance prices' }[source] || 'live Yahoo Finance prices';
+  fund.pushEvent({ kind: 'info', text: `${id} has real prices again, from ${via}. Its desks can trade it.` });
 });
 
 // ---- security --------------------------------------------------------------------------------

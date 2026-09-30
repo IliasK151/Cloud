@@ -369,8 +369,28 @@ export class LiveTrader extends EventEmitter {
     }
   }
 
+  // Markets added to the floor after the account was set up (GBPUSD, say) are mapped to the
+  // broker's symbol automatically, so MT5 prices them like the rest. A market the boss set
+  // to "not mapped" stays that way.
+  #mapNewMarkets(p) {
+    const syms = this.bridge.symbols;
+    if (!syms?.length) return;
+    p.symbolMap ||= {};
+    const missing = SYMBOL_IDS.filter((id) => !(id in p.symbolMap));
+    if (!missing.length) return;
+    const suggested = autoMap(syms);
+    const added = [];
+    for (const id of missing) {
+      p.symbolMap[id] = suggested[id] ?? null;
+      if (p.symbolMap[id]) added.push(`${id} → ${p.symbolMap[id]}`);
+    }
+    this.save();
+    if (added.length) this.#note(`New market${added.length === 1 ? '' : 's'} mapped to your broker: ${added.join(', ')}. MT5 prices ${added.length === 1 ? 'it' : 'them'} now.`);
+  }
+
   #onSync() {
     const p = this.profile;
+    if (p) this.#mapNewMarkets(p);
     const map = p?.symbolMap || autoMap(this.bridge.symbols);
     this.bridge.watch(Object.values(map).filter(Boolean));
     if (!p) return this.emit('change');
@@ -779,10 +799,15 @@ export class LiveTrader extends EventEmitter {
       if (caps.maxRiskPct > 0 && p.riskPerTradePct > caps.maxRiskPct) warnings.push(`The EA refuses orders risking more than ${caps.maxRiskPct}% but the account is set to ${p.riskPerTradePct}% per trade. Lower the risk in Edit setup, or raise "Max risk per order" in the EA's inputs.`);
       if (caps.maxPositions > 0 && p.maxPositions > caps.maxPositions) warnings.push(`The EA allows at most ${caps.maxPositions} floor positions, fewer than the ${p.maxPositions} set here, so extra trades will be refused by MT5.`);
     }
-    const simulated = SYMBOL_IDS.filter((id) => this.md.get(id)?.source === 'sim');
-    if (this.mode === 'live' && simulated.length) {
-      const how = !p ? ' Set up the account below and MT5 will price the mapped ones with your broker\'s feed.' : '';
-      warnings.push(`${simulated.join(', ')} ${simulated.length === 1 ? 'is' : 'are'} on simulated prices because the live feed is down. Desks keep practising on paper there, but nothing on those markets is sent to FTMO until real prices are back.${how}`);
+    const waiting = SYMBOL_IDS.filter((id) => this.md.get(id)?.status === 'WAITING');
+    if (this.mode === 'live' && waiting.length) {
+      const unmapped = waiting.filter((id) => !p?.symbolMap?.[id]);
+      const how = !p
+        ? ' Set up the account below and MT5 prices every market your broker lists.'
+        : unmapped.length
+          ? ` ${unmapped.join(', ')} ${unmapped.length === 1 ? 'isn\'t' : 'aren\'t'} mapped to a symbol on your broker: pick one in Edit setup and MT5 prices it at once.`
+          : ' MT5 is sending your broker\'s prices for them now.';
+      warnings.push(`No real prices for ${waiting.join(', ')} right now: the live feed isn't answering. Nothing is simulated, so desks on ${waiting.length === 1 ? 'that market' : 'those markets'} stand aside until real prices arrive.${how}`);
     }
     const plan = this.brain.state();
     const orphans = this.bridge.positions.filter((x) => this.#ours(x) && !links.some((l) => l.ticket === x.ticket && !l.previousSession && ['open', 'closing'].includes(l.state)));

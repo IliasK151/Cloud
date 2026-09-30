@@ -62,7 +62,7 @@ async function main() {
     return;
   }
   good(`The floor is running (${h.mode === 'sim' ? 'demo mode, simulated prices' : 'live mode'}, up ${Math.round(h.uptime / 60)} min).`);
-  for (const n of h.notes || []) if (/Simulated/.test(n)) warn(n);
+  for (const n of h.notes || []) if (/Waiting for real prices/.test(n)) warn(n);
 
   // 2. The dashboard page and its key.
   const page = await get('/');
@@ -140,8 +140,14 @@ async function main() {
         + '        6. The chart comment of the EA (top-left of the chart) says what went wrong, e.g. "WebRequest is blocked"',
       );
     }
-    for (const w of (live.warnings || []).filter((x) => !/simulated prices|demo mode/.test(x)).slice(0, 4)) {
+    for (const w of (live.warnings || []).filter((x) => !/demo mode/.test(x)).slice(0, 4)) {
       if (live.bridgeIssue && w === live.bridgeIssue.text) continue;
+      // The waiting markets are listed above; only the advice on fixing them is new here.
+      if (/^No real prices/.test(w)) {
+        const fix = w.match(/[^.]* mapped to a symbol on your broker[^.]*\./)?.[0];
+        if (fix) tip(fix.trim());
+        continue;
+      }
       warn(w);
     }
   }

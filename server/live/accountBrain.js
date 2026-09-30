@@ -123,7 +123,7 @@ export class AccountBrain {
         p.provenOnly !== false
           ? { text: `Only committee ${minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades from desks with a proven edge on real prices`, ok: true }
           : { text: 'Proven desks only is OFF: unproven desks trade the account at half risk (committee-approved A and B-grade trades)', ok: false },
-        { text: 'Never a trade on simulated prices (a market whose live feed is down)', ok: true },
+        { text: 'Real prices only: a market whose live feed is down is not traded, never simulated', ok: true },
         { text: `Risk ${riskPct.toFixed(2)}% per trade now (base ${base}%)`, ok: mult >= 0.99 },
         p.dailyStopOn !== false
           ? { text: `Daily stop at −${p.dailyStopPct}% (today ${fmtUsd(dayPnl, { sign: true })})`, ok: dayLoss < stop / 2 }

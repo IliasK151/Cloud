@@ -459,3 +459,37 @@ test("a scalper's GBPUSD scalp reaches MT5 under its own magic number, with its 
   assert.equal(Number(magic), MAGIC_BASE + 16, 'the scalpers come after the original fifteen desks');
   assert.ok(Number(slDist) > 0 && Number(slDist) < 0.001, `a scalp stop under 10 pips (${slDist})`);
 });
+
+test('a market added after the account was set up (GBPUSD) is mapped to the broker on the next sync', () => {
+  const { live, sync } = setup({ symbols: ['GBPUSD'] });
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  // An account saved before GBPUSD existed, where the boss also chose to leave EURUSD unmapped.
+  delete live.profile.symbolMap.GBPUSD;
+  live.profile.symbolMap.EURUSD = null;
+  sync();
+  assert.equal(live.profile.symbolMap.GBPUSD, 'GBPUSD');
+  assert.equal(live.profile.symbolMap.EURUSD, null, 'a market set to "not mapped" stays that way');
+  assert.ok(live.events.some((e) => /New market mapped to your broker: GBPUSD → GBPUSD/.test(e.text)));
+  // Nothing new the next time.
+  const n = live.events.length;
+  sync();
+  assert.equal(live.events.filter((e) => /New market/.test(e.text)).length, live.events.slice(0, n).filter((e) => /New market/.test(e.text)).length);
+});
+
+test('a market without real prices is never made up: its desks stand aside and say why', () => {
+  const { fund, live, sync } = setup();
+  fund.md.setStatus('GBPUSD', 'WAITING', 'none');
+  const jake = fund.byId.get('jake');
+  assert.equal(jake.status(), 'NO PRICES');
+  assert.match(jake.briefing().text, /no real prices for GBPUSD right now/);
+  const alert = jake.handleSignal({ action: 'buy', symbol: 'GBPUSD' });
+  assert.equal(alert.ok, false);
+  assert.match(alert.reason, /No real prices for GBPUSD/);
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  const w = live.view().warnings.find((x) => /^No real prices/.test(x));
+  assert.ok(w, 'the FTMO tab says so');
+  assert.match(w, /Nothing is simulated/);
+  assert.match(w, /GBPUSD isn't mapped to a symbol on your broker/);
+});

@@ -320,6 +320,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 1px 5px; border-radi
 .src-delayed, .src-reconnecting { color: var(--warn); }
 .src-closed { color: var(--text-3); }
 .src-sim { color: #8fbcf5; }
+.src-waiting { color: var(--text-3); }
 .banner { padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 13px; display: flex; gap: 10px; align-items: center; }
 .banner.crit { background: rgba(208, 59, 59, 0.14); border: 1px solid rgba(208, 59, 59, 0.4); color: #ffb3b3; }
 .banner.info { background: var(--accent-soft); border: 1px solid rgba(57, 135, 229, 0.35); color: #b9d5f7; }
