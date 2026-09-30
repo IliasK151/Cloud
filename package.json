@@ -25,5 +25,8 @@
     "lightweight-charts": "^5.2.1",
     "three": "^0.186.1",
     "ws": "^8.22.0"
+  },
+  "optionalDependencies": {
+    "@ngrok/ngrok": "^1.7.0"
   }
 }

@@ -6,7 +6,7 @@ import { resolveSymbol } from '../market/symbols.js';
 // Accepted message (JSON, put this in the alert's "Message" box):
 //   {"secret":"…","agent":"amara","symbol":"{{ticker}}","action":"buy","price":{{close}},"stop":2310.5,"target":2340}
 //
-// action: buy | long | sell | short | close | exit | flat
+// action: buy | long | sell | short | close | exit | flat  (ping = connection check, no trade)
 // Strategy alerts also work: "action":"{{strategy.order.action}}","position":"{{strategy.market_position}}"
 // Plain-text fallback: "BUY XAUUSD agent=amara secret=…"
 
@@ -14,6 +14,7 @@ const ACTIONS = {
   buy: 'buy', long: 'buy', 'entry long': 'buy', enter_long: 'buy',
   sell: 'sell', short: 'sell', 'entry short': 'sell', enter_short: 'sell',
   close: 'close', exit: 'close', flat: 'close', flatten: 'close', 'close all': 'close',
+  ping: 'ping', // connection check: answered, never traded
 };
 
 function parseText(text) {

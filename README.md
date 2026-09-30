@@ -99,27 +99,35 @@ All limits are configurable in `.env` (copy `.env.example`).
 ## TradingView integration
 
 1. **Charts.** Every trader's panel has a **TradingView** tab with the official TradingView Advanced Chart for their market (for example `OANDA:XAUUSD` or `BINANCE:BTCUSDT`), plus an "Open on TradingView" link. The floor's own charts are drawn with TradingView Lightweight Charts™.
-2. **Alerts → orders.** TradingView alerts can be sent to any desk through a webhook. The in-app **TradingView** tab walks you through it and generates the alert message for you:
+2. **Alerts → orders.** Your TradingView alerts can be sent to any desk. They trade on paper, and on your FTMO account too for desks you've switched on and armed in the FTMO tab.
 
-   ```bash
-   brew install cloudflared
-   cloudflared tunnel --url http://localhost:3001     # webhook-only port, never the dashboard
-   ```
+### Set up TradingView alerts (about 3 minutes)
 
-   In TradingView, set the alert's **Webhook URL** to `https://<your-tunnel>.trycloudflare.com/webhook` and put this in the **Message** box:
+Open the **TradingView** tab. A checklist at the top ticks itself off as you go:
 
-   ```json
-   {"secret":"<your secret>","agent":"amara","symbol":"{{ticker}}","action":"buy","price":{{close}}}
-   ```
+1. **Public address.** TradingView sends alerts from its servers on the internet, so the floor needs a public web address. Press **Create public address**. The floor opens a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (no account needed). The first time, it downloads Cloudflare's `cloudflared` app from Cloudflare's official GitHub releases into `data/bin`, unless you already have it (`brew install cloudflared`). The tunnel only reaches the webhook-only port, so the dashboard and its controls stay private on your Mac. It turns itself back on whenever you start the floor.
+2. **Connection test.** The floor sends a harmless test ping through the public address to check that it works from the internet. The ping never places a trade.
+3. **Alert in TradingView.** Create an alert, paste the **message** the tab writes for you (pick the desk and buy / sell / close / strategy) into the alert's Message box, then tick **Webhook URL** under Notifications and paste the address. This step ticks itself off when the first alert arrives.
 
-   - `action`: `buy` / `sell` / `close`. Strategy alerts also work with `"action":"{{strategy.order.action}}","position":"{{strategy.market_position}}"`.
-   - Optional fields: `stop`, `target` and `comment`. Without them the desk uses a 1.5 ATR stop and a 2R target, sized by the risk desk.
-   - `agent` picks the desk (`marcus`, `sofia`, `kenji`, `amara`, `viktor`, `isabella`, `james`, `priya`, `lucas`, `chen`). Without it, the alert goes to Chen's TradingView Signals desk.
-   - Tickers such as `OANDA:XAUUSD`, `NQ1!`, `BINANCE:BTCUSDT` and `ES1!` are mapped automatically.
-   - The secret is created on first run in `data/webhook-secret.txt`, or you can set `WEBHOOK_SECRET` yourself. Alerts with a wrong secret are rejected, and the endpoint is rate-limited.
-3. **Pine Script bridge.** [`tradingview/institutional_agents_alerts.pine`](tradingview/institutional_agents_alerts.pine) is a ready-made indicator that sends Supertrend-flip alerts with stop and target levels to the desk you choose.
+Webhook alerts need a paid TradingView plan (Essential or higher), and TradingView asks you to turn on two-factor authentication before it will send them.
 
-Webhook alerts need a TradingView plan that includes webhooks. You can try the whole pipeline without TradingView using **Send test alert** on the TradingView tab.
+**An address that never changes.** The free Cloudflare address changes each time the floor starts, so you'd have to update the Webhook URL in your alerts after every restart (the tab warns you when that happens). For a permanent address, sign up for a free [ngrok](https://ngrok.com) account and paste your **authtoken** and free **static domain** under *Want an address that never changes?* in the tab. That's set once (the token stays on your Mac in `data/tradingview.json`), and the address stays the same for good.
+
+**The alert message** looks like this (the tab fills in your secret):
+
+```json
+{"secret":"<your secret>","agent":"amara","symbol":"{{ticker}}","action":"buy","price":{{close}}}
+```
+
+- `action`: `buy` / `sell` / `close`. Strategy alerts also work with `"action":"{{strategy.order.action}}","position":"{{strategy.market_position}}"`.
+- Optional fields: `stop`, `target` and `comment`. Without them the desk uses a 1.5 ATR stop and a 2R target, sized by the risk desk.
+- `agent` picks the desk (`marcus`, `sofia`, `kenji`, `amara`, `viktor`, `isabella`, `james`, `priya`, `lucas`, `chen`). Without it, the alert goes to Chen's TradingView Signals desk.
+- Tickers such as `OANDA:XAUUSD`, `NQ1!`, `BINANCE:BTCUSDT` and `ES1!` are mapped automatically.
+- The secret is created on first run in `data/webhook-secret.txt`, or you can set `WEBHOOK_SECRET` yourself. Alerts with a wrong secret are rejected, and the endpoint is rate-limited.
+
+**No indicator of your own?** [`tradingview/institutional_agents_alerts.pine`](tradingview/institutional_agents_alerts.pine) is a ready-made indicator that sends Supertrend-flip alerts with stop and target levels to the desk you choose. The tab has **Copy script** and step-by-step instructions.
+
+You can try the whole pipeline without TradingView using **Send test alert** on the tab. Prefer your own tunnel? Point any HTTPS tunnel at `http://localhost:3001` and use `https://<your-address>/webhook`.
 
 ![TradingView tab](docs/tradingview.jpg)
 

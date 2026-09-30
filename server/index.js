@@ -14,6 +14,7 @@ import { RiskManager } from './engine/risk.js';
 import { Fund } from './engine/fund.js';
 import { Store } from './store.js';
 import { parseBody, normalizeAlert, secretMatches, rateLimiter } from './tradingview/webhook.js';
+import { TunnelManager } from './tradingview/tunnel.js';
 import { Mt5Bridge } from './live/bridge.js';
 import { LiveTrader } from './live/liveTrader.js';
 
@@ -105,7 +106,10 @@ app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
   res.json(result);
 });
 
+const tunnel = new TunnelManager({ dataDir: config.dataDir, port: config.webhookPort, secret: config.webhookSecret, log });
+
 const tvInfo = () => ({
+  tunnel: tunnel.view(),
   webhookPath: '/api/tradingview/webhook',
   localUrl: `http://localhost:${config.port}/api/tradingview/webhook`,
   webhookPort: config.webhookPort,
@@ -125,11 +129,32 @@ function webhookHandler(req, res) {
     log.warn('[tradingview] rejected alert with a bad secret');
     return res.status(401).json({ ok: false, error: 'bad secret' });
   }
+  const remote = !isDirect(req);
+  if (parsed.alert.action === 'ping') {
+    if (remote) tunnel.markReached();
+    return res.json({ ok: true, result: 'Connection OK. The floor received this check and placed no trade.' });
+  }
   const result = fund.handleAlert(parsed.alert);
+  if (remote) tunnel.noteAlert(parsed.alert, result);
   return res.json({ ok: result.ok, result: result.ok ? result.text : result.reason });
 }
 const textBody = express.text({ type: '*/*', limit: '16kb' });
 app.post('/api/tradingview/webhook', textBody, webhookHandler);
+
+// Public address for TradingView (one-click tunnel), local controls only.
+app.post('/api/tradingview/tunnel/:action', localOnly, express.json(), async (req, res) => {
+  const b = req.body || {};
+  try {
+    if (req.params.action === 'start') await tunnel.start(b.provider || 'cloudflare', { authtoken: b.authtoken, domain: b.domain });
+    else if (req.params.action === 'stop') await tunnel.stop();
+    else if (req.params.action === 'check') await tunnel.check();
+    else if (req.params.action === 'ack') tunnel.ackUrlChange();
+    else return res.status(404).json({ ok: false, error: 'unknown action' });
+    res.json({ ok: true, tunnel: tunnel.view() });
+  } catch (err) {
+    res.json({ ok: false, error: err.message, tunnel: tunnel.view() });
+  }
+});
 
 // Test button in the UI: fires a signed alert without needing TradingView.
 app.post('/api/tradingview/test', localOnly, express.json(), (req, res) => {
@@ -164,7 +189,7 @@ function broadcast(msg) {
 }
 
 wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view() }));
+  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view() }));
   ws.on('message', (buf) => {
     try {
       const msg = JSON.parse(buf.toString());
@@ -185,9 +210,10 @@ fund.on('equity', (sample) => broadcast({ type: 'equity', sample }));
 fund.on('alert', (alert) => broadcast({ type: 'alert', alert }));
 fund.on('reset', () => {
   store.save(fund.serialize());
-  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view() }));
+  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view() }));
 });
 broker.on('trade', (trade) => broadcast({ type: 'trade', trade }));
+tunnel.on('change', (view) => broadcast({ type: 'tunnel', tunnel: view }));
 
 // Push the FTMO panel state when it changes (and at least every few seconds).
 let lastLive = '';
@@ -238,14 +264,14 @@ async function main() {
     log.info(`  Floor & dashboard:  ${url}`);
     log.info(`  Market data:        ${config.feed === 'sim' ? `SIMULATION (${config.simSpeed}x speed)` : 'LIVE (Binance + Yahoo Finance)'}`);
     for (const n of feeds.notes) log.info(`                      ${n}`);
-    log.info(`  TradingView hook:   http://localhost:${config.webhookPort}/webhook   (tunnel this port, see README)`);
+    log.info(`  TradingView hook:   http://localhost:${config.webhookPort}/webhook   (public address: TradingView tab)`);
     log.info(`  Webhook secret:     ${config.webhookSecret}`);
     log.info(`  FTMO / MT5 bridge:  http://127.0.0.1:${config.port}/api/bridge/sync  (token in the FTMO tab)`);
     log.info(`  Paper trading unless you connect MT5 and arm live trading in the FTMO tab.`);
     log.info('');
     if (config.openBrowser && !process.env.CI) openBrowser(url);
   });
-  hookServer.listen(config.webhookPort, config.host);
+  hookServer.listen(config.webhookPort, config.host, () => tunnel.init());
   hookServer.on('error', (err) => log.warn(`[webhook] port ${config.webhookPort} unavailable: ${err.message}`));
 }
 
@@ -268,6 +294,7 @@ async function shutdown() {
     log.warn('  Save failed:', err.message);
   }
   feeds.stop();
+  await tunnel.stop({ keepAuto: true }).catch(() => {});
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

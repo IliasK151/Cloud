@@ -121,6 +121,12 @@ class Store extends EventTarget {
     this.emit('live', view);
   }
 
+  setTunnel(view) {
+    if (!view) return;
+    this.tunnel = view;
+    this.emit('tunnel', view);
+  }
+
   select(id) {
     if (this.selected === id) return;
     this.selected = id;

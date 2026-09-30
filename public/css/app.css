@@ -465,4 +465,20 @@ select, input[type="text"] { background: var(--surface-2); border: 1px solid var
 .stepper li.now b { color: var(--text-1); }
 .next-step { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; color: var(--text-2); }
 .next-step .btn { flex: none; }
-@media (max-width: 1100px) { .stepper { grid-template-columns: 1fr; } }
+.stepper.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .stepper, .stepper.three { grid-template-columns: 1fr; } }
+
+/* TradingView setup */
+.tv-check { margin: 4px 0 12px; font-size: 12.5px; color: var(--text-2); }
+.tv-check.ok { color: var(--pos-text); }
+.tv-check.bad { color: var(--neg-text); }
+.tv-url { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tv-url .code { background: #0c0d10; border: 1px solid var(--hairline); border-radius: 6px; padding: 4px 8px; font-weight: 500; word-break: break-all; }
+.tv-more { margin-top: 14px; border-top: 1px solid var(--hairline); padding-top: 12px; }
+.tv-more summary { cursor: pointer; color: #9cc0ff; font-weight: 500; }
+.tv-more summary:hover { text-decoration: underline; }
+.tv-more[open] summary { margin-bottom: 8px; }
+.steps a { color: #9cc0ff; }
+.steps .test-row { margin: 8px 0 0; }
+.steps .field { margin: 8px 0 4px; }
+.form-grid input[type="text"], .form-grid input[type="password"] { background: var(--surface-2); border: 1px solid var(--hairline-strong); color: var(--text-1); border-radius: 6px; padding: 7px 9px; font: inherit; }
