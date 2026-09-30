@@ -647,3 +647,9 @@ details.how p { color: var(--text-3); }
 .brain-debates p { margin: 3px 0 0; color: var(--text-2); line-height: 1.45; }
 .thesis-cell { max-width: 420px; white-space: normal; color: var(--text-2); font-size: 11.5px; }
 .view .card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin: 14px 0 7px; font-weight: 600; }
+.switch.safe input:checked + span { background: var(--pos); }
+.plan-switch { display: flex; align-items: center; gap: 12px; margin: 12px 0 4px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--hairline); background: var(--surface-2); }
+.plan-switch b { display: block; font-size: 12.5px; }
+.plan-switch small { display: block; margin-top: 2px; color: var(--text-3); font-size: 11.5px; line-height: 1.4; }
+.plan-switch.off { border-color: rgba(242, 176, 30, 0.45); }
+.plan-switch.off b { color: var(--warn); }

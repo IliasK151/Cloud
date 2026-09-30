@@ -8,8 +8,9 @@ import { fmtUsd } from '../util/format.js';
 //     earned on real market prices (never on a simulated stand-in feed);
 //   - risk shrinks while the account is in drawdown and after losses, never grows past the
 //     base risk you set;
-//   - a daily stop well before FTMO's daily limit, a cap on trades per day, and a stop
-//     for the day after a losing streak;
+//   - a daily stop well before FTMO's daily limit (the boss can switch it off; FTMO's own
+//     daily guard still applies), a cap on trades per day, and a stop for the day after a
+//     losing streak;
 //   - one position per correlated group (both US indices are one bet, so are the coins);
 //   - near the profit target the risk shrinks so one loss can't undo the progress, and on a
 //     funded account risk is lighter to protect the payouts.
@@ -69,7 +70,8 @@ export class AccountBrain {
     }
     const dayLoss = Math.max(0, -dayPnl) / size;
     const stop = p.dailyStopPct / 100;
-    if (dayLoss >= stop) blocked = `Daily stop: ${fmtUsd(dayPnl)} today. The plan stops at −${p.dailyStopPct}%, long before FTMO's ${p.dailyLossPct}% limit. Back tomorrow`;
+    // The boss can switch the daily stop off; the half-risk step below still applies.
+    if (p.dailyStopOn !== false && dayLoss >= stop) blocked = `Daily stop: ${fmtUsd(dayPnl)} today. The plan stops at −${p.dailyStopPct}%, long before FTMO's ${p.dailyLossPct}% limit. Back tomorrow`;
     else if (dayLoss >= stop / 2) {
       mult *= 0.5;
       reasons.push(`Down ${fmtUsd(dayPnl)} today: half risk for the rest of the day`);
@@ -111,12 +113,14 @@ export class AccountBrain {
       baseRiskPct: base, riskPct: Math.round(riskPct * 1000) / 1000, riskMoney, mult: Math.round(mult * 100) / 100,
       equity: acc.equity, size, profit, dayPnl, streak, tradesToday, tradingDays, minTradingDays: 4,
       remaining, winsToTarget,
-      dailyStopPct: p.dailyStopPct, maxTradesPerDay: p.maxTradesPerDay, streakStop: p.streakStop, minGrade,
+      dailyStopPct: p.dailyStopPct, dailyStopOn: p.dailyStopOn !== false, dailyLossPct: p.dailyLossPct, guardPct: p.guardPct, maxTradesPerDay: p.maxTradesPerDay, streakStop: p.streakStop, minGrade,
       rules: [
         { text: `Only committee ${minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades from desks with a proven edge on real prices`, ok: true },
         { text: 'Never a trade on simulated prices (a market whose live feed is down)', ok: true },
         { text: `Risk ${riskPct.toFixed(2)}% per trade now (base ${base}%)`, ok: mult >= 0.99 },
-        { text: `Daily stop at −${p.dailyStopPct}% (today ${fmtUsd(dayPnl, { sign: true })})`, ok: dayLoss < stop / 2 },
+        p.dailyStopOn !== false
+          ? { text: `Daily stop at −${p.dailyStopPct}% (today ${fmtUsd(dayPnl, { sign: true })})`, ok: dayLoss < stop / 2 }
+          : { text: `Daily stop is OFF: trading continues after a −${p.dailyStopPct}% day (today ${fmtUsd(dayPnl, { sign: true })}). FTMO's daily guard still closes everything at ${p.guardPct}% of the ${p.dailyLossPct}% limit`, ok: false },
         { text: `At most ${p.maxTradesPerDay} trades a day (${tradesToday} so far)`, ok: tradesToday < p.maxTradesPerDay },
         { text: `Stop for the day after ${p.streakStop} losses in a row (streak ${streak})`, ok: streak < 2 },
         { text: 'One position per correlated group', ok: true },

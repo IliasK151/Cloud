@@ -11,6 +11,7 @@ import { fmtUsd } from '../util/format.js';
 export const MAGIC_BASE = 771000;
 const ENTRY_WINDOW_MS = 90_000; // never chase a desk's paper entry older than this
 const MISSING_SYNCS_TO_CLOSE = 3;
+const PLAN_KEYS = ['minGrade', 'dailyStopPct', 'dailyStopOn', 'maxTradesPerDay', 'streakStop'];
 
 // Desks whose trades can't be mirrored 1:1 onto a single prop account.
 const INELIGIBLE = {
@@ -88,10 +89,11 @@ export class LiveTrader extends EventEmitter {
     return this.account ? String(this.account.login) : null;
   }
 
-  // Profiles saved before the account brain existed get its defaults.
+  // Profiles saved before a plan setting existed get its default.
   get profile() {
     const p = this.login ? this.state.profiles[this.login] || null : null;
-    return p && p.minGrade == null ? Object.assign(p, { minGrade: DEFAULTS.minGrade, dailyStopPct: DEFAULTS.dailyStopPct, maxTradesPerDay: DEFAULTS.maxTradesPerDay, streakStop: DEFAULTS.streakStop }) : p;
+    if (p) for (const k of PLAN_KEYS) if (p[k] == null) p[k] = DEFAULTS[k];
+    return p;
   }
 
   get halt() {
@@ -169,6 +171,22 @@ export class LiveTrader extends EventEmitter {
     this.save();
     const name = this.fund.byId.get(agentId).profile.name;
     this.#note(`${name} ${enabled ? 'may now trade' : 'no longer trades'} the FTMO account`, 'live', agentId);
+    return { ok: true };
+  }
+
+  // Quick switches for the account plan (the Brain and FTMO tabs), without the setup form.
+  setPlan(body = {}) {
+    const p = this.profile;
+    if (!p) return { ok: false, error: 'Set up the account first' };
+    if (body.dailyStopOn == null) return { ok: false, error: 'Nothing to change' };
+    const on = body.dailyStopOn !== false && body.dailyStopOn !== 'false';
+    if (p.dailyStopOn === on) return { ok: true };
+    p.dailyStopOn = on;
+    p.updatedAt = Date.now();
+    this.save();
+    this.#note(on
+      ? `Daily stop switched ON: no new trades on the account after a −${p.dailyStopPct}% day`
+      : `Daily stop switched OFF by the boss: desks keep trading after a −${p.dailyStopPct}% day. FTMO's daily loss guard (${p.guardPct}% of the ${p.dailyLossPct}% limit) still applies`, 'risk');
     return { ok: true };
   }
 

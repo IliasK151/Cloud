@@ -1,4 +1,5 @@
 import { money, escapeHtml, initials, nyTime, signClass } from '../format.js';
+import { dailyStopSwitch, onPlanSwitch } from './planSwitch.js';
 
 // The Brain: how the floor thinks. At the top, the account brain (the plan that protects
 // the prop account) and which desks have earned real money. Below, one live graph per
@@ -51,6 +52,9 @@ export class BrainView {
       if (!d || this.rendering) return;
       if (d.open) { this.opened.add(d.dataset.id); this.closed.delete(d.dataset.id); } else { this.closed.add(d.dataset.id); this.opened.delete(d.dataset.id); }
     }, true);
+    this.root.addEventListener('change', (e) => {
+      if (e.target.matches('[data-plan-switch]')) onPlanSwitch(e.target);
+    });
     this.root.addEventListener('click', (e) => {
       const tab = e.target.closest('[data-mkt]');
       if (tab) {
@@ -110,6 +114,7 @@ export class BrainView {
     el.innerHTML = `
       <div class="plan-head"><div><h2>Account brain · ${escapeHtml(plan.phase)}</h2><p class="sub">${escapeHtml(plan.goal)}</p></div><span class="plan-status ${stCls}">${escapeHtml(st)}</span></div>
       ${plan.blocked ? `<div class="banner crit">⛔ ${escapeHtml(plan.blocked)}.</div>` : ''}
+      ${dailyStopSwitch(plan)}
       <div class="mini-tiles">
         <div><span>Equity</span><b class="num">${money(plan.equity)}</b></div>
         <div><span>From start</span><b class="num ${signClass(plan.profit)}">${money(plan.profit, { sign: true })}</b></div>

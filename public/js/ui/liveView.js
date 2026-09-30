@@ -1,5 +1,6 @@
 import { api } from '../net.js';
 import { money, escapeHtml, signClass } from '../format.js';
+import { dailyStopSwitch, onPlanSwitch } from './planSwitch.js';
 
 // FTMO tab: connect MT5, set the account up, pick desks, arm, and watch the rules.
 export class LiveView {
@@ -60,6 +61,7 @@ export class LiveView {
       const t = e.target;
       if (t.matches('[data-desk]')) this.#post('desk', { agentId: t.dataset.desk, enabled: t.checked });
       if (t.id === 'lv-type') this.#applyPreset(t.value);
+      if (t.matches('[data-plan-switch]')) onPlanSwitch(t);
     });
     this.built = true;
   }
@@ -169,6 +171,7 @@ export class LiveView {
       stopAtTarget: q('#lv-stop-target').checked,
       minGrade: q('#lv-grade').value,
       dailyStopPct: Number(q('#lv-daystop').value),
+      dailyStopOn: q('#lv-daystop-on').checked,
       maxTradesPerDay: Number(q('#lv-maxtrades').value),
       streakStop: Number(q('#lv-streak').value),
       symbolMap,
@@ -269,7 +272,8 @@ export class LiveView {
           ${m.targetEquity ? meter('Profit target', Math.max(0, m.targetProgress), `${money(m.profit, { sign: true })} of ${money(m.targetEquity - p.size)}`, p.stopAtTarget ? 'Trading stops automatically when the target is reached.' : 'Keeps trading after the target.', 'good') : ''}
           ${meter('Daily loss used', m.dailyUsed, `${money(-m.dailyLoss)} of ${money(-m.dailyLimit)} · ${pct(m.dailyUsed)}`, `Measured from today's starting balance ${money(m.dayStartBalance)}. Stops at ${money(-m.dailyGuard)}.`)}
           ${meter('Max loss used', m.maxUsed, `${money(-m.totalLoss)} of ${money(-m.maxLimit)} · ${pct(m.maxUsed)}`, `Account may not fall below ${money(p.size - m.maxLimit)}. Stops at ${money(p.size - m.maxGuard)}.`)}
-        </div>`;
+        </div>
+        ${dailyStopSwitch(v.plan)}`;
     } else {
       $('#live-rules').innerHTML = `<h2>Account vs FTMO rules</h2><p class="sub">Once MT5 is connected and the account is set up, balance, equity, profit target and the daily and max loss limits show here.</p>`;
     }
@@ -328,6 +332,7 @@ export class LiveView {
         <div class="form-grid">
           <label>Trades on the account<select id="lv-grade"><option value="A" ${cur.minGrade !== 'B' ? 'selected' : ''}>Committee A-grade only (recommended)</option><option value="B" ${cur.minGrade === 'B' ? 'selected' : ''}>A and B-grade</option></select></label>
           <label>Daily stop %<input type="number" id="lv-daystop" min="0.25" max="10" step="0.25" value="${cur.dailyStopPct ?? 1.5}"><span class="hint">Done for the day at this loss, far before FTMO's daily limit</span></label>
+          <label class="check"><input type="checkbox" id="lv-daystop-on" ${cur.dailyStopOn !== false ? 'checked' : ''}> Daily stop on (off: keep trading after a losing day; FTMO's daily guard still applies)</label>
           <label>Max trades per day<input type="number" id="lv-maxtrades" min="1" max="50" step="1" value="${cur.maxTradesPerDay ?? 6}"></label>
           <label>Stop after losses in a row<input type="number" id="lv-streak" min="2" max="10" step="1" value="${cur.streakStop ?? 3}"><span class="hint">Two in a row already halves the risk</span></label>
         </div>

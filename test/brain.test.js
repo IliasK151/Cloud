@@ -194,6 +194,22 @@ test('account brain: daily stop, losing streaks and the trade cap stop the day',
   assert.match(busy.blocked, /6 trades today/);
 });
 
+test('account brain: the daily stop can be switched off; risk still halves and the FTMO guard remains', () => {
+  const off = account({ equity: 9_840, dayStart: 10_000, profile: { dailyStopOn: false } }).brain.state();
+  assert.equal(off.blocked, null, 'keeps trading after a −1.6% day');
+  assert.equal(off.dailyStopOn, false);
+  assert.equal(off.status, 'CAUTIOUS');
+  assert.ok(off.reasons.some((r) => /half risk for the rest of the day/.test(r)));
+  assert.ok(off.rules.some((r) => /Daily stop is OFF/.test(r.text) && !r.ok));
+  // The other day-enders are separate switches and still work.
+  const loss = (i) => ({ state: 'closed', pnl: -30, closedAt: Date.now() - (5 - i) * 60_000, closedDay: '2026.10.14', openedDay: '2026.10.14' });
+  const streak = account({ profile: { dailyStopOn: false }, links: [loss(1), loss(2), loss(3)] }).brain.state();
+  assert.match(streak.blocked, /3 losses in a row/);
+  // Default and form round-trips keep the setting.
+  assert.equal(normalizeProfile({}).dailyStopOn, true);
+  assert.equal(normalizeProfile({ dailyStopOn: false }).dailyStopOn, false);
+});
+
 test('account brain: only proven desks, A-grade, one position per correlated group', () => {
   const { fund } = floor('on');
   const marcus = fund.byId.get('marcus');

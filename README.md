@@ -206,7 +206,7 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
 - **Only A-grade trades from proven desks.** A desk needs 10+ paper trades **on real market prices** and a positive measured edge before it risks real money. For a research desk, a strategy validated on real history counts instead. Trades on simulated prices (a market whose live feed is down) never count, and a trade decided on simulated prices is never sent to the account. The Brain tab lists who is cleared and who is still proving themselves.
 - **Starting fresh.** The real-only record began with this version. Your desks' earlier paper records can't be split into real and simulated trades, so every desk earns its 10 real trades again before it risks the account. Crypto desks on Binance get there fastest.
 - **Drawdown shrinks risk.** Below the starting balance, risk scales down (for example −$100 on a $10,000 trial: 0.25% → 0.20% per trade) until the loss is won back. It never grows past the base risk you set.
-- **Daily stop at −1.5%**, far before FTMO's 5%. At half of that, risk halves for the rest of the day.
+- **Daily stop at −1.5%**, far before FTMO's 5%. At half of that, risk halves for the rest of the day. The **Daily stop** switch on the Brain and FTMO tabs turns the stop off, for example while you watch how the desks perform through a losing day. With it off, the desks keep trading after −1.5% (risk still halves). FTMO's daily loss guard still closes everything at 80% of the daily limit.
 - **Losing streaks:** two in a row halve the risk until the next winner; three in a row end the day.
 - **At most 6 trades a day.** Overtrading is how accounts die.
 - **One position per correlated group.** NAS100 and SPX500 are one bet, and so are the three coins.

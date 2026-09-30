@@ -274,3 +274,20 @@ test('a market on simulated prices never reaches the FTMO account', async () => 
   live.reconcile();
   assert.equal(sync().filter((c) => c[0] === 'open').length, 1);
 });
+
+test('the daily stop switch is saved on the account and noted in the live log', () => {
+  const { live, sync } = setup();
+  sync();
+  assert.equal(live.setPlan({ dailyStopOn: false }).ok, false, 'needs the account set up');
+  live.setup({ type: 'trial', size: 10_000 });
+  assert.equal(live.profile.dailyStopOn, true);
+  assert.equal(live.setPlan({ dailyStopOn: false }).ok, true);
+  assert.equal(live.profile.dailyStopOn, false);
+  assert.equal(live.view().plan.dailyStopOn, false);
+  assert.match(live.events.at(-1).text, /Daily stop switched OFF/);
+  // Saving the setup form keeps the choice it sends.
+  live.setup({ type: 'trial', size: 10_000, dailyStopOn: false });
+  assert.equal(live.profile.dailyStopOn, false);
+  live.setPlan({ dailyStopOn: true });
+  assert.equal(live.profile.dailyStopOn, true);
+});
