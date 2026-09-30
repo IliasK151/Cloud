@@ -333,7 +333,7 @@ export class LiveView {
           const prof = this.store.profileById[d.id];
           return `<tr>
             <td><span class="desk-cell"><i style="background:${prof?.accent ?? '#888'}"></i><span>${escapeHtml(d.name)}<small>${escapeHtml(d.desk)}</small></span></span></td>
-            <td>${escapeHtml(d.symbols[0])} → ${d.brokerSymbol ? `<b>${escapeHtml(d.brokerSymbol)}</b>` : '<span class="muted">not mapped</span>'}${d.id === 'chen' ? '<br><span class="muted">+ your TradingView alerts</span>' : ''}</td>
+            <td>${escapeHtml(d.symbols[0])} → ${d.brokerSymbol ? `<b>${escapeHtml(d.brokerSymbol)}</b>` : '<span class="muted">not mapped</span>'}${d.id === 'chen' ? '<br><span class="muted">+ your TradingView alerts</span>' : ''}${prof?.lab ? '<br><span class="muted">market follows its research · half size while on probation</span>' : ''}</td>
             <td>${d.eligible ? `<label class="switch" title="${d.enabled ? 'Trading FTMO' : 'Paper only'}"><input type="checkbox" data-desk="${d.id}" ${d.enabled ? 'checked' : ''} ${p ? '' : 'disabled'} aria-label="${escapeHtml(d.name)} trades FTMO"><span></span></label>` : `<span class="muted" title="${escapeHtml(d.reason)}">Paper only ⓘ</span>`}</td>
             <td>${d.live ? `${d.live.side} ${d.live.volume} ${escapeHtml(d.live.symbol)}` : '<span class="muted">—</span>'}</td>
             <td class="r ${signClass(d.pnlToday)}">${d.pnlToday ? money(d.pnlToday, { sign: true }) : '<span class="muted">—</span>'}</td>

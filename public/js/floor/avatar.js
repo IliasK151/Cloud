@@ -210,7 +210,7 @@ export class Avatar {
   }
 
   #pickActivity() {
-    const busy = this.status === 'IN TRADE' || this.status === 'ARMED';
+    const busy = this.status === 'IN TRADE' || this.status === 'ARMED' || this.status === 'RESEARCHING';
     const options = busy
       ? [['type', 4], ['mouse', 5], ['read', 1.2], ['think', 0.6], ['call', this.app.headset ? 1.5 : 0], ['sip', 0.6]]
       : [['type', 3], ['mouse', 3], ['read', 2], ['think', 1.2], ['call', this.app.headset ? 0.8 : 0], ['sip', 1.2]];

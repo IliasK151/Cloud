@@ -8,8 +8,11 @@ import { VwapReversion } from './strategies/vwapReversion.js';
 import { VolatilitySqueeze } from './strategies/squeeze.js';
 import { TrendPullback } from './strategies/trendPullback.js';
 import { TradingViewSignals } from './strategies/signals.js';
+import { QuantResearch } from './strategies/research.js';
 
-// The ten desks on the floor. `appearance` drives the 3D avatar (build comes from gender),
+// The fifteen desks on the floor: ten discretionary/systematic desks plus the five-person
+// Quant Research Lab (research: markets they may research and trade, budget = ideas tested
+// per market per research round). `appearance` drives the 3D avatar (build comes from gender),
 // `voice` the spoken briefing: `neural` is the Kokoro voice, `lang`/`prefer` pick a system
 // voice when neural voices are off. `accent` is the desk colour.
 export const ROSTER = [
@@ -83,6 +86,47 @@ export const ROSTER = [
     appearance: { skin: '#efcca6', hair: '#101012', hairStyle: 'bob', eyes: '#2a1a10', outfit: 'turtleneck', jacket: '#15181d', glasses: '#1a1a1a', headset: true },
     accent: '#2962ff',
     voice: { neural: 'af_sarah', lang: 'en-US', prefer: ['Susan', 'Nicky', 'Allison', 'Samantha', 'Ava'] },
+  },
+  // ---- Quant Research Lab -------------------------------------------------------------------
+  {
+    id: 'elena', name: 'Elena Vasquez', title: 'Head of Quant Research', desk: 'Quant Research',
+    Strategy: QuantResearch, symbols: ['XAUUSD'], gender: 'female', learning: false, lab: true,
+    research: { markets: ['NAS100', 'SPX500', 'XAUUSD', 'USOIL', 'EURUSD', 'USDJPY', 'BTCUSD', 'ETHUSD', 'SOLUSD'], budget: 220, diversify: true },
+    appearance: { skin: '#e2b391', hair: '#2b1b14', hairStyle: 'long', eyes: '#4a3020', outfit: 'blazer', jacket: '#1f3b3a', shirt: '#f1ede6', neckline: true, glasses: '#6b4a2a', headset: false },
+    accent: '#14b8a6',
+    voice: { neural: 'af_kore', lang: 'en-US', prefer: ['Samantha', 'Allison', 'Ava', 'Susan', 'Zoe'] },
+  },
+  {
+    id: 'arjun', name: 'Arjun Mehta', title: 'Index Research', desk: 'Index Research',
+    Strategy: QuantResearch, symbols: ['NAS100'], gender: 'male', learning: false, lab: true,
+    research: { markets: ['NAS100', 'SPX500'], budget: 360 },
+    appearance: { skin: '#9c6644', hair: '#0d0b0a', hairStyle: 'side', eyes: '#24160e', outfit: 'shirt', jacket: '#34496b', shirt: '#34496b', trousers: '#1e2126', glasses: '#1e1e22', headset: true, stubble: 0.4 },
+    accent: '#22b8e6',
+    voice: { neural: 'bm_lewis', lang: 'en-GB', prefer: ['Rishi', 'Daniel', 'Oliver', 'Arthur', 'Google UK English Male'] },
+  },
+  {
+    id: 'hannah', name: 'Hannah Berg', title: 'FX Research', desk: 'FX Research',
+    Strategy: QuantResearch, symbols: ['EURUSD'], gender: 'female', learning: false, lab: true,
+    research: { markets: ['EURUSD', 'USDJPY'], budget: 360 },
+    appearance: { skin: '#f3d6c3', hair: '#c9a06a', hairStyle: 'ponytail', eyes: '#4d6f8c', outfit: 'turtleneck', jacket: '#e6e0d6', glasses: false, headset: true },
+    accent: '#d66be8',
+    voice: { neural: 'bf_lily', lang: 'en-GB', prefer: ['Kate', 'Serena', 'Martha', 'Stephanie', 'Google UK English Female'] },
+  },
+  {
+    id: 'omar', name: 'Omar Haddad', title: 'Commodities Research', desk: 'Commodities Research',
+    Strategy: QuantResearch, symbols: ['XAUUSD'], gender: 'male', learning: false, lab: true,
+    research: { markets: ['XAUUSD', 'USOIL'], budget: 360 },
+    appearance: { skin: '#c28c63', hair: '#15100d', hairStyle: 'short', eyes: '#2e1d12', outfit: 'suit', jacket: '#3a3e45', shirt: '#f4f5f7', tie: '#5c4a1e', trousers: '#3a3e45', glasses: false, headset: false, stubble: 0.7 },
+    accent: '#e3b21b',
+    voice: { neural: 'am_onyx', lang: 'en-US', prefer: ['Aaron', 'Evan', 'Tom', 'Nathan', 'Alex'] },
+  },
+  {
+    id: 'mei', name: 'Mei Lin', title: 'Digital Assets Research', desk: 'Crypto Research',
+    Strategy: QuantResearch, symbols: ['BTCUSD'], gender: 'female', learning: false, lab: true,
+    research: { markets: ['BTCUSD', 'ETHUSD', 'SOLUSD'], budget: 360 },
+    appearance: { skin: '#f0d2b2', hair: '#0c0b0d', hairStyle: 'long', eyes: '#22160f', outfit: 'knit', jacket: '#5d6b80', glasses: '#c0c4cc', headset: true },
+    accent: '#7ccf2a',
+    voice: { neural: 'af_nova', lang: 'en-US', prefer: ['Ava', 'Zoe', 'Allison', 'Samantha', 'Susan'] },
   },
 ];
 

@@ -3,6 +3,8 @@ import { voice } from '../voice.js';
 import { candleChart } from './charts.js';
 import { money, price as fmtPrice, qty as fmtQty, signClass, initials, nyTime, escapeHtml } from '../format.js';
 import { deskBook } from '../book.js';
+import { researchTab } from './research.js';
+import { deskNewsLine } from './news.js';
 
 // Right-hand drawer: the selected trader greets the boss, explains the setup and P&L.
 export class AgentPanel {
@@ -40,6 +42,17 @@ export class AgentPanel {
     store.on('event', (ev) => {
       if (ev.agentId === this.id && this.tab === 'learn' && (ev.kind === 'learn' || ev.kind === 'exit')) this.#loadLearning();
     });
+    store.on('event', (ev) => {
+      if (ev.agentId === this.id && this.tab === 'research' && (ev.kind === 'research' || ev.kind === 'exit')) this.#loadResearch();
+    });
+    store.on('command-result', (r) => {
+      if (r.cmd === 'research' && r.agentId === this.id && !r.ok && r.error) this.#flash(r.error);
+    });
+    document.getElementById('ap-research').addEventListener('click', (e) => {
+      if (!e.target.closest('[data-act="research"]') || !this.id) return;
+      command('research', this.id);
+      setTimeout(() => this.#loadResearch(), 500);
+    });
     document.getElementById('ap-learn').addEventListener('click', (e) => {
       if (!e.target.closest('[data-act="reset-learning"]') || !this.id) return;
       const name = this.store.profileById[this.id].name.split(' ')[0];
@@ -69,6 +82,19 @@ export class AgentPanel {
       : `FTMO: ${armed ? 'armed, flat on the account' : 'enabled, waiting for you to arm'}${d.pnlToday ? ` · today ${money(d.pnlToday, { sign: true })}` : ''}`;
   }
 
+  #flash(text) {
+    const el = document.getElementById('ap-news');
+    el.hidden = false;
+    el.textContent = text;
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 2500);
+  }
+
+  // The desk's market right now (research desks move to where their validated edge is).
+  #sym(id = this.id) {
+    return this.store.agents[id]?.symbol || this.store.profileById[id].symbols[0];
+  }
+
   get isOpen() {
     return !!this.id;
   }
@@ -84,11 +110,19 @@ export class AgentPanel {
     this.el.name.textContent = p.name;
     this.el.title.textContent = `${p.title} · ${p.desk}`;
     this.el.strategy.textContent = p.strategy;
-    this.el.tvLink.href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(this.store.symbols[p.symbols[0]]?.tv ?? p.symbols[0])}`;
+    const sym = this.#sym(id);
+    this.el.tvLink.href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(this.store.symbols[sym]?.tv ?? sym)}`;
     this.destroyChart();
     this.tvSymbol = null;
     this.el.tv.innerHTML = '';
-    this.showTab(this.tab === 'trades' ? 'setup' : this.tab);
+    const tabBtn = (t) => this.el.root.querySelector(`.ap-tabs [data-tab="${t}"]`);
+    tabBtn('research').hidden = !p.lab;
+    tabBtn('learn').hidden = !!p.lab;
+    let tab = this.tab === 'trades' ? 'setup' : this.tab;
+    if (p.lab && tab === 'learn') tab = 'research';
+    if (!p.lab && tab === 'research') tab = 'setup';
+    this.researchHtml = '';
+    this.showTab(tab);
     this.update();
     this.#renderLive();
     this.brief(false);
@@ -192,6 +226,26 @@ export class AgentPanel {
     if (tab === 'tv') this.#ensureTradingView();
     if (tab === 'trades') this.#loadTrades();
     if (tab === 'learn') this.#loadLearning();
+    if (tab === 'research') this.#loadResearch();
+  }
+
+  async #loadResearch() {
+    if (!this.id) return;
+    const id = this.id;
+    this.researchLoadedAt = performance.now();
+    try {
+      this.detail = await api(`/api/agents/${id}`);
+    } catch {
+      return;
+    }
+    if (id !== this.id) return;
+    const html = researchTab(this.detail.research, this.store.profileById[id], this.store.agents[id]);
+    if (html === this.researchHtml) return;
+    const el = document.getElementById('ap-research');
+    const open = el.querySelector('details.how')?.open;
+    el.innerHTML = html;
+    if (open) el.querySelector('details.how').open = true;
+    this.researchHtml = html;
   }
 
   async #loadLearning() {
@@ -245,8 +299,7 @@ export class AgentPanel {
 
   #ensureChart() {
     if (this.chart || !this.id) return;
-    const p = this.store.profileById[this.id];
-    const sym = p.symbols[0];
+    const sym = this.#sym();
     this.chart = candleChart(this.el.chartBox, this.store.symbols[sym]?.decimals ?? 2);
     this.chartSymbol = sym;
     this.chart.setData(this.store.candles[sym] || []);
@@ -283,8 +336,8 @@ export class AgentPanel {
   // Official TradingView Advanced Chart widget for the desk's market.
   #ensureTradingView() {
     if (!this.id) return;
-    const p = this.store.profileById[this.id];
-    const tvSym = this.store.symbols[p.symbols[0]]?.tv ?? p.symbols[0];
+    const sym = this.#sym();
+    const tvSym = this.store.symbols[sym]?.tv ?? sym;
     if (this.tvSymbol === tvSym) return;
     this.tvSymbol = tvSym;
     const host = this.el.tv;
@@ -334,7 +387,19 @@ export class AgentPanel {
     if (!a) return;
     const chip = this.el.status;
     chip.textContent = a.status;
-    chip.className = `status-chip ${a.status === 'IN TRADE' ? 'trade' : a.status === 'ARMED' ? 'armed' : a.status === 'HALTED' ? 'halted' : ''}`;
+    chip.className = `status-chip ${{ 'IN TRADE': 'trade', ARMED: 'armed', HALTED: 'halted', NEWS: 'news', RESEARCHING: 'lab' }[a.status] || ''}`;
+    const newsEl = document.getElementById('ap-news');
+    if (!newsEl.classList.contains('flash')) {
+      const line = deskNewsLine(a, this.store.fund?.marketTime ?? Date.now());
+      newsEl.hidden = !line;
+      if (line) newsEl.textContent = line;
+      newsEl.classList.toggle('hold', !!a.news?.hold);
+    }
+    if (this.tab === 'research' && (a.research?.researching || a.research?.progress) && performance.now() - (this.researchLoadedAt || 0) > 1500) this.#loadResearch();
+    if (this.chart && this.chartSymbol !== this.#sym()) {
+      this.destroyChart();
+      if (this.tab === 'chart') this.#ensureChart();
+    }
     const setVal = (el, v, opts) => {
       el.textContent = money(v, opts);
       el.className = `val num ${signClass(v)}`;
@@ -394,7 +459,7 @@ export class AgentPanel {
           <div class="c"><span>Opened</span><b>${nyTime(p.openTime)}</b></div>
         </div>`).join('')
       : '<p class="muted">Flat — no open risk.</p>';
-    const sym = this.store.profileById[this.id].symbols[0];
+    const sym = this.#sym();
     this.el.levels.innerHTML = (st.levels || []).map((l) => `<tr><td>${escapeHtml(l.label)}</td><td>${fmtPrice(l.price, dec(sym))}</td></tr>`).join('') || '<tr><td class="muted">No levels yet</td><td></td></tr>';
     const s = a.stats;
     const cells = [

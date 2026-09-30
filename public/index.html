@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Meridian Trading Floor</title>
-  <meta name="description" content="3D institutional trading floor with ten autonomous day-trading desks." />
+  <meta name="description" content="3D institutional trading floor with ten autonomous day-trading desks and a five-person quant research lab." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1220'/%3E%3Cpath d='M7 22 L13 14 L18 18 L25 9' stroke='%233987e5' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/css/app.css" />
   <script type="importmap">
@@ -43,6 +43,7 @@
         <button role="tab" data-view="tradingview" aria-selected="false">TradingView</button>
         <button role="tab" data-view="ftmo" aria-selected="false">FTMO</button>
       </nav>
+      <button class="news-pill" id="news-pill" hidden title="Economic calendar"><i></i><span></span></button>
       <div class="clock">
         <span class="mode-badge" id="mode-badge">—</span>
         <div class="clock-time"><span id="clock-time">--:--:--</span><span class="clock-zone">New York · <span id="clock-session">—</span></span></div>
@@ -63,6 +64,9 @@
       <p class="set-note" id="set-voice-note"></p>
       <div class="progress" id="set-voice-progress" hidden><i></i></div>
       <button class="btn small" id="set-voice-preview">▶ Hear a sample</button>
+      <h3>News</h3>
+      <label class="set-row"><span>Stand aside for economic news<small>No new trades around high and medium-impact releases for the markets they move; flat 5 minutes before high-impact news.</small></span><span class="switch accent"><input type="checkbox" id="set-news"><span></span></span></label>
+      <label class="set-row"><span>Let big winners ride through news<small>Trades already 1R in profit stay open with the stop locked at +0.5R. Never on desks trading your FTMO account.</small></span><span class="switch"><input type="checkbox" id="set-news-keep"><span></span></span></label>
       <h3>Graphics</h3>
       <label class="set-row"><span>High quality<small>Soft shadows, ambient light and glow. Turns itself off on slow machines.</small></span><span class="switch accent"><input type="checkbox" id="set-hq"><span></span></span></label>
       <h3>Help</h3>
@@ -99,12 +103,14 @@
         <div><span class="lbl" id="ap-limit-lbl">Loss limit used</span><span class="val" id="ap-limit">—</span></div>
       </div>
       <p class="ap-live" id="ap-live" hidden></p>
+      <p class="ap-news" id="ap-news" hidden></p>
       <nav class="ap-tabs" role="tablist">
         <button role="tab" data-tab="setup" aria-selected="true">Setup</button>
         <button role="tab" data-tab="chart" aria-selected="false">Chart</button>
         <button role="tab" data-tab="tv" aria-selected="false">TradingView</button>
         <button role="tab" data-tab="trades" aria-selected="false">Trades</button>
         <button role="tab" data-tab="learn" aria-selected="false">Learning</button>
+        <button role="tab" data-tab="research" aria-selected="false" hidden>Research</button>
       </nav>
       <div class="ap-body">
         <div class="ap-tab" data-tab="setup">
@@ -144,6 +150,9 @@
         <div class="ap-tab" data-tab="learn" hidden>
           <div id="ap-learn"><p class="muted">Loading…</p></div>
         </div>
+        <div class="ap-tab" data-tab="research" hidden>
+          <div id="ap-research"><p class="muted">Loading…</p></div>
+        </div>
       </div>
     </section>
 
@@ -176,9 +185,10 @@
         <section data-step="0">
           <p class="modal-kicker">Welcome</p>
           <h2 id="welcome-title">Your trading floor is open</h2>
-          <p>Ten AI traders run their own desks, each with a strategy and a market. They trade with practice money, so nothing here touches your own cash.</p>
+          <p>Ten AI traders run their own desks, each with a strategy and a market, and a five-person quant research lab builds and validates new strategies before trading them. Everyone stands aside for big economic news. They trade with practice money, so nothing here touches your own cash.</p>
           <ul class="wc-list">
             <li><b>Click any trader</b> (or press 1–0) to hear their setup and P&amp;L.</li>
+            <li><b>The research lab</b> (back row) shows every strategy it tested and why it trusts, or rejects, it.</li>
             <li><b>Dashboard</b> shows the whole book at a glance.</li>
             <li><b>TradingView</b> sends your chart alerts to the desks.</li>
             <li><b>FTMO</b> lets the desks trade your prop account — only when you say so.</li>

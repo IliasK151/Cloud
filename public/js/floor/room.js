@@ -1,14 +1,17 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
-import { floorTexture, rugTexture, skylineTexture } from './textures.js';
+import { floorTexture, rugTexture, skylineTexture, canvasTexture } from './textures.js';
 
 // Room dimensions (metres). The trading rows face the video wall at -Z.
-export const ROOM = { x0: -17, x1: 17, z0: -15, z1: 13, height: 6.5 };
+export const ROOM = { x0: -17, x1: 17, z0: -15, z1: 17, height: 6.5 };
 export const PLATFORM = { z0: 0.1, z1: 4.9, height: 0.32 };
+// The Quant Research Lab: a third, higher tier behind the trading rows.
+export const LAB = { z0: 6.3, z1: 11.5, height: 0.64 };
 export const DESK_XS = [-10, -5, 0, 5, 10];
 export const FRONT_ROW_Z = -5.4;
 export const BACK_ROW_Z = 1.9;
+export const LAB_ROW_Z = 8.4;
 
 const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.02, ...o });
 
@@ -52,6 +55,45 @@ export function buildRoom(scene) {
   const stepLight = new THREE.Mesh(new THREE.BoxGeometry(W - 3.2, 0.012, 0.01), new THREE.MeshBasicMaterial({ color: '#ffd9a8', toneMapped: false }));
   stepLight.position.set(cx, PLATFORM.height - 0.07, PLATFORM.z0 - 0.045);
   scene.add(stepLight);
+
+  // --- research lab tier: higher again, set off by a low glass balustrade and teal light ---
+  const lab = new THREE.Mesh(new THREE.BoxGeometry(W - 3, LAB.height, LAB.z1 - LAB.z0), platMat);
+  lab.position.set(cx, LAB.height / 2, (LAB.z0 + LAB.z1) / 2);
+  lab.receiveShadow = lab.castShadow = true;
+  scene.add(lab);
+  rug(LAB.z0 + 0.45, LAB.z1 - 0.3, LAB.height);
+  const labNosing = new THREE.Mesh(new RoundedBoxGeometry(W - 3, 0.06, 0.08, 2, 0.02), walnut);
+  labNosing.position.set(cx, LAB.height - 0.03, LAB.z0 - 0.02);
+  scene.add(labNosing);
+  const labLight = new THREE.Mesh(new THREE.BoxGeometry(W - 3.2, 0.012, 0.01), new THREE.MeshBasicMaterial({ color: '#7fe6d6', toneMapped: false }));
+  labLight.position.set(cx, LAB.height - 0.07, LAB.z0 - 0.045);
+  scene.add(labLight);
+  const glassMat = new THREE.MeshPhysicalMaterial({ color: '#9fd6cf', transparent: true, opacity: 0.1, roughness: 0.05, metalness: 0, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide });
+  const railMat = std('#1b1c1f', { metalness: 0.7, roughness: 0.3 });
+  const balustrade = new THREE.Mesh(new THREE.PlaneGeometry(W - 3.4, 0.9), glassMat);
+  balustrade.position.set(cx, LAB.height + 0.45, LAB.z0 + 0.12);
+  scene.add(balustrade);
+  const rail = new THREE.Mesh(new RoundedBoxGeometry(W - 3.4, 0.035, 0.05, 2, 0.012), railMat);
+  rail.position.set(cx, LAB.height + 0.92, LAB.z0 + 0.12);
+  scene.add(rail);
+  for (let x = ROOM.x0 + 1.8; x <= ROOM.x1 - 1.8; x += 3.8) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.9, 0.03), railMat);
+    post.position.set(x, LAB.height + 0.45, LAB.z0 + 0.12);
+    scene.add(post);
+  }
+  // Etched into the glass, facing the room: the lab's name.
+  const sign = canvasTexture(1024, 96);
+  sign.ctx.clearRect(0, 0, 1024, 96);
+  sign.ctx.font = '700 58px -apple-system, "Helvetica Neue", Arial, sans-serif';
+  sign.ctx.textAlign = 'center';
+  sign.ctx.textBaseline = 'middle';
+  sign.ctx.fillStyle = '#8ff0e0';
+  if ('letterSpacing' in sign.ctx) sign.ctx.letterSpacing = '14px';
+  sign.ctx.fillText('QUANT RESEARCH LAB', 512, 50);
+  sign.texture.needsUpdate = true;
+  const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.34), new THREE.MeshBasicMaterial({ map: sign.texture, transparent: true, opacity: 0.85, toneMapped: false, depthWrite: false }));
+  signMesh.position.set(-2.5, LAB.height + 0.52, LAB.z0 + 0.14);
+  scene.add(signMesh);
 
   // --- walls ---
   const plaster = std('#1e1f23', { roughness: 0.92 });
@@ -128,7 +170,7 @@ export function buildRoom(scene) {
   const pendantBody = std('#1b1c1f', { roughness: 0.4, metalness: 0.5 });
   const pendantGlow = new THREE.MeshBasicMaterial({ color: '#fff3e2', toneMapped: false });
   const wire = std('#555', { metalness: 0.6 });
-  for (const [z, y0] of [[FRONT_ROW_Z + 0.2, 0], [BACK_ROW_Z + 0.2, PLATFORM.height]]) {
+  for (const [z, y0] of [[FRONT_ROW_Z + 0.2, 0], [BACK_ROW_Z + 0.2, PLATFORM.height], [LAB_ROW_Z + 0.2, LAB.height]]) {
     for (const x of DESK_XS) {
       const body = new THREE.Mesh(new RoundedBoxGeometry(2.4, 0.045, 0.09, 2, 0.015), pendantBody);
       body.position.set(x, y0 + 3.4, z);
@@ -152,7 +194,7 @@ export function buildRoom(scene) {
   const leafGeo = new THREE.IcosahedronGeometry(0.16, 0);
   let seed = 3;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (const [x, z] of [[-15.6, -12.6], [15.6, -12.6], [-15.6, -1.4], [15.6, -1.4], [-15.6, 10.6], [15.6, 10.6]]) {
+  for (const [x, z] of [[-15.6, -12.6], [15.6, -12.6], [-15.6, -1.4], [15.6, -1.4], [-15.6, 14.4], [15.6, 14.4]]) {
     const planter = new THREE.Mesh(new RoundedBoxGeometry(0.9, 0.7, 0.9, 3, 0.05), planterMat);
     planter.position.set(x, 0.35, z);
     planter.castShadow = planter.receiveShadow = true;
@@ -189,8 +231,8 @@ export function buildRoom(scene) {
   key.shadow.mapSize.set(2048, 2048);
   key.shadow.camera.left = -19;
   key.shadow.camera.right = 19;
-  key.shadow.camera.top = 16;
-  key.shadow.camera.bottom = -16;
+  key.shadow.camera.top = 19;
+  key.shadow.camera.bottom = -19;
   key.shadow.camera.near = 1;
   key.shadow.camera.far = 40;
   key.shadow.bias = -0.0004;
@@ -205,7 +247,7 @@ export function buildRoom(scene) {
   }
   // Soft light from the pendants onto each row.
   RectAreaLightUniformsLib.init();
-  for (const [z, y0] of [[FRONT_ROW_Z + 0.4, 0], [BACK_ROW_Z + 0.4, PLATFORM.height]]) {
+  for (const [z, y0] of [[FRONT_ROW_Z + 0.4, 0], [BACK_ROW_Z + 0.4, PLATFORM.height], [LAB_ROW_Z + 0.4, LAB.height]]) {
     const area = new THREE.RectAreaLight(0xfff1dc, 0.55, 24, 1.6);
     area.position.set(0, y0 + 3.36, z);
     area.lookAt(0, y0, z);

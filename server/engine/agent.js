@@ -2,6 +2,7 @@ import { SYMBOLS, usdPerQuote, roundToLot } from '../market/symbols.js';
 import { atr, last } from '../market/indicators.js';
 import { fmtPrice, fmtQty, fmtUsd, spokenPnl, round } from '../util/format.js';
 import { DeskLearner } from './learning.js';
+import { eventLabel, spokenLabel, spokenTime } from '../market/calendar.js';
 
 const LOG_SIZE = 80;
 
@@ -86,8 +87,9 @@ export class TraderAgent {
 
   // ---- trading API -------------------------------------------------------------------
   openTrade({ side, stop, target = null, reason, symbol = this.symbol, tag = '', partialAt = 1, trail = null, timeStopBars = null, riskMultiplier = 1 }) {
-    const check = this.risk.canOpen(this);
+    const check = this.risk.canOpen(this, symbol);
     if (!check.ok) {
+      this.lastReject = check.reason;
       this.setStage(`Signal skipped — ${check.reason}`);
       return false;
     }
@@ -101,6 +103,7 @@ export class TraderAgent {
     // proven edge, and adjust stop / target / profit-taking.
     const learn = this.learner.beforeEntry({ symbol, side, entry, stop, target, partialAt, trail, external: tag === 'TV' });
     if (learn.skip) {
+      this.lastReject = learn.reason;
       this.setStage(`Skipped a signal: ${learn.reason}`);
       return false;
     }
@@ -117,7 +120,7 @@ export class TraderAgent {
       symbol, side, qty, entry: fillPx, stop, initialStop: stop, target,
       risk: Math.abs(fillPx - stop), partialAt, partialDone: false, trail, timeStopBars,
       barsHeld: 0, reason, tag, extreme: fillPx, worst: fillPx, openedAt: this.env.clock.now(),
-      learnMult: learn.sizeMult, probe: learn.probe,
+      learnMult: learn.sizeMult, riskMult: riskMultiplier, probe: learn.probe,
     };
     this.plans.set(symbol, plan);
     this.learner.onOpened(res.position?.trade?.id, learn, plan);
@@ -239,8 +242,9 @@ export class TraderAgent {
     const s = Number.isFinite(stop) && (long ? stop < price : stop > price) ? stop : long ? price - 1.5 * a : price + 1.5 * a;
     const t = Number.isFinite(target) && (long ? target > price : target < price) ? target : long ? price + 2 * (price - s) : price - 2 * (s - price);
     this.note(`${label}: ${side} ${symbol}`, 'signal');
+    this.lastReject = null;
     const ok = this.openTrade({ side, stop: s, target: t, reason: label, symbol, tag: 'TV', trail: 2 });
-    return ok ? { ok: true, text: `${side} ${symbol} executed` } : { ok: false, reason: 'Rejected by risk checks' };
+    return ok ? { ok: true, text: `${side} ${symbol} executed` } : { ok: false, reason: this.lastReject ? `Rejected: ${this.lastReject}` : 'Rejected by risk checks' };
   }
 
   // ---- trade management -------------------------------------------------------------
@@ -318,9 +322,47 @@ export class TraderAgent {
     const st = this.md.get(this.symbol)?.status;
     if (st === 'CLOSED') return 'MARKET CLOSED';
     if (this.bars().length < 30) return 'WARMING UP';
+    if (this.newsHold()) return 'NEWS';
     if (this.cooldownBars > 0) return 'COOLDOWN';
     if (this.setup.armed) return 'ARMED';
     return 'SCANNING';
+  }
+
+  // The economic calendar has this desk's market in a blackout right now.
+  newsHold() {
+    return this.env.news?.blackout(this.symbol) || null;
+  }
+
+  newsView() {
+    const news = this.env.news;
+    if (!news?.settings.enabled) return null;
+    const hold = this.newsHold();
+    const next = news.next(this.symbol, this.env.clock.now(), 6 * 3_600_000);
+    return {
+      hold: hold ? { label: eventLabel(hold.event), impact: hold.impact, time: hold.event.time, until: hold.until, phase: hold.phase } : null,
+      next: next ? { label: eventLabel(next.event), impact: next.impact, time: next.event.time } : null,
+    };
+  }
+
+  newsLine() {
+    const news = this.env.news;
+    if (!news?.settings.enabled) return null;
+    const now = this.env.clock.now();
+    const b = news.blackout(this.symbol, now);
+    if (b) {
+      if (b.phase === 'before') {
+        return `Heads up: ${spokenLabel(b.event)} comes out at ${spokenTime(b.event.time)} New York time, ${b.impact} impact, so I'm standing aside until ${spokenTime(b.until)}.`;
+      }
+      const nums = b.event.actual ? `, ${b.event.actual} against ${b.event.forecast || 'no'} forecast` : '';
+      return `${spokenLabel(b.event)} just came out${nums}. I'm letting the spike settle and I'm back at ${spokenTime(b.until)}.`;
+    }
+    const n = news.next(this.symbol, now, 3 * 3_600_000);
+    if (n) {
+      return `On the calendar: ${spokenLabel(n.event)} at ${spokenTime(n.event.time)} New York time, ${n.impact} impact. ` +
+        (n.impact === 'high' ? `I'll be flat ${news.settings.flattenBefore} minutes before and won't trade around it.` : `I'll stand aside for a few minutes either side.`);
+    }
+    if (news.status === 'schedule') return `I can't reach the live news calendar, so I'm standing aside around the usual US release times.`;
+    return 'No major news for my market in the next few hours.';
   }
 
   mood() {
@@ -402,6 +444,7 @@ export class TraderAgent {
       exposure: this.broker.grossExposure(this.id),
       stats: this.statsView(),
       learning: this.learner.summary(),
+      news: this.newsView(),
       log: this.log.slice(-10),
     };
   }
@@ -416,6 +459,8 @@ export class TraderAgent {
     } else {
       lines.push(this.pitch());
     }
+    const newsLine = this.newsLine();
+    if (newsLine) lines.push(newsLine);
     // With an FTMO account connected, desks on the account talk about the real position
     // (below) and paper-only desks say plainly that theirs is paper.
     const book = this.env.liveBook?.(this.id);

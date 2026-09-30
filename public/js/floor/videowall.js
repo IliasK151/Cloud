@@ -169,30 +169,46 @@ export class VideoWall {
     ctx.fillText(ftmo ? 'DESK P&L ON FTMO — TODAY' : 'DESK P&L — TODAY (PAPER)', M, 200);
     const agents = store.profiles.map((p) => ({ p, a: store.agents[p.id], b: deskBook(store, p.id) })).filter((x) => x.a);
     const maxAbs = Math.max(1, ...agents.map((x) => Math.abs(x.b.day)));
-    const rowH = 56;
+    // Rows shrink to fit however many desks there are.
+    const rowH = Math.min(56, Math.floor((CH - 92 - 232) / Math.max(1, agents.length)));
+    const fs = Math.max(16, Math.round(rowH * 0.47));
     const nameW = 250;
     const barArea = MW - nameW - 170;
     const zeroX = M + nameW + barArea / 2;
     agents.forEach(({ p, b }, i) => {
       const y = 240 + i * rowH;
+      const base = y + rowH * 0.62;
       ctx.fillStyle = p.accent;
-      ctx.fillRect(M, y + 8, 8, rowH - 22);
+      ctx.fillRect(M, y + rowH * 0.16, 8, rowH * 0.6);
       ctx.fillStyle = '#d7dbe3';
-      ctx.font = `600 26px ${FONT}`;
+      ctx.font = `600 ${fs}px ${FONT}`;
       ctx.textAlign = 'left';
-      ctx.fillText(p.desk, M + 22, y + 34);
+      ctx.fillText(p.desk, M + 22, base);
       const v = b.day;
       const len = (Math.abs(v) / maxAbs) * (barArea / 2);
       ctx.fillStyle = v >= 0 ? '#0ca30c' : '#d03b3b';
-      if (v >= 0) ctx.fillRect(zeroX, y + 10, len, rowH - 26);
-      else ctx.fillRect(zeroX - len, y + 10, len, rowH - 26);
+      if (v >= 0) ctx.fillRect(zeroX, y + rowH * 0.2, len, rowH * 0.52);
+      else ctx.fillRect(zeroX - len, y + rowH * 0.2, len, rowH * 0.52);
       ctx.fillStyle = v > 0.5 ? '#2fbf4f' : v < -0.5 ? '#ff6b6b' : '#b9c0cc';
-      ctx.font = `700 26px ${MONO}`;
+      ctx.font = `700 ${fs}px ${MONO}`;
       ctx.textAlign = 'right';
-      ctx.fillText(b.na ? 'paper' : money(v, { sign: true, compact: true }), M + MW, y + 34);
+      ctx.fillText(b.na ? 'paper' : money(v, { sign: true, compact: true }), M + MW, base);
     });
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.fillRect(zeroX - 1, 232, 2, agents.length * rowH);
+
+    // Under the equity chart: the next market-moving release.
+    const now = f.marketTime;
+    const next = store.news?.settings?.enabled ? store.news.events?.find((e) => e.time > now && e.markets?.length) : null;
+    if (next) {
+      const mins = Math.max(1, Math.round((next.time - now) / 60_000));
+      ctx.textAlign = 'left';
+      ctx.fillStyle = next.impact === 'high' ? '#ff5b5b' : '#f2a33a';
+      ctx.fillRect(L, 752, 16, 16);
+      ctx.fillStyle = '#d7dbe3';
+      ctx.font = `700 26px ${FONT}`;
+      ctx.fillText(`NEXT NEWS ${nyTime(next.time)} · ${next.label} · in ${mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)}h ${mins % 60}m`}`.slice(0, 58), L + 28, 769);
+    }
 
     // Right: markets
     const R = 1600;

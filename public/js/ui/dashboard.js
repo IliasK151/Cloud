@@ -2,6 +2,8 @@ import { command, api } from '../net.js';
 import { equityChart } from './charts.js';
 import { money, price as fmtPrice, qty as fmtQty, pct, signClass, nyTime, escapeHtml } from '../format.js';
 import { bookMode, hasFtmo, setBookPref, deskBook } from '../book.js';
+import { labRows } from './research.js';
+import { newsTable, sourceText, blackoutChips } from './news.js';
 
 // Full-screen dashboard. It follows the FTMO / Paper switch: the paper fund (every desk's
 // practice book) or the connected FTMO account (real equity, rules, live trades).
@@ -42,6 +44,17 @@ export class Dashboard {
           <p class="sub" id="dash-bars-sub"></p>
           <div class="bars" id="dash-bars"></div>
         </div>
+      </div>
+      <div class="card" id="dash-lab-card" style="margin-top:14px">
+        <h2>Quant Research Lab</h2>
+        <p class="sub">Five researchers build strategies for today's market conditions and trade only what survives out-of-sample, stress and holdout tests. Click a row for the full research.</p>
+        <div class="table-wrap" style="max-height:none"><table class="table" id="dash-lab"></table></div>
+      </div>
+      <div class="card" id="dash-news-card" style="margin-top:14px">
+        <h2>Economic calendar</h2>
+        <p class="sub" id="dash-news-sub"></p>
+        <div id="dash-news-holds"></div>
+        <div id="dash-news"></div>
       </div>
       <div class="card" style="margin-top:14px">
         <h2>Desks</h2>
@@ -95,6 +108,17 @@ export class Dashboard {
       } else if (b.dataset.goto) {
         this.onView?.(b.dataset.goto);
       }
+    });
+    this.root.querySelector('#dash-lab').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-research]');
+      if (btn) {
+        e.stopPropagation();
+        command('research', btn.dataset.research);
+        btn.disabled = true;
+        return;
+      }
+      const row = e.target.closest('tr[data-id]');
+      if (row) this.onSelect(row.dataset.id, { tab: 'research' });
     });
     this.root.querySelector('#dash-learning').addEventListener('click', (e) => {
       const row = e.target.closest('tr[data-id]');
@@ -162,13 +186,32 @@ export class Dashboard {
     this.#renderControls(mode);
     this.#renderMarketsAndAlerts();
     this.#renderLearning();
+    this.#renderLabAndNews();
     if (mode === 'ftmo') this.#renderFtmo();
     else this.#renderPaper();
   }
 
+  #renderLabAndNews() {
+    const s = this.store;
+    const $ = (id) => this.root.querySelector(id);
+    const lab = labRows(s);
+    if (lab !== this.labHtml) {
+      this.labHtml = lab;
+      $('#dash-lab').innerHTML = lab;
+    }
+    const now = s.fund.marketTime;
+    $('#dash-news-sub').textContent = sourceText(s.news);
+    $('#dash-news-holds').innerHTML = blackoutChips(s.news, now);
+    $('#dash-news').innerHTML = s.news?.settings?.enabled === false ? '' : newsTable(s.news, now, 12);
+  }
+
+  focusNews() {
+    this.root.querySelector('#dash-news-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
   #renderLearning() {
     const s = this.store;
-    const rows = s.profiles.map((p) => ({ p, a: s.agents[p.id] })).filter((x) => x.a?.learning);
+    const rows = s.profiles.map((p) => ({ p, a: s.agents[p.id] })).filter((x) => x.a?.learning && !x.p.lab);
     this.root.querySelector('#dash-learning').innerHTML = `<thead><tr><th>Desk</th><th class="r">Trades studied</th><th class="r">Lessons</th><th class="r">Habits changed</th><th>Latest lesson</th></tr></thead><tbody>${
       rows.map(({ p, a }) => {
         const L = a.learning;
@@ -274,7 +317,7 @@ export class Dashboard {
     $('#dash-table').innerHTML = `
       <thead><tr><th>#</th><th>Desk · strategy</th><th>Trader</th><th>Market → MT5</th><th>On FTMO</th><th>Live position</th><th class="r">Open P&amp;L</th><th class="r">Today</th><th class="r">Since start</th><th class="r">Trades today</th></tr></thead>
       <tbody>${rows.map(({ pr, d }, i) => `<tr class="clickable" data-id="${pr.id}">
-          <td class="muted">${(i + 1) % 10}</td>
+          <td class="muted">${pr.lab ? 'Q' : (i + 1) % 10}</td>
           <td><span class="desk-cell"><i style="background:${pr.accent}"></i><span>${escapeHtml(pr.desk)}<small>${escapeHtml(pr.strategy)}</small></span></span></td>
           <td>${escapeHtml(pr.name)}</td>
           <td>${escapeHtml(d.symbols[0])} → ${d.brokerSymbol ? escapeHtml(d.brokerSymbol) : '<span class="muted">not mapped</span>'}</td>
@@ -364,10 +407,10 @@ export class Dashboard {
         const pos = a.positions.map((x) => `${x.side === 'LONG' ? 'L' : 'S'} ${fmtQty(x.qty)} ${x.symbol} @ ${fmtPrice(x.avg, dec(x.symbol))}`).join('<br>') || '<span class="muted">Flat</span>';
         const st = a.stats;
         return `<tr class="clickable" data-id="${p.id}">
-          <td class="muted">${(i + 1) % 10}</td>
-          <td><span class="desk-cell"><i style="background:${p.accent}"></i><span>${escapeHtml(p.desk)}<small>${escapeHtml(p.strategy)}</small></span></span></td>
+          <td class="muted">${p.lab ? 'Q' : (i + 1) % 10}</td>
+          <td><span class="desk-cell"><i style="background:${p.accent}"></i><span>${escapeHtml(p.desk)}<small>${escapeHtml(p.lab && a.research?.active ? a.research.active.name : p.strategy)}</small></span></span></td>
           <td>${escapeHtml(p.name)}</td>
-          <td>${escapeHtml(p.symbols.join(' / '))}</td>
+          <td>${escapeHtml(p.lab ? (a.research?.active ? a.symbol : 'none yet') : p.symbols.join(' / '))}</td>
           <td>${escapeHtml(a.status)}</td>
           <td>${pos}</td>
           <td class="r ${signClass(a.pnl.unrealized)}">${money(a.pnl.unrealized, { sign: true })}</td>

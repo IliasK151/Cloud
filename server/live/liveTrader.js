@@ -473,8 +473,10 @@ export class LiveTrader extends EventEmitter {
       + [...this.links.values()].filter((l) => l.state === 'pending').length;
     if (ours >= p.maxPositions) return this.#skip(agent, pos, key, `already ${ours} live positions (max ${p.maxPositions})`);
 
-    // Learning may size a desk's trade down on the account, never up.
-    const riskMoney = acc.balance * (p.riskPerTradePct / 100) * (agent.profile.riskScale ?? 1) * Math.min(1, plan.learnMult ?? 1);
+    // Learning (or a new strategy on probation) may size a desk's trade down on the account, never up.
+    const news = this.fund.env.news?.blackout(pos.symbol);
+    if (news) return this.#skip(agent, pos, key, `news blackout (${news.event.title})`);
+    const riskMoney = acc.balance * (p.riskPerTradePct / 100) * (agent.profile.riskScale ?? 1) * Math.min(1, plan.riskMult ?? plan.learnMult ?? 1);
     const lots = lotsForRisk(riskMoney, plan.risk, spec);
     if (!lots) return this.#skip(agent, pos, key, `position would be below the ${spec.volMin} lot minimum`);
     const actualRisk = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue) * lots;

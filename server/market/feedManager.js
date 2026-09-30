@@ -10,8 +10,9 @@ const LOOP_MS = 250;
 //  FEED=live → Binance (crypto) + Yahoo (futures/FX); any source that can't be reached
 //              falls back to a real-time simulation so the floor keeps running.
 export class FeedManager {
-  constructor({ md, clock, mode, log = console }) {
+  constructor({ md, clock, mode, log = console, calendar = null }) {
     this.md = md;
+    this.calendar = calendar;
     this.clock = clock;
     this.mode = mode;
     this.log = log;
@@ -29,7 +30,7 @@ export class FeedManager {
   async start() {
     const all = Object.values(SYMBOLS);
     if (this.mode === 'sim') {
-      this.sim = new SimFeed(this.md, this.clock, all.map((s) => s.id));
+      this.sim = new SimFeed(this.md, this.clock, all.map((s) => s.id), { calendar: this.calendar });
       this.sim.warmup(420);
       for (const s of all) this.md.setStatus(s.id, 'SIM', 'sim');
       this.notes.push('Simulation mode: all markets simulated on an accelerated clock.');
@@ -61,7 +62,7 @@ export class FeedManager {
       }
 
       if (fallback.length) {
-        this.sim = new SimFeed(this.md, this.clock, fallback, { useSessionShape: false });
+        this.sim = new SimFeed(this.md, this.clock, fallback, { useSessionShape: false, calendar: this.calendar });
         this.sim.warmup(420);
         for (const id of fallback) this.md.setStatus(id, 'SIM', 'sim');
         this.notes.push(`Simulated (live source unreachable): ${fallback.join(', ')}`);

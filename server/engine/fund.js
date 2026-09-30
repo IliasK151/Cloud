@@ -2,16 +2,20 @@ import { EventEmitter } from 'node:events';
 import { ROSTER, publicProfile } from './roster.js';
 import { publicSymbolInfo } from '../market/symbols.js';
 import { fmtUsd } from '../util/format.js';
+import { eventLabel } from '../market/calendar.js';
+import { fmtNyTime } from '../market/session.js';
 
 const EVENT_BUFFER = 150;
 const EQUITY_POINTS = 3000;
 const DAY_CURVE_POINTS = 1500;
 
-// The fund: owns the ten desks, routes market data to them, enforces fund-level
+// The fund: owns the desks (and the research lab desks), routes market data to them, enforces fund-level
 // risk, samples the equity curve and produces the snapshots the UI renders.
 export class Fund extends EventEmitter {
-  constructor({ config, md, clock, session, broker, risk }) {
+  constructor({ config, md, clock, session, broker, risk, news = null, lab = null }) {
     super();
+    this.news = news;
+    this.lab = lab;
     this.config = config;
     this.md = md;
     this.clock = clock;
@@ -29,15 +33,19 @@ export class Fund extends EventEmitter {
     this.lastSampleMinute = null;
 
     const env = {
-      md, clock, session, broker, risk,
+      md, clock, session, broker, risk, news, lab,
       allocation: this.allocation,
       emit: (e) => this.#event(e),
       liveDescribe: null, // set by the live (FTMO) trader when it is running
     };
     this.env = env;
+    risk.news = news;
+    news?.on('announce', (a) => this.#event({ kind: 'news', text: a.text }));
     this.agents = ROSTER.map((p) => new p.Strategy(p, env));
     this.byId = new Map(this.agents.map((a) => [a.id, a]));
+    env.labDesks = () => this.agents.filter((a) => a.profile.lab);
     for (const a of this.agents) this.dayCurves.set(a.id, []);
+    lab?.on('result', (r) => this.byId.get(r.agentId)?.onResearch?.(r));
 
     // Desks only start trading once history has loaded (start()), never on warm-up data.
     this.trading = false;
@@ -104,6 +112,9 @@ export class Fund extends EventEmitter {
       this.#event({ kind: 'session', text: 'Session close: all desks flat into the close' });
     }
 
+    this.#newsGuard(now);
+    if (this.trading) for (const a of this.agents) a.labTick?.();
+
     for (const a of this.agents) {
       if (this.risk.checkDesk(a, a.dayPnl())) {
         this.#event({ agentId: a.id, kind: 'risk', text: `Risk desk halted ${a.profile.name}: loss limit ${fmtUsd(this.risk.deskLossLimit(a))}` });
@@ -134,6 +145,44 @@ export class Fund extends EventEmitter {
         sample.agents[a.id] = v;
       }
       this.emit('equity', sample);
+    }
+  }
+
+  // Real traders are flat before tier-one news: close every trade in a market with
+  // high-impact news minutes away. If the boss allows it, a trade already ≥ 1R may run
+  // with its stop locked at +0.5R, but never on an FTMO-connected desk (funded accounts
+  // may not open or close trades around high-impact news).
+  #newsGuard(now) {
+    const news = this.news;
+    if (!news || !this.trading) return;
+    news.tick(now);
+    for (const a of this.agents) {
+      if (!a.book.positions.size) continue;
+      const close = [];
+      for (const pos of a.book.positions.values()) {
+        const ev = news.preNews(pos.symbol, now);
+        if (!ev) continue;
+        const plan = a.plans.get(pos.symbol);
+        if (plan?.newsKept === ev.id) continue;
+        const onAccount = this.env.liveBook?.(a.id)?.enabled;
+        if (news.settings.keepWinners && plan && !onAccount && plan.risk > 0) {
+          const long = plan.side === 'LONG';
+          const r = ((a.price(pos.symbol) - plan.entry) * (long ? 1 : -1)) / plan.risk;
+          if (r >= 1) {
+            const lock = long ? plan.entry + 0.5 * plan.risk : plan.entry - 0.5 * plan.risk;
+            plan.stop = long ? Math.max(plan.stop, lock) : Math.min(plan.stop, lock);
+            plan.newsKept = ev.id;
+            a.note(`Keeping the ${pos.symbol} winner through ${eventLabel(ev)} with the stop locked at +0.5R`, 'news');
+            continue;
+          }
+        }
+        close.push({ symbol: pos.symbol, ev });
+      }
+      if (!close.length) continue;
+      const ev = close[0].ev;
+      const reason = `News: ${eventLabel(ev)} at ${fmtNyTime(ev.time)} NY (high impact)`;
+      if (close.length === a.book.positions.size) a.flatten(reason);
+      else for (const c of close) a.closeTrade(c.symbol, reason);
     }
   }
 
@@ -181,6 +230,10 @@ export class Fund extends EventEmitter {
       case 'reset-paper':
         this.resetPaper();
         return { ok: true };
+      case 'research': {
+        if (!agent?.requestResearch) return { ok: false, error: 'Only research desks research strategies' };
+        return agent.requestResearch('requested by the boss');
+      }
       case 'reset-learning':
         for (const a of agent ? [agent] : this.agents) {
           a.learner.reset();
@@ -335,6 +388,7 @@ export class Fund extends EventEmitter {
       snapshot: a.snapshot(),
       briefing: a.briefing(),
       learning: a.learner.view(),
+      research: a.researchView?.(true) ?? null,
       trades: book.trades.slice(-60).reverse(),
       fills: book.fills.slice(-40).reverse(),
       log: a.log.slice(-60),
@@ -356,6 +410,7 @@ export class Fund extends EventEmitter {
         halted: a.halted, paused: a.paused,
         dayCurve: this.dayCurves.get(a.id),
         learning: a.learner.serialize(),
+        extra: a.serializeExtra?.() ?? null,
       };
     }
     return {
@@ -384,6 +439,7 @@ export class Fund extends EventEmitter {
       a.equityPeak = s.equityPeak || 0;
       a.paused = !!s.paused;
       a.learner.restore(s.learning);
+      a.restoreExtra?.(s.extra);
       if (sameDay) {
         b.realizedDay = s.realizedDay || 0;
         b.feesDay = s.feesDay || 0;

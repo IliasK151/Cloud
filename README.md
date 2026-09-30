@@ -1,6 +1,6 @@
 # Meridian Trading Floor
 
-A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Ten AI trading agents each run their own desk and day-trade like an institutional book. You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
+A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Fifteen AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
 
 ![The trading floor](docs/floor.jpg)
 
@@ -46,12 +46,12 @@ If a live source can't be reached, that market automatically falls back to a rea
 ## The floor
 
 - **A calm, modern floor:** polished concrete, walnut slat walls, linear pendants over every desk and floor-to-ceiling windows onto the city at dusk, with soft shadows and ambient occlusion.
-- **10 desks in two tiers**, each with a six-screen workstation. The screens are live: a TradingView-style chart with the desk's entry, stop and target drawn as a position box, the book and setup checklist, a DOM ladder with time & sales, a Bloomberg-style terminal with the desk's log, the intraday P&L curve, and market watch.
-- **A name tag floats over every desk** with the trader, their desk, today's P&L and a status dot (scanning, armed, in trade, halted). Click it to talk to them.
-- **The front wall** carries the LED video wall (NAV, day P&L, fund equity, desk P&L bars, markets), world clocks and a ticker tape.
+- **15 desks in three tiers**: two trading rows and, raised at the back behind a glass rail, the Quant Research Lab. Each desk has a six-screen workstation. The screens are live: a TradingView-style chart with the desk's entry, stop and target drawn as a position box, the book and setup checklist, a DOM ladder with time & sales, a Bloomberg-style terminal with the desk's log, the intraday P&L curve, and market watch.
+- **A name tag floats over every desk** with the trader, their desk, today's P&L and a status dot (scanning, armed, in trade, standing aside for news, researching, halted). Click it to talk to them.
+- **The front wall** carries the LED video wall (NAV, day P&L, fund equity, the next market-moving news, desk P&L bars, markets), world clocks and a ticker tape.
 - **The traders are real characters,** each with their own look: faces with eyes that blink and follow what they're reading, hairstyles, suits, blazers and knitwear, glasses and trading headsets. Their hands work the keyboard and mouse (the arms use inverse kinematics), and between trades they sit back to read, rest their chin on a hand, take calls on the headset or sip their coffee. They fist-pump a winner, put their hands on their head after a loser and slump when risk halts them. When they trade, a speech bubble pops up over their head.
 
-**Controls:** click a trader, or press keys `1`–`0`, to zoom in. Drag to orbit, scroll to zoom, right-drag to pan. `←`/`→` moves to the next trader, and `Esc` returns to the overview. `D` opens the dashboard, `T` the TradingView page, `L` the FTMO tab, `F` the floor. `V` turns voices on and off, and `Q` switches graphics quality. The gear icon (top right) holds the voice and graphics settings and can replay the welcome tour.
+**Controls:** click a trader, or press keys `1`–`0` for the ten trading desks, to zoom in (the research lab is marked `Q`: click them or use the arrow keys). Drag to orbit, scroll to zoom, right-drag to pan. `←`/`→` moves to the next trader, and `Esc` returns to the overview. `D` opens the dashboard, `T` the TradingView page, `L` the FTMO tab, `F` the floor. `V` turns voices on and off, and `Q` switches graphics quality. The gear icon (top right) holds the voice and graphics settings and can replay the welcome tour.
 
 ### "Hello boss!"
 
@@ -69,7 +69,7 @@ Tickers are read the way traders say them ("gold", "the Nasdaq", "dollar yen"), 
 
 ---
 
-## The ten desks
+## The desks
 
 | # | Trader | Desk | Market | Strategy |
 | --- | --- | --- | --- | --- |
@@ -84,15 +84,65 @@ Tickers are read the way traders say them ("gold", "the Nasdaq", "dollar yen"), 
 | 9 | Lucas Meyer | Energy | USOIL | **Trend pullback**: buys dips to the EMA 20 in an EMA 20/50 uptrend after an RSI reset (and the mirror for shorts) |
 | 0 | Chen Wei | TradingView Signals | ETHUSD + any | **Executes your TradingView alerts**, and runs Supertrend (10, 3) on ETH between alerts |
 
+**The Quant Research Lab** (the raised back row, marked `Q`):
+
+| Researcher | Desk | Researches |
+| --- | --- | --- |
+| Elena Vasquez | Head of Quant Research | All nine markets, and deploys where the team isn't already trading |
+| Arjun Mehta | Index Research | NAS100, SPX500 |
+| Hannah Berg | FX Research | EURUSD, USDJPY |
+| Omar Haddad | Commodities Research | XAUUSD, USOIL |
+| Mei Lin | Crypto Research | BTCUSD, ETHUSD, SOLUSD |
+
 ### Institutional risk framework
 
-- A **$100M fund** with $10M allocated to each desk. Every trade is sized so that a stop-out costs **0.5% of the desk's allocation**, capped at **4× leverage**.
+- A **$100M fund** split evenly across the 15 desks (about $6.7M each). Every trade is sized so that a stop-out costs **0.5% of the desk's allocation**, capped at **4× leverage**.
 - **Trade management:** half the position is taken off at +1R and the stop moves to breakeven. After that the runner is trailed with an ATR chandelier stop, and some strategies use time stops.
 - **Desk daily loss limit (2%):** when it's hit, the CRO flattens and halts the desk until the next trading day.
 - **Fund daily loss limit (1.2% of NAV):** when it's hit, the whole floor goes risk-off.
+- **News:** no new trades around high and medium-impact releases for the markets they move, and every desk goes flat 5 minutes before high-impact news (below).
 - Other controls: cooldown bars after a loss, daily trade caps, and every desk flat into the close. Execution is modelled with spreads, slippage, commissions and maker rebates. USDJPY P&L is converted from yen.
 
 All limits are configurable in `.env` (copy `.env.example`).
+
+---
+
+## Economic news calendar
+
+Real traders don't open a trade into CPI, payrolls or a Fed decision, and they're flat before the number hits. Neither are the desks.
+
+- **The calendar.** In live mode the floor reads this week's [Forex Factory](https://www.forexfactory.com/calendar) calendar (high, medium and low impact, with forecast and previous), saves it in `data/calendar.json` and refreshes it every few hours. If it can't be reached, the desks stand aside around the usual US release times (08:30 and 10:00 New York, and the Wednesday oil report) rather than trade blind. In demo mode the floor generates a realistic calendar, and the simulator moves the markets when each number comes out: a jump in the direction of the surprise and a burst of volatility that fades.
+- **Which markets care.** Each release is matched to the markets it moves: US data moves everything, euro data moves EURUSD, Japanese data moves USDJPY, and the oil inventories report moves oil (as high impact). Crypto reacts only to high-impact US news.
+- **What the desks do.** No new trades from **15 minutes before to 15 minutes after** high-impact news for their market, and 5 minutes either side of medium impact. **Every position in a market with high-impact news is closed 5 minutes before the release.** TradingView alerts are held to the same rule. The desk's status turns **NEWS**, and its briefing says what's coming and when it's back.
+- **FTMO.** Funded FTMO accounts may not open or close trades within 2 minutes of high-impact news on the affected instrument. Closing 5 minutes early and standing aside for 15 keeps the floor well outside that window, and the live router refuses to send any trade during a blackout.
+- **Where to see it.** A pill in the top bar counts down to the next high-impact release (or shows who is standing aside), the dashboard has the full calendar with actual, forecast and previous, and the video wall shows the next release. Under the gear icon you can switch news protection off, or let trades already 1R in profit ride through the release with the stop locked at +0.5R (never on desks trading your FTMO account).
+
+---
+
+## The Quant Research Lab
+
+The five researchers don't come to work with a fixed strategy. Each research round goes like this, for each of their markets:
+
+1. **Read the market.** Classify its condition on 5-minute bars: trending up or down, ranging, a volatility squeeze or volatile.
+2. **Generate ideas that suit it.** A few hundred strategies are built from six families (channel breakouts, trend pullbacks, band mean reversion, squeeze breakouts, VWAP reversion and momentum impulses) on 1, 3, 5 and 15-minute charts. Each has a market-condition filter (trend only, range only and so on), a long/short filter, and an exit plan: ATR stop, R target or trailing exit, partial profits and a time stop. Ideas that fit the current condition are tried more often.
+3. **In-sample search** on the first 60% of the history, then the best ideas are refined. Every backtest uses the desk's real trade management, with spread, slippage and commission, stop-before-target inside every bar, gaps through stops, news blackouts, the session close, cooldowns and the daily loss limit. The signal code is shared with the live desk: the backtest and the desk compute exactly the same signals (tested bar by bar).
+4. **Out-of-sample test** on the next 25%, which the search never saw. The edge has to hold up (positive after costs, profit factor ≥ 1.2, keeping at least 30% of its in-sample edge, limited drawdown).
+5. **Robustness:** neighbouring parameter settings must also be profitable, it must survive **double trading costs**, and a **Monte Carlo** reshuffle of its trades must stay profitable with a tolerable worst-case drawdown.
+6. **Final holdout:** the last 15%, looked at once. On all the unseen data together, the edge must be **statistically significant** (t ≥ 2) over at least 20 trades.
+
+Only a strategy that passes every gate trades. If nothing passes, the researcher doesn't trade and says so. **Deployed strategies start on probation at half size** until they have 5 live trades and are in profit. After every trade, live results are compared with what validation promised, and the strategy is **retired automatically** if it does clearly worse, or if its drawdown goes beyond anything the Monte Carlo expected. Research runs again when the market's condition changes, every 4 hours of market time (walk-forward on fresh data), and 45 minutes after a round that found nothing.
+
+**How strict is it?** On 200 runs of pure random-walk data, where no real edge exists, the lab wrongly accepted a strategy 5 times (2.5%). Without these gates the same search "found" an edge a third of the time. Probation and the live kill-switch are there to catch the rare lucky strategy cheaply.
+
+**History.** In live mode the lab loads about two weeks of real 1-minute bars (Binance, Yahoo Finance), keeps them in `data/history/` and extends them with every new bar, so research gets better the longer the floor runs. In demo mode it generates 30 past sessions with the same simulator and calendar.
+
+| A researcher's Research tab | Lab and economic calendar on the dashboard |
+| --- | --- |
+| ![Research tab](docs/research.jpg) | ![Research lab and calendar](docs/research-lab.jpg) |
+
+**Where to see it.** A researcher's panel has a **Research** tab: the market conditions, the strategy's rules in plain English, in-sample / out-of-sample / holdout results, the equity curve in R across the three periods, every robustness check, the live tracking against expectations, what was rejected and why, and a **Research now** button. The dashboard's **Quant Research Lab** card shows all five at a glance. Research runs in a background thread, so the floor never stutters.
+
+**What this is, honestly.** No process can guarantee winning trades or "no mistakes". Markets change, and a real edge can be small and noisy. This lab makes it hard to fool ourselves: strategies must prove themselves on data they have never seen, survive stress, start small and get retired when they stop working. In demo mode the simulator has real structure (trends, ranges, squeezes), so the lab finds edges often. Real markets are harder, and you should expect it to say "no edge" more often there, which is the point.
 
 ---
 
@@ -176,6 +226,8 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 - **FTMO rule guard.** It watches the daily and maximum loss using FTMO's method (equity against the day's starting balance, and against the account size). At 80% of a limit it closes the floor's positions and stops trading: until the next server day for the daily limit, and until you clear it for the max loss. It can also stop when the profit target is hit, which is on by default.
 - **Arming is always your decision.** The floor starts disarmed after every restart. Paid accounts need you to type the account number to arm. **Close all & disarm** is always one click away.
 - **Two desks stay paper-only.** The stat-arb and market-making desks don't mirror onto a single prop account.
+- **Research desks can trade it too,** once you switch them on: they trade only validated strategies, at half size while a new strategy is on probation.
+- **News.** Nothing is sent to MT5 inside a news blackout, and the floor's positions are closed 5 minutes before high-impact news.
 
 **Set it up (once, about 5 minutes)**
 
@@ -191,7 +243,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 
 ![New FTMO account detected](docs/ftmo-connect.jpg)
 
-**Which P&L you're looking at.** Every desk also keeps paper trading with the fund's practice money, which runs to millions per desk. Once an FTMO account is connected, the top bar, desk list, desk signs, video wall and trader panels show **your FTMO account**: its equity, today's P&L and each desk's P&L on it. A desk that isn't switched on for the account says **paper**. The **FTMO / Paper** switch at the top left flips the floor back to the paper fund. The Dashboard tab is always the paper fund, and it has a **Reset paper P&L** button.
+**Which P&L you're looking at.** Every desk also keeps paper trading with the fund's practice money, which runs to millions per desk. Once an FTMO account is connected, the top bar, desk list, desk signs, video wall and trader panels show **your FTMO account**: its equity, today's P&L and each desk's P&L on it. A desk that isn't switched on for the account says **paper**. The **FTMO / Paper** switch at the top flips the floor (and the dashboard) back to the paper fund, and the paper dashboard has a **Reset paper P&L** button.
 
 **Why a desk hasn't traded yet.** A desk only trades when its setup appears, and some setups only appear at certain times (the opening-range breakout needs the New York open). No new trades open between 16:50 and 18:00 New York time, around the daily roll-over.
 
@@ -201,7 +253,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 
 - Run it on the **Free Trial** first and watch it for a few days. The strategies were built and tuned on simulated markets and have no real-money track record.
 - **Check FTMO's current rules on algorithmic trading yourself.** FTMO generally allows Expert Advisors but prohibits some trading practices, and their terms change. Complying with them on your account is your responsibility.
-- **A stop-loss is not a guarantee.** Gaps, news spikes and slippage can fill beyond it. The guard acts at 80% of each limit to leave a buffer, but it cannot promise you'll never breach one. FTMO's funded accounts also have news-trading restrictions, which the floor doesn't track.
+- **A stop-loss is not a guarantee.** Gaps, news spikes and slippage can fill beyond it. The guard acts at 80% of each limit to leave a buffer, but it cannot promise you'll never breach one. The floor stands aside for news using a public calendar; FTMO's own list of restricted releases is what counts, so check it for funded accounts.
 - MT5 must stay open, and your Mac awake, while the desks trade.
 
 **Troubleshooting**
@@ -223,7 +275,7 @@ The **Dashboard** tab follows the **FTMO / Paper** switch (in the top bar, or on
 
 - **FTMO account:** equity and balance, today's P&L (from the day's starting balance, FTMO's way), P&L since the start, open P&L and open risk, the floor's trades today and win rate, daily loss used and profit-target progress. Also the account equity curve, each desk's P&L on the account, a desk table with the live MT5 positions, FTMO rule meters, a blotter of the floor's trades on the account and a **Close all & disarm** button.
 - **Paper fund:** NAV, day P&L, P&L since inception, unrealized P&L, gross exposure, trades and win rate, the fund equity curve, desk P&L bars, a desk table with sparklines, positions and flatten/pause buttons, loss-limit usage per desk, the trade blotter and floor-wide controls.
-- Both show the market board, received TradingView alerts and **what the desks have learned**.
+- Both show the **Quant Research Lab** (each researcher's market condition, strategy, unseen-data results and live record), the **economic calendar** with who is standing aside, the market board, received TradingView alerts and **what the desks have learned**.
 
 ---
 
@@ -238,16 +290,17 @@ Copy `.env.example` to `.env`. The most useful settings:
 | `PORT` / `WEBHOOK_PORT` | `3000` / `3001` | Dashboard port and webhook-only port |
 | `HOST` | `127.0.0.1` | Set `0.0.0.0` to open the floor from an iPad on your Wi-Fi |
 | `WEBHOOK_SECRET` | auto | TradingView webhook secret |
-| `STARTING_CAPITAL` | `100000000` | Fund size, split evenly across the 10 desks |
+| `STARTING_CAPITAL` | `100000000` | Fund size, split evenly across the 15 desks |
 | `RISK_PER_TRADE_PCT`, `DESK_DAILY_LOSS_PCT`, `FUND_DAILY_LOSS_PCT`, `MAX_LEVERAGE` | 0.5 / 2 / 1.2 / 4 | Risk framework |
 
 Other commands:
 
 ```bash
-npm test               # unit tests: indicators, broker, risk, webhooks, FTMO bridge + guard, a full simulated session
+npm test               # tests: indicators, broker, risk, webhooks, FTMO, news calendar, backtester (no look-ahead),
+                       # research validation (rejects pure noise), research desks, a full floor session
 npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow
 npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
-npm run backtest -- 5  # fast-forward 5 simulated sessions and print each desk's results
+npm run backtest -- 5  # fast-forward 5 simulated sessions (news + research lab included) and print each desk's results
 npm run reset          # wipe the saved track record (keeps your webhook secret)
 ```
 
@@ -257,9 +310,11 @@ npm run reset          # wipe the saved track record (keeps your webhook secret)
 server/
   index.js              Express + WebSocket server, webhook-only listener, persistence
   market/               Binance + Yahoo live feeds, regime-switching simulator, 1-min bars,
-                        indicators, New York session clock
+                        indicators, New York session clock, calendar.js (economic news)
   engine/               paper broker, risk manager (CRO), agent base class,
-                        10 strategies, fund orchestration, learning.js (self-learning)
+                        11 strategies incl. research desks, fund orchestration, learning.js
+  research/             strategy grammar, backtester, walk-forward validation search,
+                        long history store, research lab (worker thread)
   tradingview/          alert parsing + authentication, one-click public address (tunnel)
   live/                 MT5 bridge protocol, FTMO rules + guard, live execution router
   voices/               realistic voices: Kokoro text-to-speech in a worker thread
@@ -267,7 +322,8 @@ mt5/                    MeridianBridge.mq5 Expert Advisor for MetaTrader 5
 public/
   js/floor/             Three.js floor: room, desks, six-screen workstations,
                         animated traders (avatar/: head, hair, body, IK), video wall, camera
-  js/ui/                HUD, trader panel + briefing + learning, dashboard, TradingView, FTMO
+  js/ui/                HUD, trader panel + briefing + learning + research, dashboard,
+                        economic calendar, TradingView, FTMO
   js/voice.js           voices: realistic (from the server) or system, lip-sync level
 tradingview/            Pine Script alert bridge
 ```

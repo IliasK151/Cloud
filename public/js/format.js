@@ -54,3 +54,9 @@ export function initials(name) {
 export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
+
+// Desk status → colour (desk tags, rail, agent panel).
+export const STATUS_COLORS = {
+  'IN TRADE': '#3d8ef0', ARMED: '#f2b01e', HALTED: '#e5484d', PAUSED: '#8b919c', COOLDOWN: '#ec835a',
+  NEWS: '#a371f7', RESEARCHING: '#2dd4bf', 'NO EDGE': '#8b919c', 'LOADING DATA': '#8b919c',
+};

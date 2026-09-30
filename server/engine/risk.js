@@ -1,4 +1,6 @@
 import { usdPerQuote, roundToLot, SYMBOLS } from '../market/symbols.js';
+import { eventLabel } from '../market/calendar.js';
+import { fmtNyTime } from '../market/session.js';
 
 // The CRO. Sizes every trade off a fixed fraction of the desk's allocation,
 // enforces per-desk and fund-wide daily loss limits, trade caps and cooldowns.
@@ -10,6 +12,7 @@ export class RiskManager {
     this.maxLeverage = maxLeverage;
     this.session = session;
     this.riskOff = null; // { reason, time } when the fund-level stop trips
+    this.news = null; // economic calendar (set by the fund)
   }
 
   deskLossLimit(agent) {
@@ -30,11 +33,16 @@ export class RiskManager {
     return lots >= SYMBOLS[symbol].lot ? lots : 0;
   }
 
-  canOpen(agent) {
+  canOpen(agent, symbol = agent.symbol) {
     if (agent.paused) return { ok: false, reason: 'Desk paused by the boss' };
     if (agent.halted) return { ok: false, reason: agent.halted };
     if (this.riskOff) return { ok: false, reason: `Fund risk-off: ${this.riskOff.reason}` };
     if (this.session.isFlattenWindow()) return { ok: false, reason: 'Flat into the close' };
+    const news = this.news?.blackout(symbol);
+    if (news) {
+      const when = news.phase === 'before' ? `at ${fmtNyTime(news.event.time)}` : 'just released';
+      return { ok: false, news: true, reason: `News blackout: ${eventLabel(news.event)} ${when} (${news.impact} impact), no new ${symbol} trades until ${fmtNyTime(news.until)}` };
+    }
     const cap = agent.learner ? agent.learner.maxTrades(agent.profile.maxTradesPerDay ?? 12) : agent.profile.maxTradesPerDay ?? 12;
     if (agent.day.trades >= cap) return { ok: false, reason: 'Daily trade cap reached' };
     if (agent.cooldownBars > 0) return { ok: false, reason: `Cooling off after a loss (${agent.cooldownBars} bars)` };

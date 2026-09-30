@@ -1,4 +1,4 @@
-import { money, nyTime, signClass, escapeHtml } from '../format.js';
+import { money, nyTime, signClass, escapeHtml, STATUS_COLORS } from '../format.js';
 import { fundBook, deskBook, hasFtmo, bookMode, setBookPref } from '../book.js';
 
 // Top bar KPIs, the desk rail on the left and the scrolling event tape.
@@ -45,17 +45,24 @@ export class Hud {
     this.el.list.innerHTML = '';
     this.rows.clear();
     s.profiles.forEach((p, i) => {
+      if (p.lab && !s.profiles[i - 1]?.lab) {
+        const h = document.createElement('li');
+        h.className = 'desk-group';
+        h.innerHTML = 'Quant Research Lab <small>trades only validated strategies</small>';
+        this.el.list.appendChild(h);
+      }
       const li = document.createElement('li');
-      li.className = 'desk-item';
+      li.className = `desk-item${p.lab ? ' lab' : ''}`;
+      const markets = p.research?.markets || p.symbols;
       li.innerHTML = `
-        <span class="key" style="--accent:${p.accent}">${(i + 1) % 10}</span>
+        <span class="key" style="--accent:${p.accent}">${p.lab ? 'Q' : (i + 1) % 10}</span>
         <span class="nm">${escapeHtml(p.name)}</span>
         <span class="pnl num">—</span>
-        <span class="sub">${escapeHtml(p.desk)} · ${escapeHtml(p.symbols.join('/'))}</span>
+        <span class="sub"><span class="subt">${escapeHtml(p.desk)} · ${escapeHtml(markets.length > 3 ? 'all markets' : markets.join('/'))}</span></span>
         <span class="st">—</span>`;
       li.addEventListener('click', () => this.onSelect(p.id));
       this.el.list.appendChild(li);
-      this.rows.set(p.id, { li, pnl: li.querySelector('.pnl'), st: li.querySelector('.st') });
+      this.rows.set(p.id, { li, pnl: li.querySelector('.pnl'), st: li.querySelector('.st'), subt: li.querySelector('.subt'), lab: !!p.lab, p });
     });
     this.renderTape();
     this.update();
@@ -94,8 +101,18 @@ export class Hud {
       row.pnl.textContent = d.na ? 'paper' : money(d.day, { sign: true, compact: Math.abs(d.day) >= 1e5 });
       row.pnl.className = `pnl num ${d.na ? 'na' : signClass(d.day)}`;
       row.pnl.title = d.na ? 'Not switched on for the FTMO account' : ftmo ? 'P&L on your FTMO account today' : 'Paper P&L today';
-      const color = { 'IN TRADE': '#3d8ef0', ARMED: '#f2b01e', HALTED: '#e5484d', PAUSED: '#8b919c', COOLDOWN: '#ec835a' }[a.status] || '#3fb950';
-      row.st.innerHTML = `<i class="st-dot" style="background:${color}"></i>${escapeHtml(a.status.toLowerCase())}`;
+      const color = STATUS_COLORS[a.status] || '#3fb950';
+      const stKey = `${a.status}|${a.news?.hold?.label || ''}`;
+      if (row.stKey !== stKey) {
+        row.stKey = stKey;
+        row.st.innerHTML = `<i class="st-dot" style="background:${color}"></i>${escapeHtml(a.status.toLowerCase())}`;
+        row.st.title = a.news?.hold ? `Standing aside for ${a.news.hold.label}` : '';
+      }
+      if (row.lab) {
+        const act = a.research?.active;
+        const txt = act ? `${act.name} · ${act.symbol}` : `${row.p.desk} · ${(row.p.research?.markets || []).length > 3 ? 'all markets' : (row.p.research?.markets || []).join('/')}`;
+        if (row.subt.textContent !== txt) row.subt.textContent = txt;
+      }
       row.li.classList.toggle('active', s.selected === id);
     }
   }

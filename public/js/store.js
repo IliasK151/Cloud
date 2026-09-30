@@ -121,6 +121,12 @@ class Store extends EventTarget {
     this.emit('live', view);
   }
 
+  setNews(view) {
+    if (!view) return;
+    this.news = view;
+    this.emit('news', view);
+  }
+
   setTunnel(view) {
     if (!view) return;
     this.tunnel = view;

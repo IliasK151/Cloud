@@ -1,5 +1,5 @@
 import { store } from './store.js';
-import { connect } from './net.js';
+import { connect, api } from './net.js';
 import { voice } from './voice.js';
 import { TradingFloor } from './floor/floor.js';
 import { Hud } from './ui/hud.js';
@@ -8,6 +8,7 @@ import { Dashboard } from './ui/dashboard.js';
 import { TradingViewView } from './ui/tvView.js';
 import { LiveView } from './ui/liveView.js';
 import { escapeHtml, money } from './format.js';
+import { nextHigh, until } from './ui/news.js';
 
 const app = document.getElementById('app');
 const params = new URLSearchParams(location.search);
@@ -148,6 +149,48 @@ floor?.on('quality', (on) => {
 });
 if (params.get('hq') === '1' && floor) floor.autoQuality = false; // pin high quality (skip auto-downgrade)
 
+// News protection (server-side setting, shared by every desk).
+const newsBox = document.getElementById('set-news');
+const newsKeepBox = document.getElementById('set-news-keep');
+const saveNews = () => api('/api/news/settings', { method: 'POST', body: JSON.stringify({ enabled: newsBox.checked, keepWinners: newsKeepBox.checked }) }).catch(() => {});
+newsBox.addEventListener('change', saveNews);
+newsKeepBox.addEventListener('change', saveNews);
+
+// Top-bar pill: the next high-impact release, or who is standing aside right now.
+const newsPill = document.getElementById('news-pill');
+newsPill.addEventListener('click', () => {
+  setView('dashboard');
+  setTimeout(() => dashboard.focusNews(), 60);
+});
+function updateNewsPill() {
+  const n = store.news;
+  if (n?.settings) {
+    newsBox.checked = !!n.settings.enabled;
+    newsKeepBox.checked = !!n.settings.keepWinners;
+    newsKeepBox.disabled = !n.settings.enabled;
+  }
+  const now = store.fund?.marketTime;
+  if (!n?.settings?.enabled || !now) return void (newsPill.hidden = true);
+  const holds = Object.keys(n.blackouts || {});
+  const next = nextHigh(n, now);
+  let text = '';
+  let cls = '';
+  if (holds.length) {
+    const b = n.blackouts[holds[0]];
+    text = `News · ${holds.length} market${holds.length > 1 ? 's' : ''} on hold`;
+    cls = b.impact === 'high' ? 'hold high' : 'hold';
+    newsPill.title = `${b.label}: ${holds.join(', ')} standing aside`;
+  } else if (next && next.time - now < 3 * 3_600_000) {
+    text = `${next.label.replace(/^US /, '')} ${until(next.time - now)}`;
+    cls = next.time - now < 30 * 60_000 ? 'soon' : '';
+    newsPill.title = `High-impact news for ${next.high.join(', ')}. Click for the calendar.`;
+  }
+  newsPill.hidden = !text;
+  newsPill.className = `news-pill ${cls}`;
+  newsPill.querySelector('span').textContent = text;
+}
+store.on('news', updateNewsPill);
+
 // ---- first-run welcome ----------------------------------------------------------------------
 const welcome = (() => {
   const el = document.getElementById('welcome');
@@ -251,6 +294,7 @@ store.on('snapshot', () => {
   hud.update();
   panel.update();
   dashboard.render();
+  updateNewsPill();
 });
 
 // Floor chatter: short bubbles over a trader's head when they trade.
@@ -259,11 +303,13 @@ store.on('event', (ev) => {
   if (!ev.agentId || !floor || view !== 'floor') return;
   if (ev.agentId === store.selected) return;
   const liveFill = ev.kind === 'live' && /filled|closed/.test(ev.text);
-  if (!['entry', 'exit', 'partial', 'halt', 'signal', 'alert', 'learn'].includes(ev.kind) && !liveFill) return;
-  if (floor.bubbles.size >= 3 && !['halt', 'alert', 'learn'].includes(ev.kind)) return;
+  const researched = ev.kind === 'research' && /^(Deployed|Replaced|Retiring|Tested)/.test(ev.text);
+  if (!['entry', 'exit', 'partial', 'halt', 'signal', 'alert', 'learn'].includes(ev.kind) && !liveFill && !researched) return;
+  if (floor.bubbles.size >= 3 && !['halt', 'alert', 'learn'].includes(ev.kind) && !researched) return;
   const p = store.profileById[ev.agentId];
   const learned = ev.kind === 'learn';
-  floor.showBubble(ev.agentId, `<b>${escapeHtml(p.name.split(' ')[0])}${learned ? ' · 💡 learned something' : ''}</b>${escapeHtml(learned ? ev.text.replace(/^Lesson learned — /, '') : ev.text)}`, { duration: learned ? 9000 : 4500 });
+  const tag = learned ? ' · 💡 learned something' : researched ? ' · 🧪 research' : '';
+  floor.showBubble(ev.agentId, `<b>${escapeHtml(p.name.split(' ')[0])}${tag}</b>${escapeHtml(learned ? ev.text.replace(/^Lesson learned — /, '') : ev.text)}`, { duration: learned || researched ? 9000 : 4500 });
 });
 
 store.on('equity', (sample) => dashboard.onEquity(sample));

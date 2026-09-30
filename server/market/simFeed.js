@@ -1,5 +1,7 @@
 import { SYMBOLS, roundToTick } from './symbols.js';
 import { nyMinuteOfDay } from './session.js';
+import { impactFor } from './calendar.js';
+import { mulberry32, gaussian } from '../util/random.js';
 
 // Regime-switching market simulator.
 // Each instrument alternates between trends, mean-reverting ranges, volatility
@@ -8,22 +10,7 @@ import { nyMinuteOfDay } from './session.js';
 
 const TRADING_SECONDS_PER_YEAR = 252 * 23_400;
 
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function gaussian(rng) {
-  let u = 0;
-  while (u === 0) u = rng();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng());
-}
+export { mulberry32 };
 
 const uniform = (rng, a, b) => a + (b - a) * rng();
 
@@ -120,12 +107,14 @@ class RegimeProcess {
 }
 
 export class SimFeed {
-  constructor(md, clock, symbolIds, { seed = Date.now() % 1e9, startPrices = {}, useSessionShape = true } = {}) {
+  constructor(md, clock, symbolIds, { seed = Date.now() % 1e9, startPrices = {}, useSessionShape = true, calendar = null, source = 'sim' } = {}) {
     this.md = md;
     this.clock = clock;
     this.ids = symbolIds;
     this.rng = mulberry32(seed);
     this.useSessionShape = useSessionShape;
+    this.calendar = calendar; // economic releases move the simulated markets
+    this.source = source;
     this.state = new Map();
     for (const id of symbolIds) this.#addState(id, startPrices[id]);
   }
@@ -161,8 +150,9 @@ export class SimFeed {
     const end = this.clock.now();
     let t = end - minutes * 60_000;
     while (t < end) {
-      const next = Math.min(end, t + 5_000);
-      this.#advance(t, next, 5);
+      const next = Math.min(end, t + 60_000);
+      this.#scheduleNews(t, next);
+      for (let s = t; s < next; s += 5_000) this.#advance(s, Math.min(next, s + 5_000), 5);
       t = next;
     }
   }
@@ -170,8 +160,56 @@ export class SimFeed {
   step(fromMs, toMs) {
     const total = (toMs - fromMs) / 1000;
     if (total <= 0) return;
+    this.#scheduleNews(fromMs, toMs);
     const n = Math.max(1, Math.ceil(total));
     this.#advance(fromMs, toMs, total / n);
+  }
+
+  #scheduleNews(fromMs, toMs) {
+    if (!this.calendar?.settings) return;
+    for (const ev of this.calendar.releasedBetween(fromMs, toMs)) this.news(ev);
+  }
+
+  // A data release: the market jumps the way the surprise points (over ~40 seconds) and
+  // volatility spikes, then fades over the next several minutes.
+  news(ev, at = ev.time) {
+    for (const st of this.state.values()) {
+      const impact = impactFor(ev, st.id);
+      if (!impact) continue;
+      const high = impact === 'high';
+      const z = Number.isFinite(ev.surprise) ? ev.surprise : Math.round(gaussian(this.rng));
+      let dir = this.#reaction(ev, st.id) * Math.sign(z);
+      if (!dir) dir = this.rng() < 0.5 ? 1 : -1;
+      const sigmaMin = st.sigma * Math.sqrt(60);
+      const size = (high ? 1.8 : 0.9) * (1 + 0.8 * Math.min(3, Math.abs(z))) * sigmaMin * (0.7 + 0.6 * this.rng());
+      // ETH and SOL already follow BTC's jump through their beta.
+      st.news = { t0: at, total: st.beta ? 0 : dir * size, applied: 0, secs: 40, boost: high ? 3.2 : 1.8, tau: high ? 420 : 240 };
+    }
+  }
+
+  #reaction(ev, id) {
+    if (ev.oil && id === 'USOIL') return ev.oil;
+    const usd = ev.usd ?? 0;
+    const risk = ev.risk ?? 0;
+    if (id === 'EURUSD') return ev.currency === 'EUR' ? 1 : -usd;
+    if (id === 'USDJPY') return ev.currency === 'JPY' ? -1 : usd;
+    if (id === 'XAUUSD') return -usd;
+    return risk; // indices, oil on macro data, crypto
+  }
+
+  #newsEffect(st, t, dtSec) {
+    const n = st.news;
+    if (!n || t < n.t0) return { vol: 1, jump: 0 };
+    const age = (t - n.t0) / 1000;
+    let jump = 0;
+    if (n.applied !== n.total) {
+      const want = n.total * Math.min(1, (age + dtSec) / n.secs);
+      jump = want - n.applied;
+      n.applied = want;
+    }
+    const vol = 1 + (n.boost - 1) * Math.exp(-age / n.tau);
+    if (age > n.tau * 5) st.news = null;
+    return { vol, jump };
   }
 
   #advance(fromMs, toMs, dtSec) {
@@ -182,19 +220,23 @@ export class SimFeed {
       let btcShock = gaussian(this.rng);
       let btcRet = 0;
       const btc = this.state.get('BTCUSD');
-      if (btc) btcRet = btc.process.step(dtSec, sv, btcShock);
+      const effects = new Map();
+      for (const st of this.state.values()) if (st.news) effects.set(st, this.#newsEffect(st, t, dtSec));
+      const fx = (st) => effects.get(st) || { vol: 1, jump: 0 };
+      if (btc) btcRet = btc.process.step(dtSec, sv * fx(btc).vol, btcShock) + fx(btc).jump;
       else btcRet = btcShock * (SYMBOLS.BTCUSD.annualVol / Math.sqrt(TRADING_SECONDS_PER_YEAR)) * Math.sqrt(dtSec);
       for (const st of this.state.values()) {
         let ret;
+        const e = fx(st);
         if (st.id === 'BTCUSD') ret = btcRet;
-        else if (st.beta) ret = st.beta * btcRet + st.process.step(dtSec, sv);
-        else ret = st.process.step(dtSec, sv);
+        else if (st.beta) ret = st.beta * btcRet + st.process.step(dtSec, sv * e.vol) + e.jump;
+        else ret = st.process.step(dtSec, sv * e.vol) + e.jump;
         st.logPrice += ret;
         const price = roundToTick(st.id, Math.exp(st.logPrice));
         const sigmaStep = st.sigma * Math.sqrt(dtSec) || 1e-9;
         const activity = 1 + 2 * Math.min(4, Math.abs(ret) / sigmaStep);
         const volume = (st.sym.baseVolume / 60) * dtSec * sv * activity * Math.exp(0.5 * gaussian(this.rng) - 0.125);
-        this.md.applyTick(st.id, price, volume, t, 'sim');
+        this.md.applyTick(st.id, price, volume * (e.vol > 1 ? e.vol : 1), t, this.source);
       }
     }
   }

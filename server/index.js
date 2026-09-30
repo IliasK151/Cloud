@@ -8,6 +8,9 @@ import { config, ROOT } from './config.js';
 import { MarketClock, Session } from './market/session.js';
 import { MarketData } from './market/marketData.js';
 import { FeedManager } from './market/feedManager.js';
+import { NewsCalendar } from './market/calendar.js';
+import { HistoryStore } from './research/history.js';
+import { ResearchLab } from './research/lab.js';
 import { SYMBOLS } from './market/symbols.js';
 import { Broker } from './engine/broker.js';
 import { RiskManager } from './engine/risk.js';
@@ -30,9 +33,12 @@ const session = new Session(clock);
 const md = new MarketData(clock);
 const broker = new Broker(md, clock);
 const risk = new RiskManager(config.risk, session);
-const fund = new Fund({ config, md, clock, session, broker, risk });
+const news = new NewsCalendar({ clock, mode: config.feed, dataDir: config.dataDir, log });
+const history = new HistoryStore({ md, mode: config.feed, dataDir: config.dataDir, calendar: news, log });
+const lab = new ResearchLab({ history, calendar: news, mode: config.feed, log });
+const fund = new Fund({ config, md, clock, session, broker, risk, news, lab });
 const store = new Store(config.dataDir, config.feed);
-const feeds = new FeedManager({ md, clock, mode: config.feed, log });
+const feeds = new FeedManager({ md, clock, mode: config.feed, log, calendar: news });
 
 // FTMO / MT5 live execution (idle until the MeridianBridge EA connects and you arm it).
 const bridge = new Mt5Bridge();
@@ -73,6 +79,14 @@ app.get('/api/candles/:symbol', localOnly, (req, res) => {
 });
 app.post('/api/command', localOnly, express.json(), (req, res) => {
   res.json(fund.command(req.body?.cmd, req.body?.agentId));
+});
+
+// Economic calendar (news the desks stand aside for).
+app.get('/api/news', localOnly, (req, res) => res.json(news.view()));
+app.post('/api/news/settings', localOnly, express.json(), (req, res) => res.json(news.setSettings(req.body || {})));
+app.post('/api/news/refresh', localOnly, async (req, res) => {
+  await news.refresh();
+  res.json({ ok: !news.error, error: news.error, news: news.view() });
 });
 
 // ---- MT5 bridge + FTMO live trading --------------------------------------------------------
@@ -212,7 +226,7 @@ function broadcast(msg) {
 }
 
 wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status() }));
+  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view() }));
   ws.on('message', (buf) => {
     try {
       const msg = JSON.parse(buf.toString());
@@ -233,11 +247,15 @@ fund.on('equity', (sample) => broadcast({ type: 'equity', sample }));
 fund.on('alert', (alert) => broadcast({ type: 'alert', alert }));
 fund.on('reset', () => {
   store.save(fund.serialize());
-  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status() }));
+  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view() }));
 });
 broker.on('trade', (trade) => broadcast({ type: 'trade', trade }));
 tunnel.on('change', (view) => broadcast({ type: 'tunnel', tunnel: view }));
 voices.on('change', (st) => broadcast({ type: 'voices', voices: st }));
+const pushNews = () => broadcast({ type: 'news', news: news.view() });
+news.on('change', pushNews);
+news.on('announce', () => setImmediate(pushNews));
+setInterval(pushNews, config.feed === 'sim' ? 5000 : 30_000);
 
 // Push the FTMO panel state when it changes (and at least every few seconds).
 let lastLive = '';
@@ -275,10 +293,17 @@ function openBrowser(url) {
 }
 
 async function main() {
+  news.init().catch((err) => log.warn(`[news] ${err.message}`));
   await feeds.start();
   if (fund.restore(store.load())) log.info('  Restored track record from', store.file);
   fund.start();
   setInterval(() => store.save(fund.serialize()), 30_000);
+  // The research desks need long history; load it without holding up the floor.
+  history.load().then(() => {
+    const st = history.status();
+    log.info(`  Research lab: ${Object.values(st).reduce((s, x) => s + x.bars, 0).toLocaleString('en-US')} one-minute bars loaded for ${Object.keys(st).length} markets`);
+    lab.start();
+  }).catch((err) => log.warn(`[research] ${err.message}`));
 
   server.listen(config.port, config.host, () => {
     const url = `http://localhost:${config.port}`;
@@ -321,6 +346,9 @@ async function shutdown() {
   feeds.stop();
   await tunnel.stop({ keepAuto: true }).catch(() => {});
   voices.stop();
+  news.stop();
+  lab.stop();
+  history.stop();
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
