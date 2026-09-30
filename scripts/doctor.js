@@ -62,6 +62,12 @@ async function main() {
     return;
   }
   good(`The floor is running (${h.mode === 'sim' ? 'demo mode, simulated prices' : 'live mode'}, up ${Math.round(h.uptime / 60)} min).`);
+  if (process.platform === 'darwin') {
+    const { plistPath } = await import('./service.js');
+    const fs = await import('node:fs');
+    if (fs.existsSync(plistPath())) good('It runs non-stop as a background service: starts at login, restarts itself if it stops.');
+    else warn('It runs in a Terminal window only: closing that window stops the floor. To run it non-stop: npm run service -- install');
+  }
   for (const n of h.notes || []) if (/Waiting for real prices/.test(n)) warn(n);
 
   // 2. The dashboard page and its key.

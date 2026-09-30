@@ -29,6 +29,15 @@ if [ "$major" -lt 18 ]; then
   exit 1
 fi
 
+# Already running non-stop as a background service (npm run service -- install)? Just open it.
+PORT=$(grep -E '^PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2)
+PORT=${PORT:-3000}
+if [ -f "$HOME/Library/LaunchAgents/com.meridiancapital.floor.plist" ] && curl -s -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
+  echo "  The floor already runs in the background: opening it."
+  open "http://localhost:$PORT"
+  exit 0
+fi
+
 if [ ! -d node_modules ] || [ package.json -nt node_modules ]; then
   echo "  Installing (first run only, about a minute)…"
   if ! npm install --no-audit --no-fund; then

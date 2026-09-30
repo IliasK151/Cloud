@@ -28,6 +28,20 @@ import { LiveTrader } from './live/liveTrader.js';
 import { summarize } from './live/dailyReport.js';
 import { TelegramNotifier } from './notify/telegram.js';
 
+// As a background service (npm run service) the log files grow forever: start each run
+// with a fresh one, keeping the previous run's as .old.
+if (process.env.FLOOR_SERVICE === '1') {
+  for (const name of ['floor.log', 'floor-error.log']) {
+    const f = path.join(config.dataDir, 'logs', name);
+    try {
+      if (fs.statSync(f).size > 5 * 1024 * 1024) {
+        fs.copyFileSync(f, `${f}.old`);
+        fs.truncateSync(f, 0);
+      }
+    } catch { /* no log yet */ }
+  }
+}
+
 const log = {
   info: (...a) => console.log(...a),
   warn: (...a) => console.warn(...a),
@@ -574,6 +588,14 @@ async function main() {
   });
   voices.init();
   hookServer.on('error', (err) => log.warn(`[webhook] port ${config.webhookPort} unavailable: ${err.message}`));
+}
+
+// Keep the Mac awake for as long as the floor runs: caffeinate follows this process and
+// ends with it. (A MacBook still sleeps with its lid closed.) KEEP_AWAKE=0 turns it off.
+if (process.platform === 'darwin' && config.keepAwake) {
+  try {
+    spawn('/usr/bin/caffeinate', ['-is', '-w', String(process.pid)], { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+  } catch { /* not fatal */ }
 }
 
 let shuttingDown = false;

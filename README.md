@@ -388,7 +388,34 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 - Run it on the **Free Trial** first and watch it for a few days. The strategies were built and tuned on simulated markets and have no real-money track record.
 - **Check FTMO's current rules on algorithmic trading yourself.** FTMO generally allows Expert Advisors but prohibits some trading practices, and their terms change. Complying with them on your account is your responsibility.
 - **A stop-loss is not a guarantee.** Gaps, news spikes and slippage can fill beyond it. The guard acts at 80% of each limit to leave a buffer, but it cannot promise you'll never breach one. The floor stands aside for news using a public calendar; FTMO's own list of restricted releases is what counts, so check it for funded accounts.
-- MT5 must stay open, and your Mac awake, while the desks trade. Start the floor with `caffeinate -i npm start` so the Mac can't sleep while it runs.
+- MT5 must stay open, and your Mac awake, while the desks trade. The floor keeps the Mac awake by itself while it runs (on a MacBook, keep the lid open: a closed lid sleeps it anyway).
+
+### Run it non-stop
+
+```bash
+npm run service -- install
+```
+
+That turns the floor into a background service on your Mac: it starts right away, starts again at every login, restarts by itself within 30 seconds if it ever stops, and keeps the Mac awake. It also adds MetaTrader 5 to your Login Items, so MT5 (with the EA on its chart) comes back after a restart too. After that you don't use `npm start`: the floor is always on at http://localhost:3000, and double-clicking **Start Trading Floor** just opens it.
+
+| Command | What it does |
+| --- | --- |
+| `npm run service -- status` | Is it running, and is the floor answering? |
+| `npm run service -- restart` | Restart it, e.g. after `git pull` |
+| `npm run service -- logs` | The floor's latest output (kept in `data/logs/`) |
+| `npm run service -- uninstall` | Stop it and remove the service |
+
+To make it truly non-stop, once:
+
+- **FTMO tab:** switch on **Stay armed after a restart**, so a restart doesn't leave it disarmed.
+- **System Settings → Battery (or Energy) → Options:** turn on *Prevent automatic sleeping on power adapter when the display is off*, and on a desktop Mac *Start up automatically after a power failure*.
+- **System Settings → Users & Groups:** automatic login, so the service starts after a reboot without anyone logging in (not available with FileVault on).
+- **Software Update:** don't let macOS install updates by itself during the week; it restarts the Mac.
+- **Telegram alerts** tell you if MT5 goes quiet (Mac asleep, MT5 closed, internet down) and when it's back.
+
+A stop (uninstall, logging out, shutting down) closes the floor's FTMO positions on the way out, as Ctrl+C does.
+
+**Truly 24/7: a VPS.** A Mac at home still depends on your power, internet and macOS updates. For zero downtime, run MT5 and the floor on a Windows VPS near the broker's servers (from about $15–30 a month; FTMO allows it). Install Node.js and MT5 there, copy this folder, run `npm start` from a Task Scheduler task set to start at boot and restart on failure, and open the dashboard over Remote Desktop.
 
 ### Stay armed after a restart
 
@@ -531,6 +558,7 @@ Copy `.env.example` to `.env`. The most useful settings:
 | `ALLOWED_HOSTS` | — | Extra host names allowed to open the dashboard (comma-separated), e.g. a custom local DNS name |
 | `WEBHOOK_SECRET` | auto | TradingView webhook secret (auto: random, in `data/webhook-secret.txt`, rotatable from the TradingView tab) |
 | `STARTING_CAPITAL` | `100000000` | Fund size, split evenly across the 20 desks |
+| `KEEP_AWAKE` | `1` | macOS: keep the Mac awake while the floor runs (`0` turns it off) |
 | `RISK_PER_TRADE_PCT`, `DESK_DAILY_LOSS_PCT`, `FUND_DAILY_LOSS_PCT`, `MAX_LEVERAGE` | 0.5 / 2 / 1.2 / 4 | Risk framework |
 
 Other commands:
@@ -540,6 +568,7 @@ npm test               # tests: indicators, broker, risk, webhooks, FTMO, news c
                        # research validation (rejects pure noise), research desks, committee + account brain,
                        # a full floor session
 npm run doctor         # checks every connection (floor, dashboard, MT5, TradingView) and says what to fix
+npm run service -- install  # run the floor non-stop as a background service (status / restart / logs / uninstall)
 npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow (MOCK_PNL=-100 rehearses a drawdown)
 npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
 npm run backtest -- 5  # fast-forward 5 simulated sessions (news + research lab included) and print each desk's results

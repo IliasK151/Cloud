@@ -70,6 +70,8 @@ export const config = {
   webhookSecretFromEnv: !!process.env.WEBHOOK_SECRET,
   bridgeToken: resolveBridgeToken(),
   openBrowser: process.env.OPEN_BROWSER !== '0',
+  // macOS: keep the Mac awake while the floor runs (trades, alerts and MT5 need it).
+  keepAwake: process.env.KEEP_AWAKE !== '0',
   dataDir: DATA_DIR,
   risk: {
     riskPerTradePct: num(process.env.RISK_PER_TRADE_PCT, 0.5) / 100,

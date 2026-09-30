@@ -18,6 +18,7 @@
     "backtest": "node scripts/backtest.js",
     "scalp-test": "node scripts/scalp-test.js",
     "doctor": "node scripts/doctor.js",
+    "service": "node scripts/service.js",
     "mock-mt5": "node scripts/mock-mt5.js",
     "install-ea": "node scripts/install-ea.js"
   },

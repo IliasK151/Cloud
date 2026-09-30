@@ -291,3 +291,17 @@ test('the running floor refuses the attacks end to end', { timeout: 90_000 }, as
     await new Promise((r) => child.once('exit', r));
   }
 });
+
+test('the non-stop service: a LaunchAgent that runs node directly, restarts it, never opens a browser', async () => {
+  const { plistFor, LABEL } = await import('../scripts/service.js');
+  const xml = plistFor({ root: '/Users/me/Desktop/trading & floor', node: '/opt/homebrew/bin/node', logDir: '/Users/me/Desktop/trading & floor/data/logs' });
+  assert.match(xml, new RegExp(`<string>${LABEL.replace(/\./g, '\\.')}</string>`));
+  // node itself is the program (a stop reaches it, so it closes its FTMO positions cleanly).
+  assert.match(xml, /<array>\s*<string>\/opt\/homebrew\/bin\/node<\/string>\s*<string>\/Users\/me\/Desktop\/trading &amp; floor\/server\/index\.js<\/string>\s*<\/array>/);
+  assert.match(xml, /<key>KeepAlive<\/key>\s*<true\/>/);
+  assert.match(xml, /<key>RunAtLoad<\/key>\s*<true\/>/);
+  assert.match(xml, /<key>OPEN_BROWSER<\/key>\s*<string>0<\/string>/);
+  assert.match(xml, /<key>FLOOR_SERVICE<\/key>\s*<string>1<\/string>/);
+  assert.match(xml, /trading &amp; floor\/data\/logs\/floor\.log/);
+  assert.ok(!/trading & floor/.test(xml), 'paths are XML-escaped');
+});
