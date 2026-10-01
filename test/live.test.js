@@ -106,7 +106,7 @@ test('arming rules: live mode, desks enabled, confirmation for paid accounts', (
 
   const demo = setup({ mode: 'sim' });
   demo.sync();
-  demo.live.setup({ type: 'trial' });
+  demo.live.setup({ type: 'trial', training: false });
   demo.live.setDesk('chen', true);
   assert.match(demo.live.arm().error, /live market data/);
 });
@@ -114,7 +114,7 @@ test('arming rules: live mode, desks enabled, confirmation for paid accounts', (
 test('desk trades are mirrored: entry, scale-out, stop moves and exit', async () => {
   const { live, sync, mt5, chen } = setup();
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   live.setDesk('chen', true);
   assert.equal(live.arm().ok, true);
 
@@ -201,7 +201,7 @@ test('the guard stops trading before the FTMO daily loss limit', () => {
 test('profit target reached locks the account', () => {
   const { live, sync, mt5 } = setup();
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   live.setDesk('chen', true);
   live.arm();
   mt5.balance = mt5.equity = 110_050;
@@ -231,7 +231,7 @@ test('switching to the broker feed does not create fake P&L on open positions', 
 test('briefings talk about the FTMO account once it is connected', () => {
   const { live, sync, chen, fund } = setup();
   sync();
-  live.setup({ type: 'trial', size: 10_000 });
+  live.setup({ type: 'trial', training: false, size: 10_000 });
   live.setDesk('chen', true);
   const text = chen.briefing().text;
   assert.match(text, /FTMO/);
@@ -243,7 +243,7 @@ test('briefings talk about the FTMO account once it is connected', () => {
 test('a market on simulated prices never reaches the FTMO account', async () => {
   const { fund, live, sync, chen } = setup();
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   live.setDesk('chen', true);
   assert.equal(live.arm().ok, true);
 
@@ -279,14 +279,14 @@ test('the daily stop switch is saved on the account and noted in the live log', 
   const { live, sync } = setup();
   sync();
   assert.equal(live.setPlan({ dailyStopOn: false }).ok, false, 'needs the account set up');
-  live.setup({ type: 'trial', size: 10_000 });
+  live.setup({ type: 'trial', training: false, size: 10_000 });
   assert.equal(live.profile.dailyStopOn, true);
   assert.equal(live.setPlan({ dailyStopOn: false }).ok, true);
   assert.equal(live.profile.dailyStopOn, false);
   assert.equal(live.view().plan.dailyStopOn, false);
   assert.match(live.events.at(-1).text, /Daily stop switched OFF/);
   // Saving the setup form keeps the choice it sends.
-  live.setup({ type: 'trial', size: 10_000, dailyStopOn: false });
+  live.setup({ type: 'trial', training: false, size: 10_000, dailyStopOn: false });
   assert.equal(live.profile.dailyStopOn, false);
   live.setPlan({ dailyStopOn: true });
   assert.equal(live.profile.dailyStopOn, true);
@@ -295,7 +295,7 @@ test('the daily stop switch is saved on the account and noted in the live log', 
 test('the floor never says a desk is on FTMO while its trades stay on paper; the boss\'s alerts do go', async () => {
   const { fund, live, sync, chen } = setup({ committee: 'on' });
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   live.setDesk('amara', true);
   live.setDesk('chen', true);
   assert.equal(live.arm().ok, true);
@@ -365,12 +365,12 @@ test('an outdated EA gets a doable update: one click copies it into MT5, then it
 test('plan switches save together, survive the setup form, and ghost orders stop counting', async () => {
   const { live, sync, mt5, chen } = setup();
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   assert.equal(live.setPlan({ tradeCapOn: false, provenOnly: false }).ok, true);
   assert.equal(live.profile.tradeCapOn, false);
   assert.equal(live.profile.provenOnly, false);
   assert.ok(live.events.some((e) => /Trade cap switched OFF/.test(e.text)));
-  live.setup({ type: 'trial', size: 100_000 }); // saving the form keeps them
+  live.setup({ type: 'trial', training: false, size: 100_000 }); // saving the form keeps them
   assert.equal(live.profile.tradeCapOn, false);
   assert.equal(live.profile.provenOnly, false);
 
@@ -394,7 +394,7 @@ test('plan switches save together, survive the setup form, and ghost orders stop
 test('a trade below the broker minimum goes at the minimum lot only within the base risk', async () => {
   const { live, sync, chen } = setup();
   sync();
-  live.setup({ type: 'trial', size: 100_000, riskPerTradePct: 0.01 }); // $10 per trade
+  live.setup({ type: 'trial', training: false, size: 100_000, riskPerTradePct: 0.01 }); // $10 per trade
   live.setDesk('chen', true);
   live.arm();
   // Gold, a $5 stop: 0.01 lot risks $5 → within $10, so it goes at the minimum.
@@ -409,7 +409,7 @@ test('a trade below the broker minimum goes at the minimum lot only within the b
 test('with "Proven desks only" off, a desk\'s own trade really reaches MT5 at half risk', async () => {
   const { fund, live, sync } = setup({ committee: 'on' });
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   live.setDesk('amara', true);
   assert.equal(live.arm().ok, true);
   const amara = fund.byId.get('amara');
@@ -441,7 +441,7 @@ test("a scalper's GBPUSD scalp reaches MT5 under its own magic number, with its 
   const { fund, live, sync } = setup({ quotes: { GBPUSD: CABLE }, symbols: ['GBPUSD'] });
   fund.md.applyTick('GBPUSD', 1.34004, 1, Date.now());
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   live.setPlan({ provenOnly: false });
   assert.equal(live.setDesk('jake', true).ok, true);
   assert.equal(live.arm().ok, true);
@@ -463,7 +463,7 @@ test("a scalper's GBPUSD scalp reaches MT5 under its own magic number, with its 
 test('a market added after the account was set up (GBPUSD) is mapped to the broker on the next sync', () => {
   const { live, sync } = setup({ symbols: ['GBPUSD'] });
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   // An account saved before GBPUSD existed, where the boss also chose to leave EURUSD unmapped.
   delete live.profile.symbolMap.GBPUSD;
   live.profile.symbolMap.EURUSD = null;
@@ -487,7 +487,7 @@ test('a market without real prices is never made up: its desks stand aside and s
   assert.equal(alert.ok, false);
   assert.match(alert.reason, /No real prices for GBPUSD/);
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   const w = live.view().warnings.find((x) => /^No real prices/.test(x));
   assert.ok(w, 'the FTMO tab says so');
   assert.match(w, /Nothing is simulated/);
@@ -501,7 +501,7 @@ test('the daily report card records the day: trades, R, what stayed on paper, an
   const alerts = [];
   live.on('alert', (a) => alerts.push(a));
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   live.setDesk('chen', true);
   live.setDesk('amara', true);
   assert.equal(live.arm().ok, true);
@@ -549,7 +549,7 @@ test('the daily report card records the day: trades, R, what stayed on paper, an
 test('stay armed after a restart: the same account re-arms by itself, never after disarm or a guard stop', async () => {
   const a = setup();
   a.sync();
-  a.live.setup({ type: 'trial', size: 100_000 });
+  a.live.setup({ type: 'trial', training: false, size: 100_000 });
   a.live.setDesk('chen', true);
   assert.equal(a.live.arm().ok, true);
   assert.equal(a.live.setStayArmed(true).ok, true);
@@ -600,7 +600,7 @@ test('MT5 going quiet for a minute is an alert, and so is it coming back', () =>
   const alerts = [];
   live.on('alert', (a) => alerts.push(a));
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   bridge.lastSync = Date.now() - 70_000;
   live.tick();
   live.tick();
@@ -615,7 +615,7 @@ test('Today on the account: ideas, what the committee turned down, what stayed o
   const { todaySummary, todayRailNote, marketClock, renderToday } = await import('../public/js/ui/todayCard.js');
   const { fund, live, sync } = setup({ committee: 'on' });
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ type: 'trial', training: false, size: 100_000 });
   live.setDesk('amara', true);
   live.setDesk('chen', true);
   live.setPlan({ provenOnly: false }); // as on the boss's Free Trial
@@ -690,4 +690,81 @@ test('Today on the account: ideas, what the committee turned down, what stayed o
   assert.deepEqual(c.scalp.map((k) => k.open), [true, false], 'the London scalpers are in their killzone');
   assert.equal(marketClock(Date.UTC(2026, 9, 3, 12, 0), 'Europe/Athens').weekend, true, 'Saturday');
   assert.match(marketClock(Date.UTC(2026, 9, 1, 14, 0), 'Europe/Athens').session, /New York session/);
+});
+
+test('training on FTMO (Free Trial): every trade the desks take goes to the account, the loss guard stays', async () => {
+  const { fund, live, sync, mt5 } = setup({ committee: 'on' });
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  assert.equal(live.profile.training, true, 'on by default on a Free Trial');
+  live.setDesk('amara', true);
+  live.setDesk('lucas', true);
+  assert.equal(live.arm().ok, true);
+  const v = live.view();
+  assert.equal(v.plan.training, true);
+  assert.equal(v.plan.blocked, null);
+  assert.match(v.plan.rules[0].text, /Training on FTMO: every trade/);
+  assert.equal(v.desks.find((d) => d.id === 'amara').status.state, 'training');
+
+  // An unproven desk's trade the committee isn't convinced by (C): it goes, sized smaller.
+  const committee = fund.committee;
+  const review = committee.review.bind(committee);
+  committee.review = () => ({ ok: true, silent: false, grade: 'C', score: 0.05, sizeMult: 0.25, thesis: 'Sweep.', reason: 'not convinced' });
+  const amara = fund.byId.get('amara');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), true);
+  // A second gold trade from another desk: no one-per-group hold while training.
+  const lucas = fund.byId.get('lucas');
+  lucas.symbols.push('XAUUSD');
+  assert.equal(lucas.openTrade({ side: 'LONG', stop: 3792, target: 3830, reason: 'pullback', symbol: 'XAUUSD' }), true);
+  committee.review = review;
+  await tick();
+  live.reconcile();
+  const opens = sync().filter((c) => c[0] === 'open');
+  assert.equal(opens.length, 2, 'both trades went to MT5');
+  const links = [...live.links.values()].filter((l) => l.state === 'pending');
+  assert.deepEqual(links.map((l) => l.agentId).sort(), ['amara', 'lucas']);
+  assert.equal(live.view().today.held, 0, 'nothing held back on paper');
+
+  // No daily cap, no losing-streak stop while training…
+  const lossDay = (i) => ({ key: `x${i}`, agentId: 'amara', state: 'closed', ticket: 500 + i, pnl: -50, login: '555', closedAt: Date.now(), closedDay: '2026.09.29', openedDay: '2026.09.29' });
+  for (let i = 0; i < 7; i++) live.links.set(`x${i}`, lossDay(i));
+  const st = live.brain.state();
+  assert.equal(st.blocked, null);
+  assert.ok(st.mult < 1, 'but risk still halves after losses');
+  // …and FTMO's loss guard still keeps out a trade that could breach the limit: $3,950 down
+  // today on a $100,000 trial, the guard acts at $4,000, and two orders are still in flight.
+  mt5.closedToday = -3_950;
+  mt5.balance = 96_050;
+  mt5.equity = 96_050;
+  sync();
+  amara.closeTrade('XAUUSD', 'test exit');
+  amara.cooldownBars = 0;
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep again', symbol: 'XAUUSD' }), true);
+  await tick();
+  live.reconcile();
+  assert.deepEqual(live.view().today.reasons, [['No room under the loss guard', 1]]);
+
+  // Training is for the Free Trial only.
+  live.setPlan({ training: false });
+  assert.equal(live.profile.training, false);
+  assert.equal(live.view().desks.find((d) => d.id === 'amara').status.state !== 'training', true);
+  live.setup({ type: 'challenge', size: 100_000 });
+  assert.equal(live.profile.training, false);
+  assert.match(live.setPlan({ training: true }).error, /for the Free Trial/);
+  assert.equal(live.view().plan.canTrain, false);
+});
+
+test('training on FTMO: an account saved before it existed trains, and switching it on puts every desk on the account', () => {
+  const { live, sync } = setup();
+  sync();
+  live.setup({ type: 'trial', training: false, size: 10_000 });
+  delete live.state.profiles[live.login].training; // saved by an older version
+  assert.equal(live.profile.training, true);
+  live.setPlan({ training: false });
+  assert.equal(live.view().desks.filter((d) => d.enabled).length, 0);
+  live.setPlan({ training: true });
+  const desks = live.view().desks;
+  assert.ok(desks.filter((d) => d.eligible).every((d) => d.enabled), 'every desk that can trade the account is on');
+  assert.ok(desks.filter((d) => !d.eligible).every((d) => !d.enabled), 'pairs and market making stay paper (they can\'t be mirrored)');
+  assert.ok(live.events.some((e) => /Training on FTMO switched ON/.test(e.text)));
 });

@@ -1,4 +1,5 @@
 import { fmtUsd } from '../util/format.js';
+import { trainingOn } from './rules.js';
 
 // The account brain: the plan a professional prop trader follows to pass a challenge and
 // then keep getting paid. The paper desks can experiment; the account only gets the best
@@ -56,6 +57,7 @@ export class AccountBrain {
     const tradesToday = traded.filter((l) => (l.openedDay ? l.openedDay === day : Date.now() - l.createdAt < 12 * 3_600_000)).length;
     const tradingDays = new Set(traded.map((l) => l.openedDay).filter(Boolean)).size;
 
+    const training = trainingOn(p);
     const size = p.size;
     const profit = acc.equity - size;
     const dayPnl = acc.equity - m.dayStartBalance;
@@ -75,17 +77,19 @@ export class AccountBrain {
     const dayLoss = Math.max(0, -dayPnl) / size;
     const stop = p.dailyStopPct / 100;
     // The boss can switch the daily stop off; the half-risk step below still applies.
-    if (p.dailyStopOn !== false && dayLoss >= stop) blocked = `Daily stop: ${fmtUsd(dayPnl)} today. The plan stops at −${p.dailyStopPct}%, long before FTMO's ${p.dailyLossPct}% limit. Back tomorrow`;
+    // Training on FTMO pauses the plan's stops (holds), never its smaller sizes after losses.
+    const holds = !training;
+    if (holds && p.dailyStopOn !== false && dayLoss >= stop) blocked = `Daily stop: ${fmtUsd(dayPnl)} today. The plan stops at −${p.dailyStopPct}%, long before FTMO's ${p.dailyLossPct}% limit. Back tomorrow`;
     else if (dayLoss >= stop / 2) {
       mult *= 0.5;
       reasons.push(`Down ${fmtUsd(dayPnl)} today: half risk for the rest of the day`);
     }
-    if (p.streakStopOn !== false && streak >= p.streakStop && lastToday) blocked = blocked || `${streak} losses in a row today: done for the day, fresh start tomorrow (the losing-streak stop can be switched off below)`;
+    if (holds && p.streakStopOn !== false && streak >= p.streakStop && lastToday) blocked = blocked || `${streak} losses in a row today: done for the day, fresh start tomorrow (the losing-streak stop can be switched off below)`;
     else if (streak >= 2) {
       mult *= 0.5;
       reasons.push(`${streak} losses in a row: half risk until the next winner`);
     }
-    if (p.tradeCapOn !== false && tradesToday >= p.maxTradesPerDay) blocked = blocked || `${tradesToday} trades today, the plan's daily cap of ${p.maxTradesPerDay} (the trade cap can be switched off below)`;
+    if (holds && p.tradeCapOn !== false && tradesToday >= p.maxTradesPerDay) blocked = blocked || `${tradesToday} trades today, the plan's daily cap of ${p.maxTradesPerDay} (the trade cap can be switched off below)`;
 
     let remaining = null;
     if (m.targetEquity) {
@@ -119,7 +123,15 @@ export class AccountBrain {
       remaining, winsToTarget,
       dailyStopPct: p.dailyStopPct, dailyStopOn: p.dailyStopOn !== false, dailyLossPct: p.dailyLossPct, guardPct: p.guardPct, maxTradesPerDay: p.maxTradesPerDay, streakStop: p.streakStop, minGrade,
       tradeCapOn: p.tradeCapOn !== false, streakStopOn: p.streakStopOn !== false, provenOnly: p.provenOnly !== false,
-      rules: [
+      training, canTrain: p.type === 'trial',
+      rules: training ? [
+        { text: 'Training on FTMO: every trade the desks take goes to the account, so they learn on FTMO itself. The committee grade, proven-desk, correlation and daily-plan holds are paused', ok: false },
+        { text: 'Real prices only: a market whose live feed is down is not traded, never simulated', ok: true },
+        { text: `Risk ${riskPct.toFixed(2)}% per trade now (base ${base}%), smaller for the committee's B and C grades`, ok: mult >= 0.99 },
+        { text: 'Every order carries its stop-loss', ok: true },
+        { text: 'Flat before high-impact news, no trades in a blackout', ok: true },
+        { text: `FTMO guard closes everything at ${p.guardPct}% of a limit, and no trade goes in that could breach it`, ok: !lt.halt },
+      ] : [
         p.provenOnly !== false
           ? { text: `Only committee ${minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades from desks with a proven edge on real prices`, ok: true }
           : { text: 'Proven desks only is OFF: unproven desks trade the account at half risk (committee-approved A and B-grade trades)', ok: false },
@@ -163,9 +175,11 @@ export class AccountBrain {
   allow(agent, pos, plan) {
     const st = this.state();
     if (!st) return { ok: true, riskMult: 1 };
-    if (st.blocked) return { ok: false, reason: st.blocked };
     // The boss's own TradingView alert: not held back by the desk's paper record or grade.
     const boss = plan.tag === 'TV';
+    // Training on FTMO: every trade goes, sized by the plan (and the desk's grade, in the live trader).
+    if (st.training) return { ok: true, riskMult: st.mult, reasons: st.reasons, boss, training: true };
+    if (st.blocked) return { ok: false, reason: st.blocked };
     let probation = false;
     if (!boss) {
       const c = this.clearance(agent);
@@ -200,6 +214,10 @@ export class AccountBrain {
     const open = this.#links().find((l) => l.agentId === agent.id && !l.previousSession && ['open', 'closing', 'pending'].includes(l.state));
     if (open) return { state: 'live', label: 'LIVE', text: `Live on MT5: ${open.side} ${open.volumeNow ?? open.volume0} ${open.brokerSymbol}` };
     if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };
+    if (st?.training) {
+      if (!lt.armed) return { state: 'ready', label: 'Training · not armed', text: 'Every trade it takes will go to FTMO (training on FTMO). Arm live trading to start.' };
+      return { state: 'training', label: 'Training on FTMO', text: 'Every trade it takes goes to your FTMO account (training on FTMO).' };
+    }
     const c = this.clearance(agent);
     const alerts = agent.profile.tvDesk ? ' Your TradingView alerts through this desk still go to the account.' : '';
     if (!c.ok && p.provenOnly === false) {

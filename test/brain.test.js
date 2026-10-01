@@ -154,7 +154,7 @@ test('trades carry their thesis and grade, and rejected ideas are never traded',
 
 // ---- the account brain ---------------------------------------------------------------------
 function account({ size = 10_000, equity = 10_000, dayStart = 10_000, links = [], type = 'trial', profile = {} } = {}) {
-  const p = { ...normalizeProfile({ type, size, ...profile }, {}), symbolMap: {} };
+  const p = { ...normalizeProfile({ type, size, training: false, ...profile }, {}), symbolMap: {} };
   const live = {
     login: '1', profile: p, account: { equity, balance: equity }, halt: null,
     bridge: { serverDay: '2026.10.14' },

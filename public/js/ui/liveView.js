@@ -47,7 +47,7 @@ export class LiveView {
       <div class="card" id="live-setup" style="margin-top:14px"></div>
       <div class="card" id="live-desks-card" style="margin-top:14px">
         <h2>Desks on the account</h2>
-        <p class="sub">Switch on the desks that may trade FTMO. Everyone keeps paper trading either way. Switched on isn't the same as trading the account: a desk's own trades only go to MT5 once the account brain has cleared it (10+ trades on real prices with a positive edge, and A-grade trades). "Status on the account" shows where each desk stands. Your own TradingView alerts go to the account through Chen's TradingView Signals desk, or any desk named in the alert, straight away. The committee can still veto them, and every risk rule applies.</p>
+        <p class="sub" id="live-desks-sub">Switch on the desks that may trade FTMO. Everyone keeps paper trading either way. Switched on isn't the same as trading the account: a desk's own trades only go to MT5 once the account brain has cleared it (10+ trades on real prices with a positive edge, and A-grade trades). "Status on the account" shows where each desk stands. Your own TradingView alerts go to the account through Chen's TradingView Signals desk, or any desk named in the alert, straight away. The committee can still veto them, and every risk rule applies.</p>
         <div class="rail-note wide" id="live-proving" hidden></div>
         <div class="table-wrap" style="max-height:none"><table class="table" id="live-desks"></table></div>
       </div>
@@ -344,7 +344,9 @@ export class LiveView {
       { text: 'Tell the floor what kind of account this is so it can respect FTMO\'s loss limits.', btn: ['setup', 'Set up the account'] },
       { text: 'Switch on the desks that may trade your account. Everyone keeps paper trading either way.', btn: ['desks-card', 'Choose desks'] },
       { text: v.mode === 'live' ? 'Ready. Arm live trading when you want the enabled desks to start trading.' : 'Restart the floor with npm start (live mode) to trade the account.', btn: v.mode === 'live' ? ['arm', 'Arm live trading'] : null },
-    ][now] || { text: 'All set: live trading is armed. Your TradingView alerts go to the account; each desk\'s own trades go once the account brain has cleared it (see "Status on the account" below). Close all & disarm is always one click away.', btn: null };
+    ][now] || { text: v.plan?.training
+      ? 'All set: live trading is armed and the desks are training on FTMO. Every trade they take goes to your account, and so do your TradingView alerts. Close all & disarm is always one click away.'
+      : 'All set: live trading is armed. Your TradingView alerts go to the account; each desk\'s own trades go once the account brain has cleared it (see "Status on the account" below). Close all & disarm is always one click away.', btn: null };
     const btn = next.btn
       ? next.btn[0] === 'arm'
         ? `<button class="btn arm" data-act="arm">${next.btn[1]}</button>`
@@ -536,6 +538,10 @@ export class LiveView {
         <div class="map-grid">${mapRows}</div>
         <div class="btn-row" style="margin-top:16px"><button class="btn primary" data-act="save">Save setup</button>${p ? '<button class="btn" data-act="cancel-edit">Cancel</button>' : ''}</div>`;
     }
+
+    $('#live-desks-sub').textContent = v.plan?.training
+      ? 'Training on FTMO is on: every trade a switched-on desk takes goes to your FTMO account, sized by its committee grade (A full, B smaller, C smallest), so the desks learn on FTMO itself. Kenji\'s pairs trades and Isabella\'s market making can\'t be copied onto one account, so those two stay paper. Your TradingView alerts go through Chen\'s desk, or any desk named in the alert.'
+      : 'Switch on the desks that may trade FTMO. Everyone keeps paper trading either way. Switched on isn\'t the same as trading the account: a desk\'s own trades only go to MT5 once the account brain has cleared it (10+ trades on real prices with a positive edge, and A-grade trades). "Status on the account" shows where each desk stands. Your own TradingView alerts go to the account through Chen\'s TradingView Signals desk, or any desk named in the alert, straight away. The committee can still veto them, and every risk rule applies.';
 
     // Desks still proving themselves: their trades stay on paper (say so, offer the switch).
     const provingHtml = provingNote(v);

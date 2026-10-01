@@ -25,10 +25,18 @@ export const DEFAULTS = {
   maxTradesPerDay: 6,
   streakStop: 3, // losses in a row that end the day
   stayArmed: false, // re-arm on its own after a restart if it was armed (the boss opts in)
+  // Training on FTMO (Free Trial only, on unless switched off): every trade a desk takes goes
+  // to the account, so the desks learn on FTMO itself. No grade, proven-desk, correlation or
+  // daily-plan holds; real prices, a stop-loss on every order and FTMO's loss guard stay.
+  // Its default depends on the account type, so it isn't set here (see trainingOn).
 };
 
+// Training is for the Free Trial (demo money). A paid challenge or a funded account always
+// runs the full account plan.
+export const trainingOn = (p) => !!p && p.type === 'trial' && p.training !== false;
+
 // The account plan's on/off switches (see the Brain and FTMO tabs).
-export const PLAN_SWITCHES = ['dailyStopOn', 'tradeCapOn', 'streakStopOn', 'provenOnly'];
+export const PLAN_SWITCHES = ['training', 'dailyStopOn', 'tradeCapOn', 'streakStopOn', 'provenOnly'];
 const flag = (v, fallback) => (v == null ? fallback : v !== false && v !== 'false');
 
 const clampNum = (v, lo, hi, fallback) => {
@@ -61,6 +69,7 @@ export function normalizeProfile(input = {}, account = {}) {
     maxTradesPerDay: Math.round(clampNum(input.maxTradesPerDay ?? DEFAULTS.maxTradesPerDay, 1, 50, DEFAULTS.maxTradesPerDay)),
     streakStop: Math.round(clampNum(input.streakStop ?? DEFAULTS.streakStop, 2, 10, DEFAULTS.streakStop)),
     stayArmed: flag(input.stayArmed, DEFAULTS.stayArmed),
+    training: type === 'trial' ? flag(input.training, true) : false,
   };
 }
 

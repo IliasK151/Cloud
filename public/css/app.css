@@ -686,6 +686,8 @@ details.how p { color: var(--text-3); }
 .rail-note.wide { margin: 0 0 12px; font-size: 12.5px; }
 .rail-note.wide .btn { display: inline-block; width: auto; margin: 0 0 0 10px; }
 
+.plan-switch.paused { opacity: 0.5; }
+.plan-switch.training.on { border-color: rgba(69, 196, 99, 0.45); background: rgba(69, 196, 99, 0.06); }
 .rail-note.today { border-color: var(--hairline-strong); background: rgba(255, 255, 255, 0.03); }
 .rail-note.today b { color: var(--text-1); }
 

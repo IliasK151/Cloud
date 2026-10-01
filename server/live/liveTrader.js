@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
-import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, normalizeProfile, guardMetrics, lotsForRisk, positionRisk } from './rules.js';
+import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, normalizeProfile, guardMetrics, lotsForRisk, positionRisk, trainingOn } from './rules.js';
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
@@ -39,6 +39,7 @@ const DISCONNECT_ALERT_MS = 60_000; // MT5 silent this long → tell the boss
 const MISSING_SYNCS_TO_CLOSE = 3;
 const PLAN_KEYS = ['minGrade', 'dailyStopPct', 'maxTradesPerDay', 'streakStop', 'stayArmed', ...PLAN_SWITCHES];
 const SWITCH_NOTES = {
+  training: [() => 'Training on FTMO switched ON: every trade the desks take goes to the account. FTMO\'s loss guard, real prices and stop-losses still apply', () => 'Training on FTMO switched OFF: the account plan decides which trades go to FTMO again'],
   dailyStopOn: [(p) => `Daily stop switched ON: no new trades on the account after a −${p.dailyStopPct}% day`, (p) => `Daily stop switched OFF by the boss: desks keep trading after a −${p.dailyStopPct}% day. FTMO's daily loss guard (${p.guardPct}% of the ${p.dailyLossPct}% limit) still applies`],
   tradeCapOn: [(p) => `Trade cap switched ON: at most ${p.maxTradesPerDay} trades a day on the account`, () => 'Trade cap switched OFF by the boss: no limit on trades a day'],
   streakStopOn: [(p) => `Losing-streak stop switched ON: done for the day after ${p.streakStop} losses in a row`, () => 'Losing-streak stop switched OFF by the boss (risk still halves after 2 losses in a row)'],
@@ -145,7 +146,8 @@ export class LiveTrader extends EventEmitter {
   // Profiles saved before a plan setting existed get its default.
   get profile() {
     const p = this.login ? this.state.profiles[this.login] || null : null;
-    if (p) for (const k of PLAN_KEYS) if (p[k] == null) p[k] = DEFAULTS[k];
+    if (p) for (const k of PLAN_KEYS) if (p[k] == null && k in DEFAULTS) p[k] = DEFAULTS[k];
+    if (p && p.training == null) p.training = p.type === 'trial';
     return p;
   }
 
@@ -279,11 +281,15 @@ export class LiveTrader extends EventEmitter {
     if (!p) return { ok: false, error: 'Set up the account first' };
     const keys = PLAN_SWITCHES.filter((k) => body[k] != null);
     if (!keys.length) return { ok: false, error: 'Nothing to change' };
+    const wantsTraining = body.training != null && body.training !== false && body.training !== 'false';
+    if (wantsTraining && p.type !== 'trial') return { ok: false, error: 'Training on FTMO is for the Free Trial. A paid challenge or funded account keeps the full account plan.' };
     for (const k of keys) {
       const on = body[k] !== false && body[k] !== 'false';
       if (p[k] === on) continue;
       p[k] = on;
       this.#note(SWITCH_NOTES[k][on ? 0 : 1](p), 'risk');
+      // Training means every desk trains on the account: switch on all that can trade it.
+      if (k === 'training' && on) for (const a of this.fund.agents) if (this.eligible(a.id)) p.desks[a.id] = true;
     }
     p.updatedAt = Date.now();
     this.save();
@@ -773,7 +779,10 @@ export class LiveTrader extends EventEmitter {
     if (!acc.algoAllowed || !acc.tradeAllowed) return this.#skip(agent, pos, key, 'Algo Trading is switched off in MT5');
     const ours = this.bridge.positions.filter((x) => this.#ours(x)).length
       + [...this.links.values()].filter((l) => l.state === 'pending').length;
-    if (ours >= p.maxPositions) return this.#skip(agent, pos, key, `already ${ours} live positions (max ${p.maxPositions})`);
+    // Training on FTMO: as many positions as the EA allows (its own cap, 8 unless changed).
+    const training = trainingOn(p);
+    const maxPositions = training ? Math.max(p.maxPositions, this.bridge.caps?.maxPositions || 8) : p.maxPositions;
+    if (ours >= maxPositions) return this.#skip(agent, pos, key, `already ${ours} live positions (max ${maxPositions})`);
 
     // Learning (or a new strategy on probation) may size a desk's trade down on the account, never up.
     const news = this.fund.env.news?.blackout(pos.symbol);
@@ -795,11 +804,15 @@ export class LiveTrader extends EventEmitter {
       else return this.#skip(agent, pos, key, `even the ${spec.volMin} lot minimum would risk ${fmtUsd(minRisk)}, more than your ${p.riskPerTradePct}% per trade`);
     }
     const actualRisk = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue) * lots;
-    const openRisk = this.openRisk();
+    // Orders MT5 hasn't filled yet count too: several desks can send trades in the same second.
+    const inFlight = [...this.links.values()].filter((l) => l.state === 'pending' && !l.previousSession && !l.ticket).reduce((sum, l) => sum + (l.risk || 0), 0);
+    const openRisk = this.openRisk() + inFlight;
     const m = guardMetrics(p, acc, openRisk);
     if (actualRisk > m.dailyRoom) return this.#skip(agent, pos, key, `not enough room under the daily loss guard (${fmtUsd(Math.max(0, m.dailyRoom))} left)`);
     if (actualRisk > m.maxRoom) return this.#skip(agent, pos, key, `not enough room under the max loss guard (${fmtUsd(Math.max(0, m.maxRoom))} left)`);
-    if (openRisk + actualRisk > acc.balance * (p.maxOpenRiskPct / 100)) {
+    // Training on FTMO leaves out the open-risk budget: the loss-guard room above already
+    // makes sure every open stop together can't breach FTMO's limits.
+    if (!training && openRisk + actualRisk > acc.balance * (p.maxOpenRiskPct / 100)) {
       return this.#skip(agent, pos, key, `open-risk budget of ${p.maxOpenRiskPct}% is full`);
     }
 

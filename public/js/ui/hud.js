@@ -178,8 +178,8 @@ export class Hud {
       }
       const state = d.status?.state || 'proving';
       chip.classList.toggle('on', state === 'live');
-      chip.classList.toggle('wait', !['live', 'cleared', 'ready', 'probation'].includes(state));
-      chip.textContent = state === 'live' ? 'FTMO LIVE' : state === 'probation' ? 'FTMO ½' : ['cleared', 'ready'].includes(state) ? 'FTMO' : state === 'proving' ? 'PROVING' : 'FTMO · PAPER';
+      chip.classList.toggle('wait', !['live', 'cleared', 'ready', 'probation', 'training'].includes(state));
+      chip.textContent = state === 'live' ? 'FTMO LIVE' : state === 'training' ? 'FTMO' : state === 'probation' ? 'FTMO ½' : ['cleared', 'ready'].includes(state) ? 'FTMO' : state === 'proving' ? 'PROVING' : 'FTMO · PAPER';
       chip.title = [d.status?.text || 'Switched on for the FTMO account', d.lastSkip && state !== 'live' ? `Last trade not sent (${d.lastSkip.symbol}): ${d.lastSkip.reason}` : ''].filter(Boolean).join('\n');
     }
   }

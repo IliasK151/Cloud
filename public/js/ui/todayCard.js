@@ -120,7 +120,10 @@ export function todaySummary(store, now = Date.now()) {
   }).sort((x, y) => (y.why?.live ? 1 : 0) - (x.why?.live ? 1 : 0) || y.sent - x.sent || y.ideas - x.ideas);
 
   const top = t.reasons?.[0]?.[0] || null;
-  const working = 'Everything is connected and armed, and the desks are working';
+  const training = !!v.plan?.training;
+  const working = training
+    ? 'Everything is connected and armed, and the desks are training on FTMO: every trade they take goes to the account'
+    : 'Everything is connected and armed, and the desks are working';
   let headline;
   let tone = 'info';
   if (!v.connected) { headline = 'MT5 isn\'t connected, so nothing can reach the account. See Connection below.'; tone = 'bad'; }
@@ -132,8 +135,8 @@ export function todaySummary(store, now = Date.now()) {
     headline = `${plural(t.sent, 'trade')} went to FTMO today.${t.held ? ` ${plural(t.held, 'more', 'more')} stayed on paper, mostly: ${lc(top)}.` : ''}`;
     tone = 'good';
   } else if (t.held) headline = `No trades on FTMO yet today. ${working}: ${plural(t.held, 'trade')} ${t.held === 1 ? 'was' : 'were'} held back from the account, mostly: ${lc(top)}.`;
-  else if (paper) headline = `No trades on FTMO yet today. ${working}: ${plural(paper, 'paper trade')} so far, none of ${paper === 1 ? 'it' : 'them'} qualified for the account.`;
-  else if (ideas) headline = `No trades on FTMO yet today. ${working}: they found ${plural(ideas, 'setup')} and the committee turned ${vetoed >= ideas ? (ideas === 1 ? 'it' : 'all of them') : vetoed} down.`;
+  else if (paper && !training) headline = `No trades on FTMO yet today. ${working}: ${plural(paper, 'paper trade')} so far, none of ${paper === 1 ? 'it' : 'them'} qualified for the account.`;
+  else if (ideas) headline = `No trades on FTMO yet today. ${working}. They found ${plural(ideas, 'setup')} and the committee turned ${vetoed >= ideas ? (ideas === 1 ? 'it' : 'all of them') : vetoed} down (no reward worth the risk, news due, or a dead or wild market).`;
   else headline = `No trades yet today. ${working}, but the market hasn't given them a setup that meets their rules yet.`;
 
   return {
@@ -176,7 +179,7 @@ export function renderToday(store, { now = Date.now(), timeZone } = {}) {
     </div>
     ${reasons}
     <div class="table-wrap" style="max-height:none"><table class="table compact today-desks">
-      <thead><tr><th>Desk</th><th>Doing now</th><th class="r">Ideas</th><th class="r">Paper</th><th class="r">FTMO</th><th>Latest reason it didn't trade the account</th></tr></thead>
+      <thead><tr><th>Desk</th><th>Doing now</th><th class="r">Ideas</th><th class="r">Paper</th><th class="r">FTMO</th><th>Latest on the account</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="6" class="muted">No desk is switched on for the account.</td></tr>'}</tbody>
     </table></div>
     <p class="fine">Counts start at the beginning of the trading day (18:00 New York). Ideas the committee turned down minutes earlier aren't counted twice.</p>`;

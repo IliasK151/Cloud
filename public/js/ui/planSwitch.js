@@ -7,6 +7,14 @@ import { escapeHtml } from '../format.js';
 
 const SWITCHES = [
   {
+    key: 'training',
+    only: (p) => p.canTrain, // Free Trial only
+    title: () => 'Training on FTMO',
+    on: () => 'Every trade the desks take goes to your FTMO account, so they learn there, not on paper. FTMO\'s loss guard, real prices and a stop-loss on every order still apply.',
+    off: () => 'The account plan below decides which trades go to FTMO; the rest stay on paper.',
+    confirmOn: () => 'Train the desks on FTMO?\n\nEvery trade the desks take goes to your FTMO Free Trial: no committee-grade, proven-desk, correlation or daily-plan holds. Expect many more trades, including ones the committee isn\'t convinced by (sized smaller).\n\nFTMO\'s loss guard still closes everything near the limits, and every order carries its stop-loss.',
+  },
+  {
     key: 'dailyStopOn',
     title: (p) => `Daily stop at −${p.dailyStopPct}%`,
     on: (p) => `No new trades on the account after a −${p.dailyStopPct}% day.`,
@@ -38,11 +46,14 @@ const SWITCHES = [
 
 export function planSwitches(plan) {
   if (!plan) return '';
-  return `<div class="plan-switches">${SWITCHES.map((sw) => {
+  return `<div class="plan-switches">${SWITCHES.filter((sw) => !sw.only || sw.only(plan)).map((sw) => {
     const on = plan[sw.key] !== false;
-    return `<div class="plan-switch ${on ? '' : 'off'}">
-      <label class="switch safe" title="${on ? 'Switch off' : 'Switch on'}"><input type="checkbox" data-plan-switch="${sw.key}" ${on ? 'checked' : ''} aria-label="${escapeHtml(sw.title(plan))}"><span></span></label>
-      <div><b>${escapeHtml(sw.title(plan))}: ${on ? 'ON' : 'OFF'}</b><small>${escapeHtml(on ? sw.on(plan) : sw.off(plan))}</small></div>
+    // While training on FTMO the plan's holds are paused: their switches wait.
+    const paused = plan.training && sw.key !== 'training';
+    const cls = sw.key === 'training' ? `training ${on ? 'on' : 'off'}` : on ? '' : 'off';
+    return `<div class="plan-switch ${cls}${paused ? ' paused' : ''}">
+      <label class="switch safe" title="${paused ? 'Paused while training on FTMO' : on ? 'Switch off' : 'Switch on'}"><input type="checkbox" data-plan-switch="${sw.key}" ${on ? 'checked' : ''} ${paused ? 'disabled' : ''} aria-label="${escapeHtml(sw.title(plan))}"><span></span></label>
+      <div><b>${escapeHtml(sw.title(plan))}: ${on ? 'ON' : 'OFF'}${paused ? ' · paused while training' : ''}</b><small>${escapeHtml(on ? sw.on(plan) : sw.off(plan))}</small></div>
     </div>`;
   }).join('')}</div>`;
 }
@@ -55,7 +66,8 @@ export const dailyStopSwitch = planSwitches;
 export async function setPlanSwitch(key, on, plan) {
   const sw = SWITCHES.find((x) => x.key === key);
   if (!sw) return false;
-  if (!on && !confirm(sw.confirm(plan || {}))) return false;
+  if (!on && sw.confirm && !confirm(sw.confirm(plan || {}))) return false;
+  if (on && sw.confirmOn && !confirm(sw.confirmOn(plan || {}))) return false;
   try {
     const res = await api('/api/live/plan', { method: 'POST', body: JSON.stringify({ [key]: on }) });
     if (!res.ok) alert(res.error || 'Could not change the setting');
@@ -77,7 +89,7 @@ export async function onPlanSwitch(input, plan) {
 // themselves: say so where the boss is looking, with the one click that changes it.
 export function provingNote(v) {
   const proving = (v?.desks || []).filter((d) => d.enabled && d.status?.state === 'proving');
-  if (!v?.armed || !v.plan?.provenOnly || !proving.length) return '';
+  if (!v?.armed || v.plan?.training || !v.plan?.provenOnly || !proving.length) return '';
   const names = proving.map((d) => d.name.split(' ')[0]);
   const who = names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
   return `<b>${proving.length === 1 ? `${escapeHtml(who)} is` : `${proving.length} desks are`} still proving ${proving.length === 1 ? 'itself' : 'themselves'}.</b> ${proving.length === 1 ? 'Its' : 'Their'} own trades stay on paper until ${proving.length === 1 ? 'it has' : 'each has'} 10 trades on real prices with a positive edge${proving.length === 1 ? '' : ` (${escapeHtml(who)})`}. Your TradingView alerts go to FTMO already.

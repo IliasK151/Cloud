@@ -243,6 +243,13 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
 - **Daily stop at −1.5%**, far before FTMO's 5%. At half of that, risk halves for the rest of the day.
 - **Losing streaks:** two in a row halve the risk until the next winner; three in a row end the day.
 - **At most 6 trades a day.** Overtrading is how accounts die. Only trades MT5 actually confirmed count; an order it never confirmed doesn't.
+- **Training on FTMO (Free Trial, on by default).** Every trade a switched-on desk takes goes to your FTMO account, so the desks train on FTMO itself instead of on paper. The committee grade, proven-desk, one-per-group and daily-plan holds below are paused. What stays:
+  - real prices only;
+  - a stop-loss on every order;
+  - no new trades in a news blackout;
+  - FTMO's loss guard: it closes everything at 80% of a limit, and no trade goes in whose stop, together with every open and in-flight stop, could breach it.
+
+  Sizes still follow the committee's grade: A full, B 60%, C 25% of the risk per trade. Below the broker's minimum lot, the minimum is used if it still risks no more than your risk per trade. They still halve after a −0.75% day or two losses in a row, and shrink in drawdown. Up to 8 positions can be open at once (the EA's own cap; raise *Max floor positions* in the EA's inputs for more). Kenji's pairs trades and Isabella's market making can't be copied onto one account, so those two stay paper. Switching training on puts every other desk on the account. It's for the Free Trial only: on a paid challenge or a funded account the switch isn't there and the full plan applies. Switch it off on the FTMO or Brain tab to go back to the plan below.
 - **Every rule that can hold trades back has its own switch** on the Brain and FTMO tabs, for when you want to let the desks run and watch the performance:
   - **Daily stop:** when it's off, desks keep trading after −1.5%. Risk still halves.
   - **Trade cap:** when it's off, there's no daily limit on trades.
@@ -427,7 +434,7 @@ A switch in the FTMO tab's Connection card, off until you switch it on. When it'
 
 ### Today on the account: are they trading, and if not, why not?
 
-The first card on the FTMO tab answers that in one sentence, for example *"No trades on FTMO yet today. Everything is connected and armed, and the desks are working: 3 trades were held back from the account, mostly: committee grade too low."* Below it:
+The first card on the FTMO tab answers that in one sentence (while training on FTMO, trades are rarely held back: the card then mostly tells you what the desks are watching and when the busy hours start), for example *"No trades on FTMO yet today. Everything is connected and armed, and the desks are working: 3 trades were held back from the account, mostly: committee grade too low."* Below it:
 
 - **The market hours in your own time:** where New York is now (the Asia session overnight is the quietest; the London open and the New York open are the busy windows), when those open in your time zone, and whether the scalpers' killzones are open.
 - **The day's funnel, for the desks on the account:** trade ideas the desks found → turned down (by the committee, or by what a desk has learned) → paper trades → held back from the account → sent to FTMO.
