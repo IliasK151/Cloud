@@ -7,7 +7,7 @@
 
 import http from 'node:http';
 import WebSocket from 'ws';
-import { config } from '../server/config.js';
+import { config, ROOT } from '../server/config.js';
 
 const PORT = config.port;
 const HOST = `127.0.0.1:${PORT}`;
@@ -50,8 +50,13 @@ async function main() {
   const health = await get('/api/health');
   if (health.error) {
     if (health.error.code === 'ECONNREFUSED') {
-      bad(`The floor is not running on port ${PORT}.`);
-      tip('Start it in another Terminal window with: npm start   (then run npm run doctor again)');
+      bad(`The floor is not running on port ${PORT}, so MT5 has nothing to connect to.`);
+      const fs = await import('node:fs');
+      const service = process.platform === 'darwin' ? await import('./service.js') : null;
+      if (service && fs.existsSync(service.plistPath())) {
+        tip('The background service is installed but the floor isn\'t up. See why with: npm run service -- status');
+        if (service.protectedFolder(ROOT)) tip(`Fix: npm run service -- install   (macOS doesn't let services run from your ${service.protectedFolder(ROOT)}; this moves the floor to your home folder)`);
+      } else tip('Start it with: npm start   (or run it non-stop: npm run service -- install), then run npm run doctor again');
     } else bad(`Could not reach the floor: ${health.error.message}`);
     return;
   }
@@ -65,7 +70,8 @@ async function main() {
   if (process.platform === 'darwin') {
     const { plistPath } = await import('./service.js');
     const fs = await import('node:fs');
-    if (fs.existsSync(plistPath())) good('It runs non-stop as a background service: starts at login, restarts itself if it stops.');
+    if (h.service) good('It runs non-stop as a background service: starts at login, restarts itself if it stops.');
+    else if (fs.existsSync(plistPath())) warn('It runs in a Terminal window, not as the background service you installed: closing that window stops it. Check the service: npm run service -- status');
     else warn('It runs in a Terminal window only: closing that window stops the floor. To run it non-stop: npm run service -- install');
   }
   for (const n of h.notes || []) if (/Waiting for real prices/.test(n)) warn(n);

@@ -32,10 +32,16 @@ fi
 # Already running non-stop as a background service (npm run service -- install)? Just open it.
 PORT=$(grep -E '^PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2)
 PORT=${PORT:-3000}
-if [ -f "$HOME/Library/LaunchAgents/com.meridiancapital.floor.plist" ] && curl -s -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
-  echo "  The floor already runs in the background: opening it."
-  open "http://localhost:$PORT"
-  exit 0
+if [ -f "$HOME/Library/LaunchAgents/com.meridiancapital.floor.plist" ]; then
+  if curl -s -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
+    echo "  The floor already runs in the background: opening it."
+    open "http://localhost:$PORT"
+    exit 0
+  fi
+  echo ""
+  echo "  The background service is installed but the floor isn't answering, so it runs in this"
+  echo "  window for now. To see why and fix the service: npm run service -- status"
+  echo ""
 fi
 
 if [ ! -d node_modules ] || [ package.json -nt node_modules ]; then

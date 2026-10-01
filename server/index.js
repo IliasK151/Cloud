@@ -118,7 +118,7 @@ app.use(express.static(path.join(ROOT, 'public'), { index: false }));
 
 // The page checks its floor key here after the floor restarts (a new key means reload).
 app.get('/api/session', (req, res) => res.json({ ok: true }));
-app.get('/api/health', (req, res) => res.json({ ok: true, mode: config.feed, uptime: process.uptime(), notes: feeds.notes }));
+app.get('/api/health', (req, res) => res.json({ ok: true, mode: config.feed, uptime: process.uptime(), service: process.env.FLOOR_SERVICE === '1', notes: feeds.notes }));
 app.get('/api/state', localOnly, (req, res) => res.json(fund.initPayload()));
 app.get('/api/agents/:id', localOnly, (req, res) => {
   const detail = fund.agentDetail(req.params.id);
@@ -629,12 +629,39 @@ async function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    log.warn(`\n  Port ${config.port} is already in use. Start with PORT=3100 npm start (or stop the other process).\n`);
-    process.exit(1);
+// The port is taken. If it's the floor itself (the background service, or another window),
+// say so and open it: a second floor on another port would never see MT5, whose EA talks to
+// the first one.
+function floorOnPort(port) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/api/health', headers: { Host: `127.0.0.1:${port}` }, timeout: 3000 }, (res) => {
+      let body = '';
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => {
+        try {
+          const h = JSON.parse(body);
+          resolve(h?.ok ? h : null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(null));
+  });
+}
+server.on('error', async (err) => {
+  if (err.code !== 'EADDRINUSE') throw err;
+  const url = `http://localhost:${config.port}`;
+  const other = await floorOnPort(config.port);
+  if (!other) log.warn(`\n  Port ${config.port} is used by another app. Quit that app and start the floor again.\n`);
+  else if (process.env.FLOOR_SERVICE === '1') log.warn(`  [service] The floor is already running in a Terminal window on port ${config.port}; the service takes over once that window is closed.`);
+  else {
+    log.warn(`\n  The floor is already running${other.service ? ' in the background (the service)' : ' in another window'}: ${url}`);
+    log.warn('  Opening it. No second floor is started (MT5 talks to the one that\'s running).\n');
+    if (config.openBrowser && !process.env.CI) openBrowser(url);
   }
-  throw err;
+  process.exit(other && process.env.FLOOR_SERVICE !== '1' ? 0 : 1);
 });
 
 main().catch((err) => {

@@ -26,6 +26,44 @@ const MT5_APP = '/Applications/MetaTrader 5.app';
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// macOS privacy protection keeps background services out of Desktop, Documents, Downloads
+// and iCloud Drive: a service started from there can't read its own files, so the floor
+// never comes up and MT5 has nothing to connect to.
+const PROTECTED = ['Desktop', 'Documents', 'Downloads', path.join('Library', 'Mobile Documents')];
+export function protectedFolder(root, home = os.homedir()) {
+  for (const p of PROTECTED) {
+    const dir = path.join(home, p);
+    if (root === dir || root.startsWith(dir + path.sep)) return p.split(path.sep).at(-1);
+  }
+  return null;
+}
+
+// Moves the floor to your home folder (~/trading-floor) and leaves a link with the same name
+// where it was, so the Desktop folder, Start Trading Floor and `cd ~/Desktop/trading-floor`
+// all work as before.
+export function moveOut(root, home = os.homedir()) {
+  const dest = path.join(home, path.basename(root));
+  if (fs.existsSync(dest)) throw new Error(`The floor has to move out of your ${protectedFolder(root, home)} to run as a service, but ${dest} already exists. Move or rename that folder, then run this again.`);
+  try {
+    fs.renameSync(root, dest);
+  } catch (err) {
+    throw new Error(`Couldn't move the floor to ${dest} (${err.code || err.message}). Quit everything running from the folder, or drag the folder to your home folder in Finder, then run this again from there.`);
+  }
+  fs.symlinkSync(dest, root);
+  return dest;
+}
+
+// /opt/homebrew/bin/node stays put when Homebrew updates Node; the versioned path behind it
+// (…/Cellar/node/24.x/bin/node) disappears, and with it a service that points there.
+export function stableNode(exec = process.execPath, candidates = ['/opt/homebrew/bin/node', '/usr/local/bin/node']) {
+  for (const p of candidates) {
+    try {
+      if (fs.realpathSync(p) === fs.realpathSync(exec)) return p;
+    } catch { /* not there */ }
+  }
+  return exec;
+}
+
 // The LaunchAgent: node runs the floor directly (so a stop reaches it and it closes its FTMO
 // positions cleanly), the floor keeps the Mac awake itself while it runs, and KeepAlive
 // restarts it whenever it stops, at most every 30 seconds.
@@ -111,8 +149,15 @@ async function port() {
 function running() {
   const out = launchctl(['print', `${domain()}/${LABEL}`], { quiet: true });
   if (!out) return null;
-  return { state: out.match(/\bstate = (\S+)/)?.[1] || 'unknown', pid: Number(out.match(/\bpid = (\d+)/)?.[1]) || null, runs: Number(out.match(/\bruns = (\d+)/)?.[1]) || null };
+  return {
+    state: out.match(/\bstate = (\S+)/)?.[1] || 'unknown',
+    pid: Number(out.match(/\bpid = (\d+)/)?.[1]) || null,
+    runs: Number(out.match(/\bruns = (\d+)/)?.[1]) || null,
+    lastExit: out.match(/\blast exit code = ([^\n]+)/)?.[1]?.trim() || null,
+  };
 }
+
+const tail = (file, n) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').slice(-n).join('\n') : '(no log yet)');
 
 // MetaTrader 5 opens at login too, so the EA is back on its chart after a restart.
 function addMt5LoginItem() {
@@ -127,23 +172,50 @@ function addMt5LoginItem() {
   }
 }
 
+// What install writes for the floor at `root` with this Node.
+const plistAt = (root) => plistFor({ root, node: stableNode(), logDir: path.join(root, 'data', 'logs') });
+
 async function install() {
   const file = plistPath();
-  const logDir = path.join(ROOT, 'data', 'logs');
+  const p = await port();
+  // A floor already running in a Terminal window holds the port: the service couldn't start.
+  const before = await health(p);
+  const svc = running();
+  if (before && !before.service && !svc?.pid) {
+    console.log(`\n  The floor is already running in a Terminal window (port ${p}), so the service couldn't start.`);
+    console.log('  Close that window (or press Ctrl+C in it; it closes the floor\'s FTMO positions), then run this again:');
+    console.log('    npm run service -- install\n');
+    process.exitCode = 1;
+    return;
+  }
+  let root = ROOT;
+  const from = protectedFolder(root);
+  if (from) {
+    if (svc) launchctl(['bootout', `${domain()}/${LABEL}`], { quiet: true });
+    root = moveOut(root);
+    console.log(`\n  Moved the floor from your ${from} to ${root}: macOS doesn't let background services`);
+    console.log(`  read the ${from}, so the service couldn't start the floor there. A link with the same name`);
+    console.log(`  stays in your ${from}, so it opens and works exactly as before.`);
+  }
+  const logDir = path.join(root, 'data', 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (running()) launchctl(['bootout', `${domain()}/${LABEL}`], { quiet: true });
-  fs.writeFileSync(file, plistFor({ logDir }));
+  fs.writeFileSync(file, plistAt(root));
   launchctl(['bootstrap', domain(), file]);
   launchctl(['enable', `${domain()}/${LABEL}`], { quiet: true });
-  const p = await port();
   let h = null;
-  for (let i = 0; i < 30 && !h; i++) {
+  for (let i = 0; i < 40 && !h?.service; i++) {
     await new Promise((r) => setTimeout(r, 1000));
     h = await health(p);
   }
   console.log('');
-  console.log(h ? `  ✓ The floor now runs non-stop at http://localhost:${p}` : '  ✓ Installed. The floor is starting (it can take a minute the first time).');
+  if (!h) {
+    console.log('  ▲ Installed, but the floor isn\'t answering yet. In a minute, check with: npm run service -- status');
+    console.log('    (it shows why if it doesn\'t start).\n');
+    return;
+  }
+  console.log(`  ✓ The floor now runs non-stop at http://localhost:${p}`);
   console.log('    It starts at every login, restarts by itself if it stops, and keeps the Mac awake.');
   console.log(`    ${addMt5LoginItem()}`);
   console.log('');
@@ -164,19 +236,35 @@ async function uninstall() {
 }
 
 async function status() {
+  const installed = fs.existsSync(plistPath());
   const r = running();
   const p = await port();
   const h = await health(p);
   console.log('');
-  if (!fs.existsSync(plistPath())) console.log('  The service isn\'t installed (npm run service -- install).');
+  if (!installed) console.log('  The service isn\'t installed (npm run service -- install).');
   else if (!r) console.log('  Installed, but launchd isn\'t running it. Try: npm run service -- restart');
-  else console.log(`  Service: ${r.state}${r.pid ? ` (pid ${r.pid})` : ''}${r.runs > 1 ? ` · restarted ${r.runs - 1} time(s) since login` : ''}`);
-  console.log(h ? `  Floor: answering at http://localhost:${p} (${h.mode} mode, up ${Math.round(h.uptime / 60)} min)` : `  Floor: not answering on port ${p} yet.`);
+  else console.log(`  Service: ${r.state}${r.pid ? ` (pid ${r.pid})` : ''}${r.runs > 1 ? ` · started ${r.runs} times since login` : ''}${!r.pid && r.lastExit ? ` · last exit: ${r.lastExit}` : ''}`);
+  if (h) console.log(`  Floor: answering at http://localhost:${p} (${h.mode} mode, up ${Math.round(h.uptime / 60)} min${h.service === false ? ', in a Terminal window, not the service' : ''})`);
+  else console.log(`  Floor: not answering on port ${p}, so MT5 can't connect to it.`);
+  if (installed && !h) {
+    const from = protectedFolder(ROOT);
+    if (from) {
+      console.log(`\n  Why: the floor is in your ${from}, and macOS doesn't let background services read it.`);
+      console.log('  Fix (moves it to your home folder and leaves a link in its place): npm run service -- install');
+    } else {
+      const err = tail(path.join(ROOT, 'data', 'logs', 'floor-error.log'), 8).trim();
+      if (err && err !== '(no log yet)') console.log(`\n  Its last errors:\n${err.split('\n').map((l) => `    ${l}`).join('\n')}`);
+      console.log('\n  Try: npm run service -- install   (it sets the service up again)');
+    }
+  }
   console.log('');
 }
 
 async function restart() {
-  if (!running()) return install();
+  // Not running, or set up by an older version (e.g. still pointing at the Desktop): set it up again.
+  const file = plistPath();
+  const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  if (!running() || protectedFolder(ROOT) || current !== plistAt(ROOT)) return install();
   launchctl(['kickstart', '-k', `${domain()}/${LABEL}`]);
   console.log('\n  ✓ Restarting the floor (open FTMO positions are closed and, with "Stay armed" on, trading re-arms once MT5 is back).\n');
 }
@@ -184,7 +272,6 @@ async function restart() {
 function logs() {
   const f = path.join(ROOT, 'data', 'logs', 'floor.log');
   const e = path.join(ROOT, 'data', 'logs', 'floor-error.log');
-  const tail = (file, n) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').slice(-n).join('\n') : '(no log yet)');
   console.log(`\n  ${f}\n${tail(f, 60)}`);
   const err = tail(e, 20).trim();
   if (err && err !== '(no log yet)') console.log(`\n  ${e}\n${err}`);

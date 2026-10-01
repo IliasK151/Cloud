@@ -305,3 +305,61 @@ test('the non-stop service: a LaunchAgent that runs node directly, restarts it, 
   assert.match(xml, /trading &amp; floor\/data\/logs\/floor\.log/);
   assert.ok(!/trading & floor/.test(xml), 'paths are XML-escaped');
 });
+
+test('the service never runs from the Desktop: install moves the floor home and leaves a link', async () => {
+  const { protectedFolder, moveOut, stableNode } = await import('../scripts/service.js');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'home-'));
+  // macOS keeps background services out of these folders (they can't read their own files).
+  assert.equal(protectedFolder(path.join(home, 'Desktop', 'trading-floor'), home), 'Desktop');
+  assert.equal(protectedFolder(path.join(home, 'Documents', 'x', 'trading-floor'), home), 'Documents');
+  assert.equal(protectedFolder(path.join(home, 'Downloads', 'trading-floor'), home), 'Downloads');
+  assert.equal(protectedFolder(path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'trading-floor'), home), 'Mobile Documents');
+  assert.equal(protectedFolder(path.join(home, 'trading-floor'), home), null);
+  assert.equal(protectedFolder(path.join(home, 'DesktopStuff', 'trading-floor'), home), null);
+
+  const desk = path.join(home, 'Desktop', 'trading-floor');
+  fs.mkdirSync(path.join(desk, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(desk, 'data', 'bridge-token.txt'), 'abc\n');
+  const dest = moveOut(desk, home);
+  assert.equal(dest, path.join(home, 'trading-floor'));
+  assert.equal(fs.readFileSync(path.join(dest, 'data', 'bridge-token.txt'), 'utf8'), 'abc\n', 'the data (token, setup, records) moves with it');
+  assert.ok(fs.lstatSync(desk).isSymbolicLink(), 'a link stays on the Desktop');
+  assert.equal(fs.realpathSync(desk), fs.realpathSync(dest));
+  assert.equal(fs.readFileSync(path.join(desk, 'data', 'bridge-token.txt'), 'utf8'), 'abc\n', 'and works as before');
+  // Never over another folder.
+  fs.mkdirSync(path.join(home, 'Documents', 'trading-floor'), { recursive: true });
+  assert.throws(() => moveOut(path.join(home, 'Documents', 'trading-floor'), home), /already exists/);
+
+  // A Homebrew Node update removes the versioned path: the service uses the stable link.
+  const cellar = path.join(home, 'Cellar', 'node', '24.1.0', 'bin');
+  fs.mkdirSync(cellar, { recursive: true });
+  fs.writeFileSync(path.join(cellar, 'node'), '');
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin);
+  fs.symlinkSync(path.join(cellar, 'node'), path.join(bin, 'node'));
+  assert.equal(stableNode(path.join(cellar, 'node'), [path.join(home, 'nope', 'node'), path.join(bin, 'node')]), path.join(bin, 'node'));
+  assert.equal(stableNode('/usr/bin/true', [path.join(bin, 'node')]), '/usr/bin/true');
+});
+
+test('a second floor never starts beside a running one (MT5 talks to the first): it opens that one instead', async () => {
+  // Something that answers like the floor (the background service) holds the port.
+  const running = http.createServer((req, res) => res.end(JSON.stringify({ ok: true, mode: 'live', uptime: 60, service: true })));
+  await new Promise((r) => running.listen(0, '127.0.0.1', r));
+  const port = running.address().port;
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'floor-'));
+  try {
+    const child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
+      env: { ...process.env, PORT: String(port), WEBHOOK_PORT: '0', WIDGET_PORT: '0', DATA_DIR: data, FEED: 'sim', OPEN_BROWSER: '0', FLOOR_SERVICE: '', CI: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    child.stdout.on('data', (c) => { out += c; });
+    child.stderr.on('data', (c) => { out += c; });
+    const code = await new Promise((r) => child.once('exit', r));
+    assert.equal(code, 0, out);
+    assert.match(out, /already running in the background \(the service\)/);
+    assert.ok(!/PORT=3100/.test(out), 'no advice to start a second floor on another port');
+  } finally {
+    running.close();
+  }
+});

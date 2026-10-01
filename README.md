@@ -398,10 +398,14 @@ npm run service -- install
 
 That turns the floor into a background service on your Mac: it starts right away, starts again at every login, restarts by itself within 30 seconds if it ever stops, and keeps the Mac awake. It also adds MetaTrader 5 to your Login Items, so MT5 (with the EA on its chart) comes back after a restart too. After that you don't use `npm start`: the floor is always on at http://localhost:3000, and double-clicking **Start Trading Floor** just opens it.
 
+Run every command from inside the floor's folder (`cd ~/Desktop/trading-floor` first; from anywhere else npm says *Could not read package.json*).
+
+**The floor can't run as a service from your Desktop, Documents, Downloads or iCloud Drive:** macOS doesn't let background services read those folders, so the floor would never start and MT5 would have nothing to connect to. If the floor is in one of them, `install` moves it to your home folder (`~/trading-floor`, with its data, bridge token and track record) and leaves a link with the same name where it was, so the folder, **Start Trading Floor** and `cd ~/Desktop/trading-floor` work as before. Nothing changes in MT5: same address, same token.
+
 | Command | What it does |
 | --- | --- |
-| `npm run service -- status` | Is it running, and is the floor answering? |
-| `npm run service -- restart` | Restart it, e.g. after `git pull` |
+| `npm run service -- status` | Is it running, and is the floor answering? If not, it says why |
+| `npm run service -- restart` | Restart it, e.g. after `git pull` (a service set up by an older version is set up again) |
 | `npm run service -- logs` | The floor's latest output (kept in `data/logs/`) |
 | `npm run service -- uninstall` | Stop it and remove the service |
 
@@ -457,7 +461,8 @@ It then prints what to fix. It only reads; it never trades. The FTMO tab shows t
 | MT5 shows… | Fix |
 | --- | --- |
 | "WebRequest is blocked" (error 4014) | Add `http://127.0.0.1:3000` under Tools → Options → Expert Advisors → Allow WebRequest |
-| "Floor not reachable" | Start the floor (`npm start`). On a different port, set the EA's *Floor bridge URL* input to match. MT5 in a Windows VM or on another PC: set `HOST=0.0.0.0` in `.env` and use the Mac's address in the URL |
+| "Floor not reachable" | Start the floor (`npm start`). With the background service installed: `npm run service -- status` says why it isn't up (a floor in your Desktop can't run as a service: `npm run service -- install` moves it out). On a different port, set the EA's *Floor bridge URL* input to match. MT5 in a Windows VM or on another PC: set `HOST=0.0.0.0` in `.env` and use the Mac's address in the URL |
+| "Invalid account" or "No connection" at the bottom right of MT5 | MT5 itself isn't logged in to FTMO, so the floor can't be either. Log in again (File → Login to Trade Account) with the login, password and server from FTMO's Client Area. A Free Trial ends after 14 days: start a new one there and log in with its details |
 | "Floor refused the sync (HTTP 401)" | The bridge token is wrong: copy it again from the FTMO tab (it lives in `data/bridge-token.txt`) |
 | The FTMO tab says "Algo Trading is off" | Turn on the Algo Trading toolbar button and tick *Allow Algo Trading* in the EA's settings |
 | Can't drag the file into the Experts folder | Use the MetaEditor paste method or `npm run install-ea` (step 4 above) |
