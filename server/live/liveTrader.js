@@ -481,6 +481,10 @@ export class LiveTrader extends EventEmitter {
     if (p) this.#mapNewMarkets(p);
     const map = p?.symbolMap || autoMap(this.bridge.symbols);
     this.bridge.watch(Object.values(map).filter(Boolean));
+    // MT5 syncs faster while a desk on the account is about to trade (a setup waiting for its
+    // trigger, a pending entry, a paper position to follow); slower otherwise, to save battery.
+    this.bridge.urgent = !!p && this.armed && this.fund.agents.some((a) => p.desks?.[a.id] && this.eligible(a.id)
+      && (a.setup?.armed || a.pending || a.book.positions.size));
     if (!p) return this.emit('change');
 
     // Market data from MT5
@@ -728,18 +732,22 @@ export class LiveTrader extends EventEmitter {
   #todayView(links) {
     const day = this.reportDay();
     const r = this.reports.current?.day === day ? this.reports.current : null;
-    const sent = links.filter((l) => !l.previousSession && l.login === this.login && l.openedDay === day && (l.ticket || l.state === 'pending' || l.state === 'failed'));
+    // Filled orders come from the day's report, which survives a restart of the floor; orders
+    // still on their way and refused ones from this session.
+    const filled = (r?.trades || []).filter((t) => !t.carried && t.openedAt != null);
+    const recorded = new Set(filled.map((t) => t.key));
+    const mine = links.filter((l) => !l.previousSession && l.login === this.login && l.openedDay === day && !recorded.has(l.key));
+    const inFlight = mine.filter((l) => l.state === 'pending' || (l.ticket && l.state !== 'failed'));
+    const failed = mine.filter((l) => l.state === 'failed');
     const byDesk = {};
-    for (const l of sent) {
-      const d = (byDesk[l.agentId] ||= { sent: 0, failed: 0, held: 0 });
-      if (l.state === 'failed') d.failed++;
-      else d.sent++;
-    }
-    for (const [id, d] of Object.entries(r?.desks || {})) (byDesk[id] ||= { sent: 0, failed: 0, held: 0 }).held = d.skipped || 0;
+    const desk = (id) => (byDesk[id] ||= { sent: 0, failed: 0, held: 0 });
+    for (const t of [...filled, ...inFlight]) desk(t.agentId).sent++;
+    for (const l of failed) desk(l.agentId).failed++;
+    for (const [id, d] of Object.entries(r?.desks || {})) desk(id).held = d.skipped || 0;
     return {
       day,
-      sent: sent.filter((l) => l.state !== 'failed').length,
-      failed: sent.filter((l) => l.state === 'failed').length,
+      sent: filled.length + inFlight.length,
+      failed: failed.length,
       held: Object.values(r?.skipped || {}).reduce((s, n) => s + n, 0),
       reasons: Object.entries(r?.skipped || {}).sort((a, b) => b[1] - a[1]),
       recent: (r?.skipSamples || []).slice(-6).reverse(),
@@ -945,7 +953,7 @@ export class LiveTrader extends EventEmitter {
     if (outdated) this.eaWasOutdated = version || '?';
     else if (connected && this.eaWasOutdated && !this.eaUpdatedAt) {
       this.eaUpdatedAt = Date.now();
-      this.#note(`MeridianBridge EA updated to ${version}: MT5 now enforces the safety caps itself`, 'risk');
+      this.#note(`MeridianBridge EA updated to ${version}: MT5 syncs only as often as the floor needs and enforces the safety caps itself`, 'risk');
     }
     return {
       version, latest: LATEST_EA, outdated, caps: this.bridge.caps,

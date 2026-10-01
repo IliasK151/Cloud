@@ -768,3 +768,88 @@ test('training on FTMO: an account saved before it existed trains, and switching
   assert.ok(desks.filter((d) => !d.eligible).every((d) => !d.enabled), 'pairs and market making stay paper (they can\'t be mirrored)');
   assert.ok(live.events.some((e) => /Training on FTMO switched ON/.test(e.text)));
 });
+
+test('MT5 syncs only as often as needed: fast while orders go through, every 2 s when nothing happens', async () => {
+  const { PACE } = await import('../server/live/bridge.js');
+  const { live, sync, fund, mt5, bridge } = setup();
+  let reply = '';
+  const handle = bridge.handleSync.bind(bridge);
+  bridge.handleSync = (m) => (reply = handle(m));
+  const pace = () => {
+    sync();
+    return Number(reply.match(/^pace\|(\d+)$/m)?.[1]);
+  };
+  sync();
+  assert.equal(pace(), PACE.idle, 'nothing going on: every 2 seconds');
+  // A desk on the account is waiting for its trigger: once a second.
+  live.setup({ type: 'trial', size: 100_000 });
+  live.setDesk('amara', true);
+  assert.equal(live.arm().ok, true);
+  // MT5 has answered the history requests the setup made (this test's MT5 sends no bars).
+  bridge.requestHistory = () => {};
+  bridge.historyWanted.clear();
+  fund.byId.get('amara').setup.armed = true;
+  assert.equal(pace(), PACE.active);
+  fund.byId.get('amara').setup.armed = false;
+  assert.equal(pace(), PACE.idle);
+  // An order on its way: twice a second until MT5 confirms it, and for a little while after.
+  assert.equal(fund.byId.get('amara').openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), true);
+  await tick();
+  live.reconcile();
+  sync();
+  assert.match(reply, /^open\|/m);
+  assert.match(reply, /^pace\|500$/m, 'the pace comes after the commands it covers');
+  // History MT5 can't give doesn't keep it fast for more than a minute.
+  bridge.pending.clear();
+  bridge.lastCommandAt = 0;
+  bridge.historyWanted.set('XAUUSD', { count: 600, lastAsked: Date.now(), since: Date.now() - 61_000 });
+  fund.byId.get('amara').closeTrade('XAUUSD', 'test');
+  live.reconcile();
+  bridge.pending.clear();
+  assert.notEqual(bridge.pace(), PACE.busy);
+  bridge.historyWanted.clear();
+  // Positions open: once a second.
+  bridge.pending.clear();
+  bridge.lastCommandAt = 0;
+  mt5.positions = [{ ticket: 1, symbol: 'XAUUSD', side: 'BUY', volume: 0.1, open: 3800, sl: 3790, tp: 0, profit: 0, magic: 771005 }];
+  assert.equal(pace(), PACE.active);
+});
+
+test('the trades that reached FTMO today still count after the floor restarts', async () => {
+  const a = setup();
+  a.sync();
+  a.live.setup({ type: 'trial', size: 100_000 });
+  a.live.setDesk('chen', true);
+  assert.equal(a.live.arm().ok, true);
+  assert.equal(a.chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
+  await tick();
+  a.live.reconcile();
+  const open = a.sync().find((c) => c[0] === 'open');
+  a.mt5.acks.push({ id: open[1], ok: true, ticket: 9301, price: 3800.2, volume: Number(open[4]) });
+  a.sync();
+  assert.equal(a.live.view().today.sent, 1);
+  a.live.reports.flush();
+  await a.live.shutdown();
+
+  const b = setup({ dataDir: a.dataDir });
+  b.sync();
+  const t = b.live.view().today;
+  assert.equal(t.sent, 1, 'from the day\'s report, not from this session\'s orders');
+  assert.equal(t.byDesk.chen.sent, 1);
+});
+
+test('EA 1.2 follows the floor\'s pace, re-reads the account history only after a trade, and redraws its chart only on news', () => {
+  const ea = fs.readFileSync(new URL('../mt5/MeridianBridge.mq5', import.meta.url), 'utf8');
+  assert.equal(LATEST_EA, '1.2.0');
+  assert.equal(eaOutdated('1.1.1'), true, 'the boss is asked to update');
+  assert.match(ea, /else if\(cmd == "pace" && k >= 2\)\s*SetPace\(/);
+  assert.match(ea, /void SetPace\(const int ms\)[\s\S]*MathMax\(MathMax\(200, InpSyncMs\), MathMin\(5000, ms\)\)/);
+  assert.match(ea, /void OnTrade\(\)\s*\{\s*g_dealsDirty = true;/);
+  assert.match(ea, /if\(g_dealsDirty \|\| day != g_dealsDay \|\| TimeLocal\(\) - g_dealsAt >= 30\)/);
+  assert.match(ea, /if\(text == g_comment\)\s*return;/);
+  assert.match(ea, /OnDeinit[\s\S]*g_timerMs = 0;/, 'a chart change starts the timer again');
+  // Every MQL5 brace and parenthesis is balanced (a cheap check that it compiles).
+  // Line by line: strings first (a URL holds "//"), then comments.
+  const code = ea.split('\n').map((l) => l.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/'(?:[^'\\]|\\.)'/g, "''").replace(/\/\/.*$/, '')).join('\n');
+  for (const [o, c] of [['{', '}'], ['(', ')'], ['[', ']']]) assert.equal(code.split(o).length, code.split(c).length, `${o}${c} balanced`);
+});

@@ -126,6 +126,8 @@ function ack(id, ok, extra = {}) {
   acks.push({ id, ok, retcode: ok ? 10009 : 10013, ticket: 0, price: 0, volume: 0, msg: ok ? 'done' : 'invalid request', ...extra });
 }
 
+let pace = 500; // ms between syncs, set by the floor (EA 1.2+)
+
 function handle(text) {
   for (const raw of text.split('\n')) {
     const line = raw.trim();
@@ -135,6 +137,7 @@ function handle(text) {
     if (cmd === 'watch') watch = (f[1] || '').split(',').filter(Boolean);
     else if (cmd === 'history') history.push([f[1], Number(f[2])]);
     else if (cmd === 'symbols') sendSymbols = true;
+    else if (cmd === 'pace') pace = Math.max(500, Math.min(5000, Number(f[1]) || 500));
     else if (['open', 'close', 'modify', 'closeall'].includes(cmd)) {
       const id = f[1];
       if (done.has(id)) { ack(id, true, { msg: 'duplicate' }); continue; }
@@ -190,7 +193,7 @@ async function sync() {
   const body = {
     token: TOKEN,
     // MOCK_EA_VERSION=1.0.0 pretends to be an old EA (no safety caps) to try the update flow.
-    version: process.env.MOCK_EA_VERSION || 'mock-1.1',
+    version: process.env.MOCK_EA_VERSION || 'mock-1.2',
     caps: process.env.MOCK_EA_VERSION && process.env.MOCK_EA_VERSION < '1.1' ? undefined : { maxRiskPct: 1, maxPositions: 8 },
     account: {
       login: LOGIN, server: SERVER, company: 'FTMO S.R.O. (mock)', name: 'Demo Trader', currency: 'USD',
@@ -229,15 +232,18 @@ async function sync() {
 }
 
 console.log(`\n  Mock MT5 terminal · account ${LOGIN} on ${SERVER} · balance $${START_BALANCE.toLocaleString()}`);
-console.log(`  Syncing with ${URL} every 500 ms. Open the floor's FTMO tab. Ctrl+C to stop.\n`);
+console.log(`  Syncing with ${URL} every 0.5 to 2 s, as the floor asks. Open the floor's FTMO tab. Ctrl+C to stop.\n`);
 let last = Date.now();
+let lastSync = 0;
 let busy = false;
 setInterval(async () => {
   const now = Date.now();
   stepMarket((now - last) / 1000);
   last = now;
-  if (busy) return;
+  // Like EA 1.2: sync as often as the floor's pace says (500 ms to 2 s).
+  if (busy || now - lastSync < pace - 20) return;
   busy = true;
+  lastSync = now;
   await sync();
   busy = false;
-}, 500);
+}, 100);

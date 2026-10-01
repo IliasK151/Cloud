@@ -17,19 +17,19 @@
 //|  FTMO tab into the inputs, and switch on "Algo Trading".         |
 //+------------------------------------------------------------------+
 #property copyright   "Meridian Trading Floor"
-#property version     "1.11"
+#property version     "1.20"
 #property description "Bridge between this MT5 account and the Meridian Trading Floor (http://127.0.0.1:3000)."
 
 #include <Trade\Trade.mqh>
 
 input string InpUrl    = "http://127.0.0.1:3000/api/bridge/sync"; // Floor bridge URL
 input string InpToken  = "";                                      // Bridge token (copy it from the floor's FTMO tab)
-input int    InpSyncMs = 500;                                     // Sync interval in milliseconds
+input int    InpSyncMs = 500;                                     // Fastest sync interval in milliseconds (the floor slows it down when nothing is happening)
 // Safety caps enforced here in MT5, whatever the floor sends (the last line of defence):
 input double InpMaxRiskPct   = 1.0;                                 // Max risk per order, % of balance (stop-loss distance x volume)
 input int    InpMaxPositions = 8;                                   // Max floor positions open at the same time
 
-#define EA_VERSION  "1.1.1"
+#define EA_VERSION  "1.2.0"
 #define MAGIC_MIN   771000
 #define MAGIC_MAX   771099
 #define DONE_SLOTS  256
@@ -45,6 +45,13 @@ long     g_login       = 0;
 double   g_initialDeposit = 0;
 string   g_lastError   = "";
 datetime g_lastOk      = 0;
+int      g_timerMs     = 0;       // current sync interval (the floor sets the pace, EA 1.2+)
+string   g_comment     = "";      // what the chart shows now (redrawn only when it changes)
+string   g_dealsJson   = "[]";    // today's deals, re-read only after a trade (OnTrade) or every 30 s
+double   g_closedToday = 0;
+bool     g_dealsDirty  = true;
+long     g_dealsDay    = -1;
+datetime g_dealsAt     = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -64,15 +71,36 @@ int OnInit()
       g_done[i] = "";
    g_trade.SetDeviationInPoints(30);
    g_trade.SetAsyncMode(false);
-   EventSetMillisecondTimer((int)MathMax(200, InpSyncMs));
+   SetPace(InpSyncMs);
    Comment("Meridian Bridge: connecting to the floor...");
    return(INIT_SUCCEEDED);
+  }
+
+// How often to sync. The floor asks for fast syncs only while orders are on their way or a
+// desk is about to trade, and slow ones when nothing is happening: far fewer wake-ups for
+// MT5, which saves a lot of a MacBook's battery. Never faster than InpSyncMs.
+void SetPace(const int ms)
+  {
+   int want = (int)MathMax(MathMax(200, InpSyncMs), MathMin(5000, ms));
+   if(want == g_timerMs)
+      return;
+   EventKillTimer();
+   EventSetMillisecondTimer(want);
+   g_timerMs = want;
+  }
+
+// A trade happened (an order filled, a stop or target hit): read today's deals again.
+void OnTrade()
+  {
+   g_dealsDirty = true;
   }
 
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    EventKillTimer();
+   g_timerMs = 0;   // a chart change keeps the globals: OnInit must start the timer again
+   g_comment = "";
    Comment("");
   }
 
@@ -336,9 +364,17 @@ void Sync()
       g_initialDeposit = InitialDeposit();
       g_sendSymbols = true;
      }
-   double closedToday = 0;
-   string deals = DealsJson(closedToday);
    datetime srv = TimeTradeServer();
+   long day = (long)srv / 86400;
+   if(g_dealsDirty || day != g_dealsDay || TimeLocal() - g_dealsAt >= 30)
+     {
+      g_dealsJson = DealsJson(g_closedToday);
+      g_dealsDirty = false;
+      g_dealsDay = day;
+      g_dealsAt = TimeLocal();
+     }
+   double closedToday = g_closedToday;
+   string deals = g_dealsJson;
 
    string body = "{\"token\":" + Q(InpToken)
                  + ",\"version\":" + Q(EA_VERSION)
@@ -375,6 +411,7 @@ void Sync()
                    ? "WebRequest is blocked. Tools > Options > Expert Advisors > allow WebRequest for http://127.0.0.1:3000"
                    : "Floor not reachable (error " + IntegerToString(err) + "). Is the floor running (npm start)?";
       Status(msg, true);
+      SetPace(2000);   // no floor to talk to: knock every 2 seconds, not twice a second
       return;
      }
    string reply = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
@@ -394,15 +431,21 @@ void Sync()
    Status("Connected to the floor", false);
   }
 
+// The chart comment. Redrawing it makes MT5 repaint the chart, so it changes only when there
+// is news (and the last-sync time is shown to the minute).
 void Status(const string msg, const bool isError)
   {
    if(isError && msg != g_lastError)
       Print("MeridianBridge: ", msg);
    g_lastError = isError ? msg : "";
-   Comment("Meridian Bridge v", EA_VERSION, "\n", msg,
-           "\nAccount ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)), " on ", AccountInfoString(ACCOUNT_SERVER),
-           "\nWatching ", IntegerToString(ArraySize(g_watch)), " symbols",
-           (g_lastOk > 0 ? "\nLast sync " + TimeToString(g_lastOk, TIME_SECONDS) : ""));
+   string text = "Meridian Bridge v" + EA_VERSION + "\n" + msg
+                 + "\nAccount " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + " on " + AccountInfoString(ACCOUNT_SERVER)
+                 + "\nWatching " + IntegerToString(ArraySize(g_watch)) + " symbols, syncing every " + DoubleToString(g_timerMs / 1000.0, 1) + " s"
+                 + (g_lastOk > 0 ? "\nLast sync " + TimeToString(g_lastOk, TIME_MINUTES) : "");
+   if(text == g_comment)
+      return;
+   g_comment = text;
+   Comment(text);
   }
 
 //+------------------------------------------------------------------+
@@ -434,6 +477,8 @@ void Handle(const string text)
         }
       else if(cmd == "symbols")
          g_sendSymbols = true;
+      else if(cmd == "pace" && k >= 2)
+         SetPace((int)StringToInteger(f[1]));
       else if(cmd == "open" && k >= 9)
          DoOpen(f);
       else if(cmd == "close" && k >= 4)

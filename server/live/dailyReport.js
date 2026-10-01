@@ -97,7 +97,7 @@ export class DailyReports {
     let row = r.trades.find((x) => x.key === t.key && x.closedAt == null);
     if (!row) {
       // Opened on an earlier day (or before this report existed): it counts on the day it closed.
-      row = { key: t.key, agentId: t.agentId, symbol: t.symbol, side: t.side, volume: t.volume, entry: t.entry ?? null, risk: round2(t.risk || 0), grade: t.grade ?? null, openedAt: t.openedAt ?? null };
+      row = { key: t.key, agentId: t.agentId, symbol: t.symbol, side: t.side, volume: t.volume, entry: t.entry ?? null, risk: round2(t.risk || 0), grade: t.grade ?? null, openedAt: t.openedAt ?? null, carried: true };
       r.trades.push(row);
     }
     row.closedAt = this.now();

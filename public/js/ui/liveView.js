@@ -311,13 +311,15 @@ export class LiveView {
     if (!ea.outdated) {
       const c = ea.caps;
       el.classList.add('done');
-      el.innerHTML = `<h2>✓ MeridianBridge EA updated to ${escapeHtml(ea.version)}</h2><p class="sub">MT5 now enforces the safety caps itself: every order needs a stop-loss${c ? `, at most ${c.maxRiskPct}% risk per order and ${c.maxPositions} floor positions` : ''}, and the EA never touches your own trades.</p>`;
+      el.innerHTML = `<h2>✓ MeridianBridge EA updated to ${escapeHtml(ea.version)}</h2><p class="sub">MT5 now syncs only as often as the floor needs: every 2 seconds when nothing is happening, faster while a desk trades. That's much less work for MT5 and your battery. It also enforces the safety caps itself: every order needs a stop-loss${c ? `, at most ${c.maxRiskPct}% risk per order and ${c.maxPositions} floor positions` : ''}, and the EA never touches your own trades.</p>`;
       return;
     }
     el.classList.remove('done');
     el.innerHTML = `
       <h2>Update the MT5 bridge EA <span class="pill warn">${escapeHtml(ea.version || 'old')} → ${escapeHtml(ea.latest || 'new')}</span></h2>
-      <p class="sub">The new version adds safety limits inside MT5 itself, as a last line of defence: every order must carry a stop-loss, the risk per order and the number of floor positions are capped, it never touches your own trades, and it can't open the same order twice. Takes about a minute. Disarm first and arm again afterwards; open positions keep their stop-loss.</p>
+      <p class="sub">${ea.caps
+        ? 'The new version saves battery: MT5 syncs only as often as the floor needs (every 2 seconds when nothing is happening, twice a second while orders go through), reads the account history only after a trade, and stops redrawing its chart twice a second.'
+        : 'The new version adds safety limits inside MT5 itself, as a last line of defence: every order must carry a stop-loss, the risk per order and the number of floor positions are capped, it never touches your own trades, and it can\'t open the same order twice. It also saves battery: MT5 syncs only as often as the floor needs.'} Takes about a minute. Disarm first and arm again afterwards; open positions keep their stop-loss.</p>
       <ol class="steps ea-steps">
         <li><button class="btn primary" data-act="install-ea">Put the update into MT5</button> <span class="fine">${escapeHtml(this.eaMsg || 'Copies the new code into MT5\'s Expert Advisors folder on this Mac.')}</span></li>
         <li>In MT5, in the <b>Navigator</b> panel, open <b>Expert Advisors</b>, right-click <b>MeridianBridge</b> → <b>Modify</b>. MetaEditor opens the EA${this.eaMsg?.startsWith('✓') ? ' (if it asks, reload the file)' : ''}.</li>

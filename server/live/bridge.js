@@ -10,9 +10,15 @@ import { EventEmitter } from 'node:events';
 //   close|id|ticket|fraction
 //   modify|id|ticket|sl|tp
 //   closeall|id|bridge
+//   pace|ms                  how soon to sync again (EA 1.2+; older EAs ignore it)
 // Commands are re-sent until acknowledged; the EA de-duplicates by id.
+//
+// The pace saves a MacBook's battery: MT5 runs through a Windows layer on a Mac, and each
+// sync wakes it up. Twice a second only while orders are on their way, once a second while
+// positions are open or a desk is about to trade, every 2 seconds otherwise.
 
 const STALE_MS = 5000;
+export const PACE = { busy: 500, active: 1000, idle: 2000 };
 const RESEND_MS = 8000;
 const COMMAND_TTL_MS = 60_000;
 
@@ -35,6 +41,8 @@ export class Mt5Bridge extends EventEmitter {
     this.watchList = [];
     this.historyWanted = new Map(); // brokerSymbol -> { count, lastAsked }
     this.wantSymbols = false;
+    this.lastCommandAt = 0;
+    this.urgent = false; // set by the live trader: a desk is about to trade the account
   }
 
   get connected() {
@@ -80,6 +88,14 @@ export class Mt5Bridge extends EventEmitter {
     return this.#reply(now);
   }
 
+  pace(now = Date.now()) {
+    // History MT5 can't give (yet) doesn't keep it busy for more than a minute.
+    const history = [...this.historyWanted.values()].some((h) => now - h.since < 60_000);
+    if (this.pending.size || history || this.wantSymbols || !this.symbols.length || now - this.lastCommandAt < 15_000) return PACE.busy;
+    if (this.positions.length || this.urgent) return PACE.active;
+    return PACE.idle;
+  }
+
   #reply(now) {
     const lines = ['OK'];
     if (this.watchList.length) lines.push(`watch|${this.watchList.join(',')}`);
@@ -103,6 +119,8 @@ export class Mt5Bridge extends EventEmitter {
         lines.push(cmd.line);
       }
     }
+    // After the commands above, so this sync's own new commands count.
+    lines.push(`pace|${this.pace(now)}`);
     return lines.join('\n') + '\n';
   }
 
@@ -118,7 +136,7 @@ export class Mt5Bridge extends EventEmitter {
   }
 
   requestHistory(symbol, count = 600) {
-    if (!this.historyWanted.has(symbol)) this.historyWanted.set(symbol, { count, lastAsked: 0 });
+    if (!this.historyWanted.has(symbol)) this.historyWanted.set(symbol, { count, lastAsked: 0, since: Date.now() });
   }
 
   requestSymbols() {
@@ -129,6 +147,7 @@ export class Mt5Bridge extends EventEmitter {
     const id = `c${Date.now().toString(36)}${(++seq).toString(36)}`;
     const clean = fields.map((f) => String(f).replace(/[|\n\r]/g, ' '));
     this.pending.set(id, { id, kind, line: [kind, id, ...clean].join('|'), createdAt: Date.now(), sentAt: 0, meta });
+    this.lastCommandAt = Date.now();
     return id;
   }
 
