@@ -875,7 +875,23 @@ test('phone alerts: the real fill price, and every closed trade of the day with 
   sync();
   const fill = alerts.filter((a) => /bought/.test(a.text));
   assert.equal(fill.length, 1);
-  assert.match(fill[0].text, /Chen bought [\d.]+ XAUUSD @ 3800\.35 · risk \$/);
+  assert.match(fill[0].text, /Chen bought [\d.]+ XAUUSD @ 3800\.35/);
+  const link = [...live.links.values()].find((l) => l.ticket === 9401);
+  const stop = 3800.35 - link.stopDistance;
+  assert.ok(fill[0].text.includes(`\nStop ${stop.toFixed(2)} (−$`), fill[0].text);
+  assert.match(fill[0].text, /· target [\d.]+ \(\+\$[\d.]+, [\d.]+R\)/);
+  assert.match(fill[0].text, /\n\nWhy: TradingView alert/);
+  assert.match(fill[0].text, /TradingView: https:\/\/www\.tradingview\.com\/chart\/\?symbol=OANDA%3AXAUUSD/);
+  // …with the setup to draw: the fill, the stop and target at the desk's distances.
+  const c = fill[0].chart;
+  assert.equal(c.entry, 3800.35);
+  assert.equal(c.side, 'BUY');
+  assert.ok(Math.abs(c.stop - stop) < 1e-9 && c.target > c.entry);
+  assert.match(c.title, /^Chen · BUY [\d.]+ XAUUSD @ 3800\.35$/);
+  assert.ok(c.bars.length > 0, 'the candles it traded on');
+  assert.equal(fill[0].linkKey, link.key);
+  live.setChart(link.key, '/api/charts/2026-10-01/101400-x.png');
+  assert.equal(live.view().positions.find((x) => x.ticket === 9401).chart, '/api/charts/2026-10-01/101400-x.png');
   sync();
   assert.equal(alerts.filter((a) => /bought/.test(a.text)).length, 1, 'once');
 
@@ -914,4 +930,26 @@ test('the list of the day\'s trades reads like MT5\'s history', async () => {
   const report = { day: '2026.10.01', account: { dayPnl: 32.15 }, desks: { lucas: { name: 'Lucas Meyer', trades: 1, wins: 1, pnl: 10.11, sumR: 0.5, countR: 1 } }, skipped: {}, events: [],
     trades: [{ agentId: 'lucas', symbol: 'USOIL.cash', pnl: 10.11, r: 0.5, openedAt: 1, closedAt: 2 }] };
   assert.match(dailyAlertText(summarize(report)), /Trades · 1 closed trade, 1 won:\n🟢 Lucas USOIL\.cash \+\$10\.11 \(\+0\.5R\)/);
+});
+
+test('why a desk entered, in a few lines: its setup, the evidence, its checklist, the committee and the floor\'s memory', async () => {
+  const { entryReasons, brainLevels } = await import('../server/live/liveTrader.js');
+  const plan = {
+    reason: 'London scalp: ran the Asia low, trapped and shifted',
+    thesis: 'London scalp: ran the Asia low. Why: the higher-timeframe trend is up, with the trade; structure agrees.',
+    checklist: ['Inside the London killzone', 'Asia low swept', 'Closed back inside'],
+    debate: 'd1',
+  };
+  const committee = { debates: [{ id: 'd1', factors: { memory: { text: "the floor's memory: 14 trades like this (XAUUSD, with the trend, wild, London) averaged +0.42R, 64% won" } },
+    messages: [{ from: 'ryan', role: 'proposes' }, { from: 'mia', role: 'reviews', stance: 'agree' }, { from: 'lucas', role: 'reviews', stance: 'cautious' }, { from: 'elena', role: 'decides', text: 'Approved, full size (score 0.41). Room to run.' }] }] };
+  const names = { mia: 'Mia', lucas: 'Lucas', elena: 'Elena' };
+  assert.deepEqual(entryReasons(plan, committee, (id) => names[id]), [
+    'Why: London scalp: ran the Asia low, trapped and shifted',
+    'The case: the higher-timeframe trend is up, with the trade; structure agrees',
+    'Checklist: ✓ Inside the London killzone ✓ Asia low swept ✓ Closed back inside',
+    'Committee: Mia agrees · Lucas is cautious · Elena: Approved, full size (score 0.41)',
+    'Memory: 14 trades like this (XAUUSD, with the trend, wild, London) averaged +0.42R, 64% won',
+  ]);
+  assert.deepEqual(entryReasons(null, committee), []);
+  assert.deepEqual(brainLevels({ resistance: [{ label: 'VWAP', price: 2 }, { label: 'session high', price: 3 }, { label: 'x', price: 4 }], support: [{ label: 'session low', price: 1 }] }).map((l) => l.label), ['VWAP', 'session high', 'session low']);
 });

@@ -28,6 +28,7 @@ import { LiveTrader } from './live/liveTrader.js';
 import { summarize } from './live/dailyReport.js';
 import { TelegramNotifier } from './notify/telegram.js';
 import { FloorMemory } from './brain/memory.js';
+import { entryChart } from './notify/chartShot.js';
 
 // As a background service (npm run service) the log files grow forever: start each run
 // with a fresh one, keeping the previous run's as .old.
@@ -69,7 +70,35 @@ const bridge = new Mt5Bridge();
 const live = new LiveTrader({ fund, md, bridge, clock, mode: config.feed, dataDir: config.dataDir, token: config.bridgeToken, log });
 // Alerts on the boss's phone (Telegram), from the live trader's big moments.
 const notifier = new TelegramNotifier({ dataDir: config.dataDir, log });
-live.on('alert', (a) => notifier.notify(a));
+// A trade's entry comes with its setup drawn as a chart: saved in data/charts (the FTMO tab
+// links to it) and sent to the phone with the reasons.
+const CHART_DIR = path.join(config.dataDir, 'charts');
+live.on('alert', async (a) => {
+  if (a.chart) {
+    try {
+      const { png } = await entryChart({ ...a.chart, timeZone: undefined });
+      if (png) {
+        const day = new Date().toISOString().slice(0, 10);
+        const file = `${new Date().toISOString().slice(11, 19).replace(/:/g, '')}-${String(a.linkKey || 'trade').replace(/[^A-Za-z0-9]+/g, '-').slice(-40)}.png`;
+        fs.mkdirSync(path.join(CHART_DIR, day), { recursive: true });
+        fs.writeFileSync(path.join(CHART_DIR, day, file), png, { mode: 0o600 });
+        if (a.linkKey) live.setChart(a.linkKey, `/api/charts/${day}/${file}`);
+        a.photo = png;
+        pruneCharts();
+      }
+    } catch (err) {
+      log.warn(`[chart] could not draw the entry chart: ${err.message}`);
+    }
+  }
+  notifier.notify(a);
+});
+// Two weeks of entry charts are plenty.
+function pruneCharts() {
+  try {
+    const days = fs.readdirSync(CHART_DIR).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+    for (const d of days.slice(0, Math.max(0, days.length - 14))) fs.rmSync(path.join(CHART_DIR, d), { recursive: true, force: true });
+  } catch { /* nothing to prune */ }
+}
 
 feeds.onSession({
   sessionClose: () => fund.flattenAll('Session close'),
@@ -142,6 +171,11 @@ app.post('/api/command', localOnly, express.json(), (req, res) => {
 app.get('/api/news', localOnly, (req, res) => res.json(news.view()));
 app.get('/api/brain', localOnly, (req, res) => res.json(brainView()));
 app.get('/api/memory', localOnly, (req, res) => res.json(memory.graph(fund.agents)));
+app.get('/api/charts/:day/:file', localOnly, (req, res) => {
+  const { day, file } = req.params;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^[A-Za-z0-9-]+\.png$/.test(file)) return res.status(404).end();
+  res.sendFile(path.join(CHART_DIR, day, file), { headers: { 'Content-Type': 'image/png' } }, (err) => { if (err && !res.headersSent) res.status(404).end(); });
+});
 app.post('/api/news/settings', localOnly, express.json(), (req, res) => res.json(news.setSettings(req.body || {})));
 app.post('/api/news/refresh', localOnly, async (req, res) => {
   await news.refresh();

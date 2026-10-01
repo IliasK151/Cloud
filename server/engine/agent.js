@@ -150,6 +150,10 @@ export class TraderAgent {
       barsHeld: 0, reason, tag, extreme: fillPx, worst: fillPx, openedAt: this.env.clock.now(),
       learnMult: learn.sizeMult, riskMult: riskMultiplier, probe: learn.probe,
       thesis: review?.thesis ?? null, grade: review?.grade ?? null, score: review?.score ?? null,
+      debate: review?.debate?.id ?? null,
+      // The setup as the desk saw it when it pulled the trigger (for the entry chart).
+      setupLevels: (this.setup.levels || []).filter((l) => Number.isFinite(l?.price)).slice(0, 8).map((l) => ({ label: l.label, price: l.price })),
+      checklist: (this.setup.checklist || []).filter((c) => c?.ok).map((c) => c.label).slice(0, 6),
       testAlert: !!testAlert, // from the TradingView tab's test button: paper only
     };
     this.plans.set(symbol, plan);

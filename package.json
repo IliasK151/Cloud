@@ -30,6 +30,7 @@
     "ws": "^8.22.0"
   },
   "optionalDependencies": {
-    "@ngrok/ngrok": "^1.7.0"
+    "@ngrok/ngrok": "^1.7.0",
+    "@resvg/resvg-js": "^2.6.2"
   }
 }

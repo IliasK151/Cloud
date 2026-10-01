@@ -578,7 +578,7 @@ export class LiveView {
     }
 
     $('#live-positions').innerHTML = `<thead><tr><th>Ticket</th><th>Desk</th><th>Symbol</th><th>Side</th><th class="r">Lots</th><th class="r">Open</th><th class="r">SL</th><th class="r">TP</th><th class="r">P&amp;L</th><th></th></tr></thead><tbody>${
-      v.positions.map((x) => `<tr><td>${x.ticket}</td><td>${x.agentId ? escapeHtml(this.store.profileById[x.agentId]?.name.split(' ')[0] ?? x.agentId) : '<span class="muted">manual</span>'}</td><td>${escapeHtml(x.symbol)}</td><td>${x.side}</td><td class="r">${x.volume}</td><td class="r">${x.open}</td><td class="r">${x.sl || '—'}</td><td class="r">${x.tp || '—'}</td><td class="r ${signClass(x.profit)}">${money(x.profit, { sign: true })}</td><td>${x.floor ? `<button class="mini-btn" data-act="close" data-ticket="${x.ticket}">Close</button>` : ''}</td></tr>`).join('') ||
+      v.positions.map((x) => `<tr><td>${x.ticket}</td><td>${x.agentId ? escapeHtml(this.store.profileById[x.agentId]?.name.split(' ')[0] ?? x.agentId) : '<span class="muted">manual</span>'}</td><td>${escapeHtml(x.symbol)}</td><td>${x.side}</td><td class="r">${x.volume}</td><td class="r">${x.open}</td><td class="r">${x.sl || '—'}</td><td class="r">${x.tp || '—'}</td><td class="r ${signClass(x.profit)}">${money(x.profit, { sign: true })}</td><td>${x.chart ? `<button class="mini-btn" data-chart="${escapeHtml(x.chart)}" data-title="${escapeHtml(`${x.side} ${x.volume} ${x.symbol}`)}">📈 Setup</button> ` : ''}${x.floor ? `<button class="mini-btn" data-act="close" data-ticket="${x.ticket}">Close</button>` : ''}</td></tr>`).join('') ||
       '<tr><td colspan="10" class="muted">No open positions on the account.</td></tr>'
     }</tbody>`;
 

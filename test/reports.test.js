@@ -79,16 +79,20 @@ test('a day\'s report card: trades, R, held-back trades, account; finalised when
 });
 
 // A fake Telegram Bot API.
-function fakeTelegram({ updates = [], sendStatus = 200 } = {}) {
+function fakeTelegram({ updates = [], sendStatus = 200, photoStatus = 200 } = {}) {
   const calls = [];
   const fetchImpl = async (url, opts = {}) => {
     const method = url.split('/').pop();
-    const body = opts.body ? JSON.parse(opts.body) : null;
+    // A photo goes as a form (multipart); everything else as JSON.
+    const body = opts.body instanceof FormData
+      ? Object.fromEntries([...opts.body.entries()].map(([k, v]) => [k, typeof v === 'string' ? v : { type: v.type, size: v.size }]))
+      : opts.body ? JSON.parse(opts.body) : null;
     calls.push({ url, method, body });
     const reply = (status, data) => ({ ok: status < 400, status, json: async () => data });
     if (!/\/bot\d+:[A-Za-z0-9_-]+\//.test(url)) return reply(404, { ok: false, description: 'Not Found' });
     if (method === 'getMe') return reply(200, { ok: true, result: { username: 'meridian_floor_bot', first_name: 'Meridian' } });
     if (method === 'getUpdates') return reply(200, { ok: true, result: updates });
+    if (method === 'sendPhoto') return photoStatus === 200 ? reply(200, { ok: true, result: { message_id: calls.length } }) : reply(photoStatus, { ok: false, description: 'Bad Request: wrong file' });
     if (method === 'sendMessage') return sendStatus === 200 ? reply(200, { ok: true, result: { message_id: calls.length } }) : reply(sendStatus, { ok: false, description: 'Unauthorized' });
     return reply(404, { ok: false });
   };
@@ -170,4 +174,62 @@ test('battery saver: the 3D floor draws only as often as it needs to', async () 
   // On battery: less again.
   assert.equal(fpsFor({ battery: true, busy: true }), 24);
   assert.equal(fpsFor({ battery: true }), 6);
+});
+
+test('an entry alert can carry its chart: sent as a photo with the reasons as caption, the text alone if the photo fails', async () => {
+  const setUp = async (opts) => {
+    const tg = fakeTelegram({ updates: [{ update_id: 1, message: { chat: { id: 77, type: 'private' }, text: 'hi' } }], ...opts });
+    const n = new TelegramNotifier({ dataDir: tmp('tgp-'), log: quiet, fetchImpl: tg.fetchImpl, gapMs: 0 });
+    await n.setToken(TOKEN);
+    await n.findChat();
+    tg.calls.length = 0;
+    return { n, tg };
+  };
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+  const { n, tg } = await setUp();
+  n.notify({ kind: 'trade', text: '🟩 Ryan bought 0.48 XAUUSD @ 3812.70\nWhy: London scalp', photo: png });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(tg.calls.length, 1);
+  assert.equal(tg.calls[0].method, 'sendPhoto');
+  assert.equal(tg.calls[0].body.chat_id, '77');
+  assert.match(tg.calls[0].body.caption, /Ryan bought 0\.48 XAUUSD @ 3812\.70\nWhy: London scalp/);
+  assert.deepEqual(tg.calls[0].body.photo, { type: 'image/png', size: png.length });
+
+  // A caption holds 1024 characters: the rest follows as a message, the photo isn't sent twice.
+  tg.calls.length = 0;
+  const long = ['🟩 Lucas bought 1.56 USOIL.cash @ 94.836', ...Array.from({ length: 30 }, (_, i) => `Line ${i}: ${Array(6).fill('reason').join(' ')}`)].join('\n');
+  n.notify({ kind: 'trade', text: long, photo: png });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.deepEqual(tg.calls.map((c) => c.method), ['sendPhoto', 'sendMessage']);
+  assert.ok(tg.calls[0].body.caption.length <= 1024);
+  assert.equal(tg.calls[0].body.caption + '\n' + tg.calls[1].body.text, long);
+
+  // The photo is refused: the words still arrive.
+  const b = await setUp({ photoStatus: 400 });
+  b.n.notify({ kind: 'trade', text: '🟥 Mia sold 0.2 XAUUSD', photo: png });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.deepEqual(b.tg.calls.map((c) => c.method), ['sendPhoto', 'sendMessage']);
+  assert.equal(b.tg.calls[1].body.text, '🟥 Mia sold 0.2 XAUUSD');
+});
+
+test('the entry chart: the setup drawn TradingView style, with entry, stop, target and the desk\'s levels', async () => {
+  const { chartSvg, entryChart } = await import('../server/notify/chartShot.js');
+  const bars = Array.from({ length: 150 }, (_, i) => ({ time: 1790832000 + i * 60, open: 100 + Math.sin(i / 9), high: 100.6 + Math.sin(i / 9), low: 99.4 + Math.sin(i / 9), close: 100.2 + Math.sin(i / 9) }));
+  const spec = {
+    symbol: 'XAUUSD', brokerSymbol: 'XAUUSD', decimals: 2, side: 'BUY', entry: 100.5, stop: 99.5, target: 103, bars,
+    title: 'Ryan · BUY 0.48 XAUUSD @ 100.50', subtitle: 'Scalping · Gold London · 1-minute · grade A · risk $17.52',
+    stopLabel: 'Stop 99.50 · −$17.52', targetLabel: 'Target 103.00 · +$43.80 · 2.5R',
+    levels: [{ label: 'Asia low', price: 98.9 }, { label: 'Far away', price: 500 }], context: [{ label: 'VWAP', price: 100.9 }],
+    when: '1 Oct 2026 · 10:14', footer: 'Drawn by the floor from your MT5 prices', timeZone: 'UTC',
+  };
+  const svg = chartSvg(spec);
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="1200" height="675"/);
+  assert.equal((svg.match(/<rect x="[\d.]+" y="[\d.]+" width="[\d.]+" height="[\d.]+" fill="#(089981|f23645)"\/>/g) || []).length, 120, 'the last 120 candles');
+  for (const text of ['Ryan · BUY 0.48 XAUUSD @ 100.50', 'Stop 99.50 · −$17.52', 'Target 103.00 · +$43.80 · 2.5R', 'Buy 100.50', 'Asia low 98.90', 'VWAP 100.90', 'Meridian Capital']) assert.ok(svg.includes(text), text);
+  assert.ok(!svg.includes('Far away'), 'levels far from the action stay off the chart');
+  assert.ok(svg.includes('rgba(8,153,129,0.20)') && svg.includes('rgba(242,54,69,0.20)'), 'the position tool: profit and risk zones');
+  const escaped = chartSvg({ ...spec, title: 'A & B <script>' });
+  assert.ok(escaped.includes('A &amp; B &lt;script&gt;') && !escaped.includes('<script>'), 'text is escaped');
+  const { png } = await entryChart(spec);
+  if (png) assert.deepEqual([...png.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], 'a PNG');
 });

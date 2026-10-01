@@ -478,7 +478,18 @@ Pick any earlier day from the list. Each day is saved in `data/reports/` (one JS
 
 The FTMO tab's **Alerts on your phone** card sends Telegram messages from your own free bot:
 
-- a trade opened on the account (who, what, the real fill price, risk, grade), or rejected by MT5;
+- a trade opened on the account, **with a picture of the setup and why the desk took it**:
+  - **The picture:** the chart the desk traded on, drawn TradingView style. It shows the last two hours of 1-minute candles, an arrow on the entry candle, and the long/short position tool (entry, the stop with its dollar risk, the target with its dollar gain and R). It also shows the desk's own setup levels in amber (the swept liquidity pool, the opening range, the Supertrend and so on) and the market's nearest support and resistance in grey.
+  - **The caption:**
+    - the desk's reason (*Why: London scalp: ran the Asia low, trapped and shifted*);
+    - the evidence behind it (*The case: the higher-timeframe trend is up, with the trade; structure agrees*);
+    - the checklist it ticked;
+    - what the committee said (*Mia agrees · Lucas is cautious · Elena: Approved, full size*);
+    - the floor's memory of trades like it;
+    - a link that opens the market on TradingView.
+
+  The floor draws the chart itself, from the same MT5 prices the desk traded on. It can't screenshot TradingView's own site: that needs your TradingView login and a browser running, and TradingView doesn't let programs draw on its charts. The pictures are also kept in `data/charts/` for two weeks, and the **📈 Setup** button next to the trade on the Dashboard and in the FTMO tab opens them. Drawing needs the small `@resvg/resvg-js` package, which `npm run service -- restart` (or Start Trading Floor) installs. Without it, the alert comes as text;
+- a trade rejected by MT5;
 - a trade closed, with its P&L to the cent and in R, then every trade closed on the account today, one per line, like MT5's history:
 
   ```

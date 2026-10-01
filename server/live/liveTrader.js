@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, normalizeProfile, guardMetrics, lotsForRisk, positionRisk, trainingOn } from './rules.js';
 import { autoMap, candidatesFor } from './symbolMap.js';
-import { SYMBOL_IDS } from '../market/symbols.js';
+import { SYMBOL_IDS, SYMBOLS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
 import { DailyReports, closedTrades } from './dailyReport.js';
 import { locateExpertsFolders } from '../../scripts/install-ea.js';
@@ -188,8 +188,16 @@ export class LiveTrader extends EventEmitter {
   }
 
   // Something the boss would want on their phone. kind: trade | guard | connection | arming | daily
-  #alert(kind, text) {
-    this.emit('alert', { kind, text, at: Date.now() });
+  #alert(kind, text, extra = {}) {
+    this.emit('alert', { kind, text, at: Date.now(), ...extra });
+  }
+
+  // The entry chart was drawn and saved: the FTMO tab links to it.
+  setChart(linkKey, url) {
+    const link = this.links.get(linkKey);
+    if (!link) return;
+    link.chart = url;
+    this.emit('change');
   }
 
   // The report's day: the FTMO server day (its daily loss limit resets with it).
@@ -415,7 +423,7 @@ export class LiveTrader extends EventEmitter {
         link.ticket = ack.ticket;
         link.liveEntry = ack.price || link.liveEntry;
         if (ack.volume) link.volume0 = link.volumeNow = ack.volume;
-        this.#note(`${this.#who(link)} filled ${link.side} ${link.volume0} ${link.brokerSymbol} @ ${ack.price}`, 'live', link.agentId);
+        this.#note(`${this.#who(link)} filled ${link.side} ${link.volume0} ${link.brokerSymbol}${ack.price > 0 ? ` @ ${ack.price}` : ''}`, 'live', link.agentId);
         this.reports.opened(this.reportDay(), { key: link.key, agentId: link.agentId, ...this.#deskInfo(link.agentId), symbol: link.brokerSymbol, side: link.side, volume: link.volume0, entry: link.liveEntry, risk: link.risk, grade: link.grade });
         // Some brokers report a market order's fill price as 0: then the alert waits for the
         // next sync, which has the position's real open price.
@@ -761,9 +769,46 @@ export class LiveTrader extends EventEmitter {
     };
   }
 
+  // The entry on the boss's phone: the setup as a chart, and why the desk took it.
   #fillAlert(link, price) {
     link.fillAlertPending = false;
-    this.#alert('trade', `${link.side === 'BUY' ? '🟩' : '🟥'} ${this.#who(link)} ${link.side === 'BUY' ? 'bought' : 'sold'} ${link.volume0} ${link.brokerSymbol} @ ${price} · risk ${fmtUsd(link.risk || 0, { cents: true })}${link.grade ? ` · grade ${link.grade}` : ''}`);
+    const agent = this.fund.byId.get(link.agentId);
+    const plan = agent?.plans.get(link.floorSymbol) || null;
+    const buy = link.side === 'BUY';
+    const dir = buy ? 1 : -1;
+    const digits = this.bridge.quotes[link.brokerSymbol]?.digits ?? SYMBOLS[link.floorSymbol]?.decimals ?? 2;
+    const fmt = (x) => Number(x).toFixed(digits);
+    const stop = price - dir * link.stopDistance;
+    const tpDist = plan?.target != null ? Math.abs(plan.target - plan.entry) : null;
+    const target = tpDist ? price + dir * tpDist : null;
+    const rr = tpDist && link.stopDistance > 0 ? tpDist / link.stopDistance : null;
+    const risk = link.risk || 0;
+    const who = this.#who(link);
+    const lines = [
+      `${buy ? '🟩' : '🟥'} ${who} ${buy ? 'bought' : 'sold'} ${link.volume0} ${link.brokerSymbol} @ ${fmt(price)}${link.grade ? ` · grade ${link.grade}` : ''}`,
+      `Stop ${fmt(stop)} (−${fmtUsd(risk, { cents: true }).replace('-', '')})${target != null ? ` · target ${fmt(target)} (+${fmtUsd(risk * rr, { cents: true })}, ${rr.toFixed(1)}R)` : ' · trailing exit'}`,
+    ];
+    const why = entryReasons(plan, this.fund.committee, (id) => this.fund.byId.get(id)?.profile.name.split(' ')[0] ?? id);
+    if (why.length) lines.push('', ...why);
+    const tv = SYMBOLS[link.floorSymbol]?.tv;
+    if (tv) lines.push('', `TradingView: https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tv)}`);
+    const when = new Date();
+    this.#alert('trade', lines.join('\n'), {
+      linkKey: link.key,
+      chart: {
+        symbol: link.floorSymbol, brokerSymbol: link.brokerSymbol, decimals: digits, side: link.side, entry: price, stop, target,
+        bars: this.md.bars(link.floorSymbol, { includeCurrent: true }).slice(-120),
+        title: `${who} · ${link.side} ${link.volume0} ${link.brokerSymbol} @ ${fmt(price)}`,
+        subtitle: `${agent?.profile.desk ?? ''} · 1-minute · ${link.grade ? `grade ${link.grade} · ` : ''}risk ${fmtUsd(risk, { cents: true })}`,
+        entryLabel: `${buy ? 'Buy' : 'Sell'} ${fmt(price)}`,
+        stopLabel: `Stop ${fmt(stop)} · −${fmtUsd(risk, { cents: true }).replace('-', '')}`,
+        targetLabel: target != null ? `Target ${fmt(target)} · +${fmtUsd(risk * rr, { cents: true })} · ${rr.toFixed(1)}R` : null,
+        levels: plan?.setupLevels || [],
+        context: brainLevels(this.fund.brain?.read?.(link.floorSymbol)),
+        when: `${when.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · ${when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
+        footer: `Drawn by the floor from your MT5 prices, TradingView style${tv ? ` · tradingview.com/chart/?symbol=${tv}` : ''}`,
+      },
+    });
   }
 
   // Today's closed trades on the account, one line each, for the phone.
@@ -959,7 +1004,7 @@ export class LiveTrader extends EventEmitter {
         .map((l) => ({
           agentId: l.agentId, symbol: l.brokerSymbol, side: l.side, volume: l.volume0, state: l.state,
           pnl: l.state === 'closed' ? l.pnl : l.profit ?? 0, entry: l.liveEntry, openedAt: l.createdAt, closedAt: l.closedAt || null, reason: l.reason || '',
-          thesis: l.thesis || null, grade: l.grade || null,
+          thesis: l.thesis || null, grade: l.grade || null, chart: l.chart || null,
         })),
     };
   }
@@ -1059,12 +1104,39 @@ export class LiveTrader extends EventEmitter {
       today: this.#todayView(links),
       equityHistory: this.equityHistory.slice(-240),
       ...this.#tradesView(links),
-      positions: this.bridge.positions.map((x) => ({ ...x, agentId: this.#ours(x) ? this.agentForMagic(x.magic) : null, floor: this.#ours(x) })),
+      positions: this.bridge.positions.map((x) => ({ ...x, agentId: this.#ours(x) ? this.agentForMagic(x.magic) : null, floor: this.#ours(x), chart: links.find((l) => l.ticket === x.ticket && !l.previousSession)?.chart || null })),
       links: links.filter((l) => !l.previousSession).slice(-25).reverse(),
       events: this.events.slice(-40).reverse(),
       warnings,
     };
   }
+}
+
+// Why a desk took a trade, in a few short lines: its setup, the evidence, its checklist, what
+// the committee said and the floor's memory of trades like it.
+export function entryReasons(plan, committee, nameOf = (id) => id) {
+  if (!plan) return [];
+  const out = [];
+  if (plan.reason) out.push(`Why: ${plan.reason}`);
+  const evidence = plan.thesis?.split(/\. Why: /)[1]?.replace(/\.$/, '');
+  if (evidence) out.push(`The case: ${evidence}`);
+  if (plan.checklist?.length) out.push(`Checklist: ${plan.checklist.map((c) => `✓ ${c}`).join(' ')}`);
+  const d = plan.debate ? committee?.debates?.find((x) => x.id === plan.debate) : null;
+  if (d) {
+    const said = { agree: 'agrees', disagree: 'disagrees', cautious: 'is cautious' };
+    const reviews = d.messages.filter((m) => m.role === 'reviews').map((m) => `${nameOf(m.from)} ${said[m.stance] || m.stance}`);
+    const chair = d.messages.find((m) => m.role === 'decides');
+    const chairSays = chair?.text?.split(/(?<=\.)\s/)[0];
+    if (reviews.length || chairSays) out.push(`Committee: ${[...reviews, chairSays ? `${nameOf(chair.from)}: ${chairSays.replace(/\.$/, '')}` : null].filter(Boolean).join(' · ')}`);
+    if (d.factors?.memory?.text) out.push(`Memory: ${d.factors.memory.text.replace(/^the floor's memory: /, '')}`);
+  }
+  return out;
+}
+
+// The market brain's nearest support and resistance, for the entry chart.
+export function brainLevels(read) {
+  if (!read) return [];
+  return [...(read.resistance || []).slice(0, 2), ...(read.support || []).slice(0, 2)].filter((l) => Number.isFinite(l?.price)).map((l) => ({ label: l.label, price: l.price }));
 }
 
 // "Today on FTMO": every closed trade with its P&L, like MT5's history, and the total.

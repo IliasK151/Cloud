@@ -1,3 +1,4 @@
+import { openChart } from './ui/chartViewer.js';
 import { store } from './store.js';
 import { connect, api } from './net.js';
 import { voice } from './voice.js';
@@ -80,6 +81,9 @@ document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('cli
 document.addEventListener('click', (e) => {
   const go = e.target.closest('[data-goto-view]');
   if (go) setView(go.dataset.gotoView);
+  // A trade's entry chart, wherever it's listed.
+  const chart = e.target.closest('[data-chart]');
+  if (chart) openChart(chart.dataset.chart, chart.dataset.title || 'The setup');
 });
 
 // ---- settings: voices, graphics, tour ------------------------------------------------------

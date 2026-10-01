@@ -691,6 +691,13 @@ details.how p { color: var(--text-3); }
 .rail-note.today { border-color: var(--hairline-strong); background: rgba(255, 255, 255, 0.03); }
 .rail-note.today b { color: var(--text-1); }
 
+/* ---- entry chart lightbox ----------------------------------------------------------------- */
+.setup-box { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(4, 5, 7, 0.78); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); padding: 16px; }
+.setup-box[hidden] { display: none; }
+.setup-box figure { margin: 0; max-width: min(1200px, 96vw); display: grid; gap: 10px; justify-items: end; }
+.setup-box figcaption { justify-self: start; font-weight: 600; color: var(--text-1); }
+.setup-box img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--hairline-strong); background: #131722; min-height: 120px; }
+
 /* ---- floor memory (Brain tab) ------------------------------------------------------------- */
 .mg-card { margin-top: 14px; }
 .mg-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; }

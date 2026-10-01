@@ -57,15 +57,17 @@ export class TelegramNotifier {
     }
   }
 
-  async #call(method, body = null) {
+  async #call(method, body = null, { form = null } = {}) {
     if (!this.s.token) throw new Error('No bot token yet');
     const url = `${API}/bot${this.s.token}/${method}`;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    const timer = setTimeout(() => ctrl.abort(), form ? 30_000 : 10_000);
     try {
-      const res = await this.fetch(url, body
-        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal }
-        : { signal: ctrl.signal });
+      const res = await this.fetch(url, form
+        ? { method: 'POST', body: form, signal: ctrl.signal }
+        : body
+          ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal }
+          : { signal: ctrl.signal });
       let data = null;
       try {
         data = await res.json();
@@ -182,7 +184,8 @@ export class TelegramNotifier {
 
   // ---- sending ------------------------------------------------------------------------------
   // Queue an alert of `kind` if the boss wants that kind. Never throws, never blocks.
-  notify({ kind, text }) {
+  // photo: a PNG (Buffer) sent with the text as its caption, e.g. a trade's entry chart.
+  notify({ kind, text, photo = null }) {
     if (!this.s.enabled || !this.s.token || !this.s.chatId || !this.s.kinds[kind] || !text) return false;
     if (this.queue.length >= QUEUE_MAX) {
       // Flooded (a storm of trades): drop the oldest trade message, keep the important ones.
@@ -190,9 +193,35 @@ export class TelegramNotifier {
       if (i >= 0) this.queue.splice(i, 1);
       else return false;
     }
-    this.queue.push({ kind, text: String(text).slice(0, 3500) });
+    this.queue.push({ kind, text: String(text).slice(0, 3500), photo });
     this.#pump();
     return true;
+  }
+
+  // A photo's caption holds 1024 characters: a longer text follows as its own message.
+  async #sendPhoto(msg) {
+    const form = new FormData();
+    form.append('chat_id', String(this.s.chatId));
+    const fits = msg.text.length <= 1024;
+    form.append('caption', fits ? msg.text : `${msg.text.slice(0, msg.text.lastIndexOf('\n', 1000) > 0 ? msg.text.lastIndexOf('\n', 1000) : 1000)}`);
+    form.append('photo', new Blob([msg.photo], { type: 'image/png' }), 'setup.png');
+    try {
+      await this.#call('sendPhoto', null, { form });
+    } catch (err) {
+      if (err.status === 401 || err.retryAfter) throw err;
+      // The picture didn't go: the words still do.
+      this.log.warn?.(`[telegram] the chart didn't send (${err.message}); sending the text`);
+      msg.photo = null;
+      await this.#call('sendMessage', { chat_id: this.s.chatId, text: msg.text, disable_web_page_preview: true });
+      return;
+    }
+    if (!fits) {
+      // The photo went: from here on only the rest of the text is left to send (a retry won't repeat the photo).
+      const cut = msg.text.lastIndexOf('\n', 1000) > 0 ? msg.text.lastIndexOf('\n', 1000) : 1000;
+      msg.photo = null;
+      msg.text = msg.text.slice(cut).trim();
+      await this.#call('sendMessage', { chat_id: this.s.chatId, text: msg.text, disable_web_page_preview: true });
+    }
   }
 
   async #pump() {
@@ -202,7 +231,8 @@ export class TelegramNotifier {
       while (this.queue.length) {
         const msg = this.queue[0];
         try {
-          await this.#call('sendMessage', { chat_id: this.s.chatId, text: msg.text, disable_web_page_preview: true });
+          if (msg.photo) await this.#sendPhoto(msg);
+          else await this.#call('sendMessage', { chat_id: this.s.chatId, text: msg.text, disable_web_page_preview: true });
           this.queue.shift();
           this.lastSentAt = Date.now();
           this.lastError = null;

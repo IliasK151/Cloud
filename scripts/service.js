@@ -172,6 +172,24 @@ function addMt5LoginItem() {
   }
 }
 
+// After a `git pull` that added a dependency (e.g. the entry-chart renderer), install it
+// before the service restarts: the service runs the code as it is on disk.
+function ensureDeps(root = ROOT) {
+  const pkg = path.join(root, 'package.json');
+  const marker = path.join(root, 'node_modules', '.package-lock.json');
+  try {
+    if (fs.existsSync(marker) && fs.statSync(marker).mtimeMs >= fs.statSync(pkg).mtimeMs) return;
+  } catch { /* install below */ }
+  console.log('\n  New packages for the floor: installing them first (about a minute)…');
+  const npm = process.env.npm_execpath;
+  try {
+    if (npm) execFileSync(process.execPath, [npm, 'install', '--no-audit', '--no-fund'], { cwd: root, stdio: 'inherit' });
+    else execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: root, stdio: 'inherit' });
+  } catch {
+    console.log('  The install didn\'t finish (no internet?). The floor still runs; run npm install later.');
+  }
+}
+
 // What install writes for the floor at `root` with this Node.
 const plistAt = (root) => plistFor({ root, node: stableNode(), logDir: path.join(root, 'data', 'logs') });
 
@@ -197,6 +215,7 @@ async function install() {
     console.log(`  read the ${from}, so the service couldn't start the floor there. A link with the same name`);
     console.log(`  stays in your ${from}, so it opens and works exactly as before.`);
   }
+  ensureDeps(root);
   const logDir = path.join(root, 'data', 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -265,6 +284,7 @@ async function restart() {
   const file = plistPath();
   const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
   if (!running() || protectedFolder(ROOT) || current !== plistAt(ROOT)) return install();
+  ensureDeps();
   launchctl(['kickstart', '-k', `${domain()}/${LABEL}`]);
   console.log('\n  ✓ Restarting the floor (open FTMO positions are closed and, with "Stay armed" on, trading re-arms once MT5 is back).\n');
 }
