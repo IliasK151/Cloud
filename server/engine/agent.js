@@ -235,6 +235,8 @@ export class TraderAgent {
   // Broker callback for every closed round trip that belongs to this desk.
   onTradeClosed(trade) {
     const win = trade.pnl > 0;
+    // The situation it was taken in, for the floor's shared memory (the learner forgets it below).
+    const ctx = this.learner.open.get(trade.id)?.ctx;
     this.day.trades++;
     this.lifetime.trades++;
     if (win) {
@@ -256,7 +258,9 @@ export class TraderAgent {
     }
     for (const lesson of this.learner.onClosed(trade) || []) {
       this.note(`Lesson learned — ${lesson.title}. ${lesson.text.split(/(?<=\.)\s/)[0]}`, 'learn');
+      this.env.memory?.onLesson(this, lesson);
     }
+    this.env.memory?.onTrade(this, trade, ctx);
   }
 
   // External signal (TradingView webhook).

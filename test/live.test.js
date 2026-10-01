@@ -697,6 +697,7 @@ test('training on FTMO (Free Trial): every trade the desks take goes to the acco
   sync();
   live.setup({ type: 'trial', size: 100_000 });
   assert.equal(live.profile.training, true, 'on by default on a Free Trial');
+  assert.ok(live.view().desks.filter((d) => d.eligible).every((d) => d.enabled), 'a new Free Trial starts with every desk on the account');
   live.setDesk('amara', true);
   live.setDesk('lucas', true);
   assert.equal(live.arm().ok, true);

@@ -33,9 +33,10 @@ export function departmentFor(symbol) {
 }
 
 export class Committee extends EventEmitter {
-  constructor({ brain, agents, clock, shadow = false }) {
+  constructor({ brain, agents, clock, shadow = false, memory = null }) {
     super();
     this.brain = brain;
+    this.memory = memory; // the floor's shared memory: how trades like this went, floor-wide
     this.agents = agents; // Map id → agent
     this.clock = clock;
     this.shadow = shadow; // score every idea but never block (for research/calibration)
@@ -103,6 +104,9 @@ export class Committee extends EventEmitter {
     const ed = this.edge(ag, symbol, side);
     a.f.edge = { value: ed.value, text: ed.text };
     a.edge = ed;
+    // The floor's memory speaks only once it has seen enough trades like this one.
+    const mem = this.memory && ag?.learner ? this.memory.recall(symbol, ag.learner.context(symbol, side)) : null;
+    if (mem?.ready) a.f.memory = { value: mem.value, text: mem.text };
     if (style === 'scalper') this.#scalpTerms(a, symbol);
     return a;
   }

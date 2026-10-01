@@ -225,10 +225,12 @@ export class LiveTrader extends EventEmitter {
       else if (wanted && (this.bridge.symbols.includes(wanted) || !this.bridge.symbols.length)) symbolMap[id] = wanted;
       else symbolMap[id] = prev?.symbolMap?.[id] ?? suggested[id] ?? null;
     }
+    // A new Free Trial trains on FTMO: every desk that can trade the account starts switched on.
+    const desks = prev?.desks || (trainingOn(profile) ? Object.fromEntries(this.fund.agents.filter((a) => this.eligible(a.id)).map((a) => [a.id, true])) : {});
     this.state.profiles[this.login] = {
       ...profile,
       symbolMap,
-      desks: prev?.desks || {},
+      desks,
       server: this.account.server,
       createdAt: prev?.createdAt || Date.now(),
       updatedAt: Date.now(),

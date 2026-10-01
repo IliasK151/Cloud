@@ -691,6 +691,31 @@ details.how p { color: var(--text-3); }
 .rail-note.today { border-color: var(--hairline-strong); background: rgba(255, 255, 255, 0.03); }
 .rail-note.today b { color: var(--text-1); }
 
+/* ---- floor memory (Brain tab) ------------------------------------------------------------- */
+.mg-card { margin-top: 14px; }
+.mg-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.mg-head h2 { display: flex; align-items: center; gap: 8px; }
+.mg-live { font-size: 10px; }
+.mg-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11.5px; color: var(--text-2); max-width: 560px; justify-content: flex-end; }
+.mg-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.mg-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; margin-top: 10px; }
+@media (max-width: 1000px) { .mg-body { grid-template-columns: 1fr; } }
+.mg-stage { position: relative; height: 520px; border-radius: 12px; overflow: hidden; background: radial-gradient(ellipse at 50% 40%, #15171c 0%, #0b0c0e 75%); border: 1px solid var(--hairline); }
+.mg-stage canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+.mg-stage canvas:active { cursor: grabbing; }
+.mg-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.mg-label { position: absolute; left: 0; top: 0; font-size: 11px; font-weight: 600; color: var(--text-1); text-shadow: 0 1px 3px #000, 0 0 8px #000; white-space: nowrap; }
+.mg-label.market { color: #f2b01e; font-size: 12px; letter-spacing: 0.02em; }
+.mg-tip { position: absolute; z-index: 2; max-width: 260px; padding: 8px 10px; border-radius: 9px; background: rgba(20, 21, 24, 0.95); border: 1px solid var(--hairline-strong); font-size: 12px; line-height: 1.45; color: var(--text-2); pointer-events: none; }
+.mg-tip b { color: var(--text-1); }
+.mg-hint { position: absolute; left: 12px; bottom: 8px; margin: 0; font-size: 11px; color: var(--text-3); pointer-events: none; }
+.mg-side h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
+.mg-side ol { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 7px; font-size: 12.5px; line-height: 1.4; color: var(--text-2); }
+.mg-strong li { cursor: pointer; padding: 6px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); }
+.mg-strong li:hover { background: rgba(255, 255, 255, 0.07); }
+.mg-feed { max-height: 300px; overflow: auto; }
+.mg-feed li { padding-bottom: 6px; border-bottom: 1px solid var(--hairline); }
+
 /* ---- battery saver: no endless animations (each one keeps the browser redrawing) ---------- */
 html.eco .mode-badge.live::before, html.eco .speech-text .caret, html.eco .live-pill.armed i,
 html.eco .news-pill i, html.eco .lab-busy i, html.eco .brain-graph .talk, html.eco .brain-graph .dnode.fresh circle { animation: none; }

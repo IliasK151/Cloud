@@ -1,5 +1,6 @@
 import { money, escapeHtml, initials, nyTime, signClass } from '../format.js';
 import { planSwitches, onPlanSwitch } from './planSwitch.js';
+import { MemoryGraph } from './memoryGraph.js';
 
 // The Brain: how the floor thinks. At the top, the account brain (the plan that protects
 // the prop account) and which desks have earned real money. Below, one live graph per
@@ -45,6 +46,7 @@ export class BrainView {
         <div class="card" id="bv-account"></div>
         <div class="card" id="bv-cleared"></div>
       </div>
+      <div class="card mg-card" id="bv-memory"></div>
       <div class="grid brain-depts" id="bv-depts"></div>
       <div class="card" style="margin-top:14px" id="bv-recent"></div>`;
     this.root.addEventListener('toggle', (e) => {
@@ -65,6 +67,7 @@ export class BrainView {
       const who = e.target.closest('[data-agent]');
       if (who) this.onSelect(who.dataset.agent, { tab: 'brain' });
     });
+    this.memory = new MemoryGraph(this.store, this.root.querySelector('#bv-memory'), { onSelect: this.onSelect });
     this.built = true;
   }
 
@@ -73,11 +76,13 @@ export class BrainView {
     this.visible = true;
     this.root.hidden = false;
     this.render(true);
+    this.memory.show();
   }
 
   hide() {
     this.visible = false;
     this.root.hidden = true;
+    this.memory?.hide();
   }
 
   render(force = false) {

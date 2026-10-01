@@ -43,6 +43,7 @@ export function connect() {
       case 'init': store.init(msg); store.setLive(msg.live); store.setTunnel(msg.tunnel); store.emit('voices', msg.voices); store.setNews(msg.news); store.setBrain(msg.brain); break;
       case 'news': store.setNews(msg.news); break;
       case 'brain': store.setBrain(msg.brain); break;
+      case 'memory': store.emit('memory', msg.event); break;
       case 'voices': store.emit('voices', msg.voices); break;
       case 'tunnel': store.setTunnel(msg.tunnel); break;
       case 'live': store.setLive(msg.live); break;

@@ -15,7 +15,7 @@ const DAY_CURVE_POINTS = 1500;
 // risk, samples the equity curve and produces the snapshots the UI renders.
 export class Fund extends EventEmitter {
   // committee: 'on' (every trade is reviewed), 'shadow' (reviewed but never blocked) or 'off'.
-  constructor({ config, md, clock, session, broker, risk, news = null, lab = null, committee = 'on' }) {
+  constructor({ config, md, clock, session, broker, risk, news = null, lab = null, committee = 'on', memory = null }) {
     super();
     this.news = news;
     this.lab = lab;
@@ -40,7 +40,9 @@ export class Fund extends EventEmitter {
       allocation: this.allocation,
       emit: (e) => this.#event(e),
       liveDescribe: null, // set by the live (FTMO) trader when it is running
+      memory, // the floor's shared memory (brain/memory.js), when the floor keeps one
     };
+    this.memory = memory;
     this.env = env;
     risk.news = news;
     news?.on('announce', (a) => this.#event({ kind: 'news', text: a.text }));
@@ -48,9 +50,10 @@ export class Fund extends EventEmitter {
     this.byId = new Map(this.agents.map((a) => [a.id, a]));
     env.labDesks = () => this.agents.filter((a) => a.profile.lab);
     this.brain = new MarketBrain({ md, session, clock, news, history: lab?.history ?? null });
-    this.committee = committee === 'off' ? null : new Committee({ brain: this.brain, agents: this.byId, clock, shadow: committee === 'shadow' });
+    this.committee = committee === 'off' ? null : new Committee({ brain: this.brain, agents: this.byId, clock, shadow: committee === 'shadow', memory });
     env.committee = this.committee;
     this.committee?.on('debate', (d) => {
+      memory?.onDebate(d);
       const who = this.byId.get(d.proposer)?.firstName ?? d.proposer;
       const reviewers = d.messages.filter((m) => m.role === 'reviews').map((m) => `${this.byId.get(m.from)?.firstName}: ${m.stance}`).join(', ');
       this.#event({ agentId: d.proposer, kind: 'committee', debate: d.id, verdict: d.verdict, grade: d.grade, messages: d.messages.map((m) => ({ from: m.from, stance: m.stance, text: m.text })), text: `Committee ${d.verdict} ${who}'s ${d.symbol} ${d.side.toLowerCase()}${d.grade !== '—' ? ` (grade ${d.grade})` : ''}: ${d.why}${reviewers ? ` · ${reviewers}` : ''}` });

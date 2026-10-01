@@ -227,6 +227,20 @@ Run `npm run backtest -- 5` to fast-forward five sessions and see the results yo
 
 ![A department debate](docs/brain-debate.jpg)
 
+**The floor memory: one knowledge graph the whole floor shares.** Each desk's learner only remembers its own trades. The floor memory remembers every trade any desk closes on real prices, filed by its **situation**: the market, with or against the trend, quiet, normal or wild, and the session (Asia, London, the New York open, midday or afternoon). It also keeps the lessons each desk learned and who reviewed whose ideas in the committee. Recent trades count more (each new trade in a situation outweighs the old ones), so the memory follows the market as it changes. It's kept in `data/memory.json` (demo mode has its own file, so made-up prices never mix in), and on its first start it fills itself from the trades the desks' learners already remember.
+
+The committee asks it before every trade: *how did trades like this go, across the floor?* Once a situation has about six trades behind it, that answer becomes one more piece of evidence everyone weighs ("the floor's memory: 14 trades like this (XAUUSD, with the trend, wild, London) averaged +0.42R, 64% won"). Quants and the risk manager weigh it most, the scalpers and the market maker least. Until then it stays out of the vote, so a handful of trades can't sway anything.
+
+The **Brain** tab shows it as a live 3D graph:
+- **Nodes:** desks (in their own colour), markets (gold), situations (green if trades like that made money, red if they lost, grey while there's too little evidence) and lessons (purple).
+- **Live:** when a trade closes, the line from the desk to its situation flashes green or red. When the committee meets, the reviewers' lines to the desk flash. A new lesson grows out of the desk that learned it.
+- **Use it:** drag to turn, scroll to zoom, hover anything for its numbers, and click a desk to open it.
+- **Beside it:** what the floor remembers best, and a live feed of trades, lessons and committee meetings.
+
+The graph draws only while something moves, so a still graph costs no battery.
+
+(The idea comes from [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), which keeps a knowledge graph of a codebase for AI coding assistants and shows it in 3D. The floor's memory is the same idea for trading: a graph of situations and outcomes instead of functions and calls.)
+
 ## Protecting the prop account (the account brain)
 
 The paper desks can experiment; the account only gets the best ideas, sized by where the account stands. This is the plan a professional prop trader follows to pass a challenge and keep getting paid:

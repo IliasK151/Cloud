@@ -27,6 +27,7 @@ import { Mt5Bridge } from './live/bridge.js';
 import { LiveTrader } from './live/liveTrader.js';
 import { summarize } from './live/dailyReport.js';
 import { TelegramNotifier } from './notify/telegram.js';
+import { FloorMemory } from './brain/memory.js';
 
 // As a background service (npm run service) the log files grow forever: start each run
 // with a fresh one, keeping the previous run's as .old.
@@ -56,7 +57,10 @@ const risk = new RiskManager(config.risk, session);
 const news = new NewsCalendar({ clock, mode: config.feed, dataDir: config.dataDir, log });
 const history = new HistoryStore({ md, mode: config.feed, dataDir: config.dataDir, calendar: news, log });
 const lab = new ResearchLab({ history, calendar: news, mode: config.feed, log });
-const fund = new Fund({ config, md, clock, session, broker, risk, news, lab });
+// The floor's shared memory (a knowledge graph of every trade by situation, lessons and
+// reviews), kept apart for demo mode so made-up prices never mix with real ones.
+const memory = new FloorMemory({ file: path.join(config.dataDir, config.feed === 'sim' ? 'memory-demo.json' : 'memory.json'), mode: config.feed, log });
+const fund = new Fund({ config, md, clock, session, broker, risk, news, lab, memory });
 const store = new Store(config.dataDir, config.feed);
 const feeds = new FeedManager({ md, clock, mode: config.feed, log, calendar: news });
 
@@ -137,6 +141,7 @@ app.post('/api/command', localOnly, express.json(), (req, res) => {
 // Economic calendar (news the desks stand aside for).
 app.get('/api/news', localOnly, (req, res) => res.json(news.view()));
 app.get('/api/brain', localOnly, (req, res) => res.json(brainView()));
+app.get('/api/memory', localOnly, (req, res) => res.json(memory.graph(fund.agents)));
 app.post('/api/news/settings', localOnly, express.json(), (req, res) => res.json(news.setSettings(req.body || {})));
 app.post('/api/news/refresh', localOnly, async (req, res) => {
   await news.refresh();
@@ -490,6 +495,8 @@ const pushNews = () => broadcast({ type: 'news', news: news.view() });
 const brainView = () => fund.committee?.view() ?? null;
 setInterval(() => { if (wss.clients.size) broadcast({ type: 'brain', brain: brainView() }); }, 2000);
 fund.committee?.on('debate', () => setImmediate(() => broadcast({ type: 'brain', brain: brainView() })));
+// The memory graph lights up live in the Brain tab: a trade, a lesson, a committee debate.
+memory.on('event', (event) => broadcast({ type: 'memory', event }));
 news.on('change', pushNews);
 news.on('announce', () => setImmediate(pushNews));
 setInterval(pushNews, config.feed === 'sim' ? 5000 : 30_000);
@@ -552,6 +559,8 @@ async function main() {
   news.init().catch((err) => log.warn(`[news] ${err.message}`));
   await feeds.start();
   if (fund.restore(store.load())) log.info('  Restored track record from', store.file);
+  const seeded = memory.seedFromJournals(fund.agents);
+  if (seeded) log.info(`  Floor memory: started from ${seeded} trades the desks remember`);
   fund.start();
   setInterval(() => store.save(fund.serialize()), 30_000);
   // The research desks need long history; load it without holding up the floor.
@@ -614,6 +623,7 @@ async function shutdown() {
   try {
     fund.flattenAll('Server shutdown');
     store.save(fund.serialize());
+    memory.flush();
   } catch (err) {
     log.warn('  Save failed:', err.message);
   }
