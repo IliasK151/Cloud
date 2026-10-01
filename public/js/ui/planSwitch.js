@@ -31,7 +31,11 @@ const SWITCHES = [
   {
     key: 'streakStopOn',
     title: (p) => `Stop after ${p.streakStop} losses in a row`,
-    on: (p) => `Done for the day after ${p.streakStop} losing trades in a row (streak ${p.streak}).`,
+    on: (p) => (p.training
+      ? `While training: a 2-hour cool-off on the account after ${p.streakStop} losing trades in a row (streak ${p.streak}); the desks keep learning on paper.`
+      : `Done for the day after ${p.streakStop} losing trades in a row (streak ${p.streak}).`),
+    // This one still counts while training: it's the cool-off.
+    training: true,
     off: (p) => `Keeps trading after a losing streak (streak ${p.streak}); risk still halves after 2 losses.`,
     confirm: (p) => `Switch off the losing-streak stop?\n\nThe desks keep trading after ${p.streakStop} losses in a row. Risk still halves after 2 losses, and FTMO's loss guard still applies.`,
   },
@@ -49,7 +53,7 @@ export function planSwitches(plan) {
   return `<div class="plan-switches">${SWITCHES.filter((sw) => !sw.only || sw.only(plan)).map((sw) => {
     const on = plan[sw.key] !== false;
     // While training on FTMO the plan's holds are paused: their switches wait.
-    const paused = plan.training && sw.key !== 'training';
+    const paused = plan.training && sw.key !== 'training' && !sw.training;
     const cls = sw.key === 'training' ? `training ${on ? 'on' : 'off'}` : on ? '' : 'off';
     return `<div class="plan-switch ${cls}${paused ? ' paused' : ''}">
       <label class="switch safe" title="${paused ? 'Paused while training on FTMO' : on ? 'Switch off' : 'Switch on'}"><input type="checkbox" data-plan-switch="${sw.key}" ${on ? 'checked' : ''} ${paused ? 'disabled' : ''} aria-label="${escapeHtml(sw.title(plan))}"><span></span></label>

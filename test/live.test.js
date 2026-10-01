@@ -11,7 +11,7 @@ import { RiskManager } from '../server/engine/risk.js';
 import { Fund } from '../server/engine/fund.js';
 import { Mt5Bridge } from '../server/live/bridge.js';
 import { LiveTrader, MAGIC_BASE, LATEST_EA, eaOutdated } from '../server/live/liveTrader.js';
-import { lotsForRisk, normalizeProfile, guardMetrics, programRules, bestDayCheck } from '../server/live/rules.js';
+import { lotsForRisk, normalizeProfile, guardMetrics, programRules, bestDayCheck, tradeCost, COST_LIMIT_R } from '../server/live/rules.js';
 import { autoMap } from '../server/live/symbolMap.js';
 
 const GOLD = { bid: 3800, ask: 3800.2, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
@@ -727,10 +727,15 @@ test('training on FTMO (Free Trial): every trade the desks take goes to the acco
   assert.deepEqual(links.map((l) => l.agentId).sort(), ['amara', 'lucas']);
   assert.equal(live.view().today.held, 0, 'nothing held back on paper');
 
-  // No daily cap, no losing-streak stop while training…
-  const lossDay = (i) => ({ key: `x${i}`, agentId: 'amara', state: 'closed', ticket: 500 + i, pnl: -50, login: '555', closedAt: Date.now(), closedDay: '2026.09.29', openedDay: '2026.09.29' });
+  // No daily cap and no stop for the day while training, but a losing streak gets a cool-off…
+  const lossDay = (i, at = Date.now()) => ({ key: `x${i}`, agentId: 'amara', state: 'closed', ticket: 500 + i, pnl: -50, login: '555', closedAt: at, closedDay: '2026.09.29', openedDay: '2026.09.29' });
   for (let i = 0; i < 7; i++) live.links.set(`x${i}`, lossDay(i));
-  const st = live.brain.state();
+  let st = live.brain.state();
+  assert.match(st.blocked, /7 losses in a row on the account: a 2-hour cool-off, 120 minutes to go/);
+  assert.equal(st.status, 'COOLING OFF');
+  // …that ends after 2 hours, with risk still halved after losses.
+  for (let i = 0; i < 7; i++) live.links.set(`x${i}`, lossDay(i, Date.now() - 2.5 * 3_600_000));
+  st = live.brain.state();
   assert.equal(st.blocked, null);
   assert.ok(st.mult < 1, 'but risk still halves after losses');
   // …and FTMO's loss guard still keeps out a trade that could breach the limit: $3,950 down
@@ -1133,4 +1138,101 @@ test('the Today card shows FTMO\'s own limits in one line: actions, both loss li
   assert.match(html, /FTMO 2-Step/);
   assert.match(html, /Max loss line <b class="num">\$90,000<\/b><small>fixed at the start/);
   assert.doesNotMatch(html, /Best Day/);
+});
+
+// ---- the institutional framework: costs and risk limits -----------------------------------------
+test('transaction costs in R: the spread and the commission both ways, the same at any size', () => {
+  const gold = { ...GOLD, bid: 3800, ask: 3800.2 };
+  // $5 stop: $500 per lot; $2.50 per lot per side → 0.01R; spread 0.2 → 0.04R.
+  assert.deepEqual(tradeCost(gold, 5, 2.5), { spreadR: 0.04, commissionR: 0.01, totalR: 0.05, commissionKnown: true });
+  // A 3-pip EURUSD scalp: 0.8 pips of spread and $5 of commission against $30 of risk per lot.
+  const eur = { bid: 1.17, ask: 1.17008, tickSize: 0.00001, tickValue: 1 };
+  const c = tradeCost(eur, 0.0003, 2.5);
+  assert.equal(c.totalR, 0.43);
+  assert.ok(c.totalR > COST_LIMIT_R, 'too expensive for the account');
+  assert.equal(tradeCost(eur, 0.0003).commissionKnown, false, 'commission not measured yet: spread only');
+  assert.equal(tradeCost(eur, 0), null);
+});
+
+test('the account learns the commission from its own fills and refuses trades the costs would eat', async () => {
+  const { fund, live, sync, mt5 } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // training: every desk on
+  assert.equal(live.arm().ok, true);
+  // MT5's entry deal for a 0.5-lot gold fill: no profit, $1.25 commission → $2.50 per lot per side.
+  mt5.deals.push({ ticket: 77, position: 9, symbol: 'XAUUSD', type: 0, entry: 0, volume: 0.5, price: 3800.2, pnl: -1.25, magic: 0 });
+  sync();
+  sync(); // seen once, counted once
+  assert.deepEqual([live.state.costs.XAUUSD.perLot, live.state.costs.XAUUSD.n], [2.5, 1]);
+
+  // A gold trade with a 0.6 stop: the 0.2 spread alone is a third of the risk.
+  const amara = fund.byId.get('amara');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3799.5, target: 3801.5, reason: 'tight', symbol: 'XAUUSD' }), true);
+  await tick();
+  live.reconcile();
+  const v = live.view();
+  assert.deepEqual(v.today.reasons, [['Costs too high for the stop', 1]]);
+  assert.match(v.today.recent[0].reason, /costs would eat 0\.\d\dR before it starts \(spread 0\.\d\dR \+ commission 0\.\d\dR\), over the 0\.25R limit/);
+  assert.equal(sync().filter((c) => c[0] === 'open').length, 0);
+
+  // A normal stop goes, and the entry alert says what it costs.
+  const alerts = [];
+  live.on('alert', (a) => alerts.push(a));
+  amara.closeTrade('XAUUSD', 'test');
+  amara.cooldownBars = 0;
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'room', symbol: 'XAUUSD' }), true);
+  await tick();
+  live.reconcile();
+  const open = sync().find((c) => c[0] === 'open');
+  assert.ok(open, 'sent to MT5');
+  const link = [...live.links.values()].find((l) => l.state === 'pending');
+  assert.ok(link.costR < 0.05);
+  mt5.acks.push({ id: open[1], ok: true, ticket: 9100, price: 3800.2, volume: Number(open[4]) });
+  mt5.positions.push({ ticket: 9100, symbol: 'XAUUSD', side: 'BUY', volume: Number(open[4]), open: 3800.2, sl: 3790, tp: 0, profit: 0, magic: Number(open[7]), comment: open[8] });
+  sync();
+  assert.match(alerts.find((a) => a.kind === 'trade').text, /Costs 0\.0\dR \(spread 0\.0\dR \+ commission 0\.0\dR\)/);
+});
+
+test('risk limits that hold while training: no flipping, a desk loss limit, and capital that follows results', () => {
+  const { fund, live, sync } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  assert.equal(live.arm().ok, true);
+  const amara = fund.byId.get('amara');
+  const lucas = fund.byId.get('lucas');
+  const closed = (key, o) => live.links.set(key, { key, login: '555', state: 'closed', ticket: 1, closedDay: '2026.09.29', openedDay: '2026.09.29', createdAt: Date.now(), ...o });
+  const long = { symbol: 'XAUUSD', qty: 1 };
+  const short = { symbol: 'XAUUSD', qty: -1 };
+  assert.equal(live.brain.allow(amara, long, {}).ok, true);
+
+  // The account just lost on a short gold: no long gold for 30 minutes, from any desk.
+  closed('s1', { agentId: 'lucas', floorSymbol: 'XAUUSD', side: 'SELL', pnl: -40, risk: 50, closedAt: Date.now() - 10 * 60_000 });
+  assert.match(live.brain.allow(amara, long, {}).reason, /just lost on a short XAUUSD \(10 min ago\): no flipping to the other side within 30 minutes/);
+  assert.equal(live.brain.allow(amara, short, {}).ok, true, 'the same side is fine');
+  assert.equal(live.brain.allow(amara, long, { tag: 'TV' }).ok, false, 'your own alerts too: it is a risk rule');
+  live.links.get('s1').closedAt = Date.now() - 31 * 60_000;
+  assert.equal(live.brain.allow(amara, long, {}).ok, true, 'after 30 minutes it may');
+
+  // Lucas has lost 2× his full risk ($250 on $100,000 at 0.25%) today: off the account until tomorrow.
+  closed('l1', { agentId: 'lucas', floorSymbol: 'USOIL', side: 'BUY', pnl: -260, risk: 250, closedAt: Date.now() - 3 * 3_600_000 });
+  closed('l2', { agentId: 'lucas', floorSymbol: 'USOIL', side: 'BUY', pnl: -250, risk: 250, closedAt: Date.now() - 3 * 3_600_000 });
+  assert.match(live.brain.allow(amara, long, {}).reason, /3 losses in a row on the account: a 2-hour cool-off/, 'three losers in a row: the whole account cools off');
+  closed('w1', { agentId: 'priya', floorSymbol: 'EURUSD', side: 'BUY', pnl: 30, risk: 50, closedAt: Date.now() - 60_000 });
+  const v = live.brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {});
+  assert.match(v.reason, /desk loss limit: -\$550 on the account today, 2× its full risk of \$250\. Off the account until tomorrow/);
+  assert.equal(live.brain.deskStatus(lucas).label, 'Desk limit');
+  assert.equal(live.brain.allow(amara, long, {}).ok, true, 'other desks trade on');
+  assert.equal(live.brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, { tag: 'TV' }).ok, true, 'your own alerts through his desk are your call');
+
+  // Amara's last 8 account trades lost 0.2R each after costs: half size until she earns it back.
+  const before = live.brain.allow(amara, long, {}).riskMult;
+  for (let i = 0; i < 8; i++) closed(`a${i}`, { agentId: 'amara', floorSymbol: 'XAUUSD', side: 'BUY', pnl: -10, risk: 50, closedAt: Date.now() - (5 - i * 0.1) * 3_600_000, closedDay: '2026.09.28' });
+  const after = live.brain.allow(amara, long, {});
+  assert.ok(Math.abs(after.riskMult - before * 0.5) < 1e-9, `${after.riskMult} = half of ${before}`);
+  assert.ok(after.reasons.some((r) => /Amara's last 8 account trades made −0\.20R each after costs: half size until it earns it back/.test(r)));
+  assert.equal(live.brain.deskStatus(amara).label, 'Training · half size');
+  // Two good trades turn the record positive again.
+  closed('a8', { agentId: 'amara', floorSymbol: 'XAUUSD', side: 'BUY', pnl: 120, risk: 50, closedAt: Date.now() - 3_600_000, closedDay: '2026.09.28' });
+  assert.equal(live.brain.allocation(amara).mult, 1);
+  assert.ok(live.view().plan.rules.some((r) => /Capital follows results/.test(r.text)));
 });

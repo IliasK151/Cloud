@@ -277,3 +277,28 @@ test('with the committee on, a simulated session runs and every desk trade has a
     assert.match(t.thesis, /Why:/);
   }
 });
+
+test('volatility is judged against the same time of day on earlier days, so a normal New York open isn\'t "extreme"', async () => {
+  const { volPercentile, volText } = await import('../server/brain/market.js');
+  // 4 days of 1-minute bars: quiet overnight, three times as busy 13:30–16:00 UTC (the New York open).
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const bars = [];
+  let p = 100;
+  const t0 = Date.UTC(2026, 8, 28) / 1000;
+  for (let t = t0; t <= t0 + 3 * 86_400 + 14.5 * 3600; t += 60) {
+    const h = (t % 86_400) / 3600;
+    const r = (h >= 13.5 && h < 16 ? 3 : 1) * (0.6 + rnd() * 0.8);
+    const o = p;
+    p += (rnd() - 0.5) * r * 0.6;
+    bars.push({ time: t, open: o, high: Math.max(o, p) + r / 2, low: Math.min(o, p) - r / 2, close: p });
+  }
+  const v = volPercentile(bars);
+  assert.equal(v.basis, 'time of day');
+  assert.ok(v.pct < 0.8, `an ordinary New York open: ${v.pct}`);
+  // Against only the last 12 hours (the old way), the same moment looked extreme.
+  const old = volPercentile(bars.slice(-700));
+  assert.equal(old.basis, 'recent');
+  assert.ok(old.pct >= 0.93, `${old.pct}`);
+  assert.equal(volText({ volPct: 0.96, volBasis: 'time of day' }), '96th percentile for this time of day');
+});

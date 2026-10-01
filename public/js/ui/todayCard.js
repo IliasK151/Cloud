@@ -77,6 +77,10 @@ const MEANING = {
   'TradingView test alert': 'Test alerts never trade the account.',
   'No real prices': 'Only real prices trade real money.',
   'FTMO Best Day rule': 'FTMO 1-Step: no single day may be more than half the profit, so the desks call it a day at half the target\'s profit.',
+  'Cool-off after a losing streak': 'After 3 losses in a row the account pauses for 2 hours. The desks keep trading on paper, so they keep learning.',
+  'Desk loss limit': 'A desk that has lost twice its full risk on the account today is off it until tomorrow, like a trader\'s loss limit at a bank.',
+  'No flipping right after a loss': 'After a losing trade on a market, nothing the other way on it for 30 minutes: buying right after a losing sell is how a choppy market takes both sides.',
+  'Costs too high for the stop': 'The spread and commission would eat more than a quarter of the trade\'s risk before it starts. The stop is too tight for that market\'s costs.',
   'FTMO order-action limit': 'FTMO allows 2,000 order actions a day; the floor stops new trades at 1,000, far below it.',
 };
 

@@ -15,6 +15,10 @@ const EVENTS = 60;
 // Why a trade stayed on paper, grouped the way the boss thinks about it.
 const CATEGORIES = [
   [/Best Day rule/i, 'FTMO Best Day rule'],
+  [/cool-off/i, 'Cool-off after a losing streak'],
+  [/desk loss limit/i, 'Desk loss limit'],
+  [/no flipping/i, 'No flipping right after a loss'],
+  [/costs would eat/i, 'Costs too high for the stop'],
   [/order actions/i, 'FTMO order-action limit'],
   [/committee grade/i, 'Committee grade too low'],
   [/correlated group/i, 'Correlated position already open'],

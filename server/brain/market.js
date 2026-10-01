@@ -39,6 +39,33 @@ function structureOf(bars) {
   return { value: hh ? 0.3 : -0.3, word: 'mixed', text: `structure is mixed (${hh ? 'higher highs, lower lows' : 'lower highs, higher lows'})` };
 }
 
+// Where the current 5-minute ATR sits among 5-minute ATRs at the same time of day (±1 hour)
+// on earlier days, when there's history for it; otherwise over the last ~17 hours.
+const DAY = 86_400;
+export function volPercentile(bars) {
+  const b5 = resample(bars.slice(-6000), 5);
+  const a = atr(b5, 14);
+  let i = a.length - 1;
+  while (i >= 0 && !fin(a[i])) i--;
+  if (i < 0) return { pct: 0.5, basis: 'recent', n: 0 };
+  const cur = a[i];
+  const lastT = b5[i].time;
+  const tod = (t) => ((t % DAY) + DAY) % DAY;
+  const now = tod(lastT);
+  const same = [];
+  for (let j = 0; j < i; j++) {
+    if (!fin(a[j]) || lastT - b5[j].time < 12 * 3600) continue; // earlier days only
+    const d = Math.abs(tod(b5[j].time) - now);
+    if (Math.min(d, DAY - d) <= 3600) same.push(a[j]);
+  }
+  if (same.length >= 24) return { pct: same.filter((x) => x < cur).length / same.length, basis: 'time of day', n: same.length };
+  const recent = a.slice(0, i).filter(fin).slice(-200);
+  return { pct: recent.length > 20 ? recent.filter((x) => x < cur).length / recent.length : 0.5, basis: 'recent', n: recent.length };
+}
+
+// "96th percentile for this time of day" / "96th percentile"
+export const volText = (r) => `${Math.round(r.volPct * 100)}th percentile${r.volBasis === 'time of day' ? ' for this time of day' : ''}`;
+
 function uniqLevels(levels, price, tol) {
   const out = [];
   for (const l of levels.filter((x) => fin(x.price)).sort((a, b) => Math.abs(a.price - price) - Math.abs(b.price - price))) {
@@ -97,11 +124,14 @@ export class MarketBrain {
     const vsd = Math.max(sd[sd.length - 1] || 0, (atr1 || 0) * 1.5);
     const z = vsd > 0 ? (price - vw) / vsd : 0;
 
-    // Volatility regime: where 5-minute ATR sits in its own recent range.
+    // Volatility regime: where 5-minute ATR sits against the same time of day on earlier days.
+    // Markets are always busier at the London and New York opens than overnight, so a plain
+    // "last 17 hours" range calls every New York open extreme. With too little history for
+    // that, it falls back to the recent range.
     const a5 = atr(b5, 14).filter(fin);
     const cur5 = a5[a5.length - 1];
-    const sorted = a5.slice(-200).sort((x, y) => x - y);
-    const volPct = sorted.length > 20 ? sorted.filter((x) => x < cur5).length / sorted.length : 0.5;
+    const vol = volPercentile(bars);
+    const volPct = vol.pct;
 
     // Levels that matter.
     const dayStartSec = Math.floor(this.session.dayStart(now) / 1000);
@@ -134,7 +164,7 @@ export class MarketBrain {
     const bias = clamp(0.3 * htf.value + 0.25 * mid.value + 0.2 * structure.value + 0.15 * momentum.value + 0.1 * clamp(z / 1.5));
 
     const out = {
-      symbol, time: lastT, feedTime: liveT, price, atr1, atr5: cur5, z, vwap: vw, volPct, regime,
+      symbol, time: lastT, feedTime: liveT, price, atr1, atr5: cur5, z, vwap: vw, volPct, volBasis: vol.basis, regime,
       htf, mid, structure, momentum, support: support.slice(0, 4), resistance: resistance.slice(0, 4),
       news: next ? { label: eventLabel(next.event), impact: next.impact, minutes: Math.round((next.event.time - now) / 60_000) } : null,
       bias,
@@ -186,9 +216,9 @@ export class MarketBrain {
     else if (roomR >= 1.2) say('room', 0.1, `${roomR.toFixed(1)}R of room to the ${ahead.label} at ${fmt(ahead.price)}`);
     else say('room', roomR >= 0.8 ? -0.5 : -1, `the ${ahead.label} at ${fmt(ahead.price)} is only ${roomR.toFixed(1)}R away`);
 
-    if (r.volPct >= 0.93) say('volatility', -Math.min(1, (r.volPct - 0.85) * 6), `volatility is extreme (${Math.round(r.volPct * 100)}th percentile)`);
+    if (r.volPct >= 0.93) say('volatility', -Math.min(1, (r.volPct - 0.85) * 6), `volatility is extreme (${volText(r)})`);
     else if (r.volPct <= 0.07) say('volatility', -0.3, 'the market is unusually quiet, moves may not follow through');
-    else say('volatility', 0.1, `volatility is normal (${Math.round(r.volPct * 100)}th percentile)`);
+    else say('volatility', 0.1, `volatility is normal (${volText(r)})`);
 
     if (r.news && r.news.minutes <= (r.news.impact === 'high' ? 45 : 20)) say('news', r.news.impact === 'high' ? -0.8 : -0.35, `${r.news.label} is due in ${r.news.minutes} minutes`);
     else say('news', 0.05, 'no big news due soon');

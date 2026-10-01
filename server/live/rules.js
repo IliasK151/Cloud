@@ -188,6 +188,24 @@ export function lotsForRisk(riskMoney, stopDistance, spec) {
   return lots >= (spec.volMin || step) - 1e-9 ? lots : 0;
 }
 
+// What a trade costs before it can make a cent, in R (multiples of its risk): the spread to
+// get in and out, and the broker's commission both ways. The same at any size. A desk that
+// risks 1R to make 1.5R and pays 0.3R in costs has given away most of its edge before it
+// starts, so the account refuses trades whose costs are more than COST_LIMIT_R.
+export const COST_LIMIT_R = 0.25;
+export function tradeCost(spec, stopDistance, commissionPerLot = null) {
+  const tickSize = spec?.tickSize || spec?.point;
+  const tickValue = spec?.tickValueLoss || spec?.tickValue;
+  if (!(stopDistance > 0) || !(tickSize > 0) || !(tickValue > 0)) return null;
+  const lossPerLot = (stopDistance / tickSize) * tickValue;
+  const spread = Number.isFinite(spec.ask) && Number.isFinite(spec.bid) ? Math.max(0, spec.ask - spec.bid) : 0;
+  const spreadR = spread / stopDistance;
+  // commissionPerLot is per side, as MT5 charges it on the entry deal.
+  const commissionR = Number.isFinite(commissionPerLot) ? (2 * commissionPerLot) / lossPerLot : 0;
+  const r2 = (x) => Math.round(x * 100) / 100;
+  return { spreadR: r2(spreadR), commissionR: r2(commissionR), totalR: r2(spreadR + commissionR), commissionKnown: Number.isFinite(commissionPerLot) };
+}
+
 // Money at risk on a live position if its stop is hit (0 once the stop locks in profit).
 export function positionRisk(pos, spec) {
   if (!spec || !pos.sl) return pos.sl ? 0 : Infinity;

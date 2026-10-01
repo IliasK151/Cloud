@@ -261,13 +261,14 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
   - real prices only;
   - a stop-loss on every order;
   - no new trades in a news blackout;
-  - FTMO's loss guard: it closes everything at 80% of a limit, and no trade goes in whose stop, together with every open and in-flight stop, could breach it.
+  - FTMO's loss guard: it closes everything at 80% of a limit, and no trade goes in whose stop, together with every open and in-flight stop, could breach it;
+  - the risk limits (below): a 2-hour cool-off after 3 losses in a row instead of the rest of the day, each desk's loss limit, no flipping, the cost check and capital following results.
 
   Sizes still follow the committee's grade: A full, B 60%, C 25% of the risk per trade. Below the broker's minimum lot, the minimum is used if it still risks no more than your risk per trade. They still halve after a −0.75% day or two losses in a row, and shrink in drawdown. Up to 8 positions can be open at once (the EA's own cap; raise *Max floor positions* in the EA's inputs for more). Kenji's pairs trades and Isabella's market making can't be copied onto one account, so those two stay paper. Switching training on puts every other desk on the account. It's for the Free Trial only: on a paid challenge or a funded account the switch isn't there and the full plan applies. Switch it off on the FTMO or Brain tab to go back to the plan below.
 - **Every rule that can hold trades back has its own switch** on the Brain and FTMO tabs, for when you want to let the desks run and watch the performance:
   - **Daily stop:** when it's off, desks keep trading after −1.5%. Risk still halves.
   - **Trade cap:** when it's off, there's no daily limit on trades.
-  - **Losing-streak stop:** when it's off, desks keep trading after 3 losses in a row. Risk still halves after 2.
+  - **Losing-streak stop:** when it's off, desks keep trading after 3 losses in a row. Risk still halves after 2. While training it's the switch for the 2-hour cool-off.
   - **Proven desks only:** when it's off, unproven desks send their committee-approved A and B-grade trades to the account at half risk.
 
   FTMO's own loss guard (80% of each limit) always stays on.
@@ -281,6 +282,19 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
 - **One position per correlated group.** NAS100 and SPX500 are one bet, EURUSD, GBPUSD and USDJPY are one FX bet, and so are the three coins.
 - **Near the target, smaller risk**, so one loss can't undo the progress. **Funded accounts trade 20% lighter** to protect the payouts.
 - The FTMO rule guard, news blackouts and stop-losses on every order still apply underneath.
+
+### Run like an institutional trading desk
+
+Bank trading floors and multi-manager funds don't rely on a trader's judgement alone. Risk limits, costs and capital allocation are set from outside the trade. These are well-known industry practices, not any one bank's internal playbook. The floor runs them on the account, during training too. None of them stops the paper trading the desks learn from.
+
+- **Transaction costs come first.** Before a desk's trade goes to MT5, the floor works out what it costs in R: the spread from MT5's live quote, plus the broker's commission both ways. It learns the commission from the account's own fills: MT5 books it on the entry deal, so the floor reads it there, per symbol, and remembers it. A trade whose costs would eat more than **0.25R** of its risk doesn't go, because its stop is too tight for that market. On FTMO, short crypto and FX scalps are where this bites. Every entry alert on your phone says what the trade costs. Your own TradingView alerts are your call and aren't held back by it.
+- **A cool-off after a losing streak.** While training, 3 losses in a row on the account pause it for 2 hours, instead of the plan's stop for the rest of the day. The *Stop after 3 losses in a row* switch turns it off.
+- **Each desk has a daily loss limit**, like a trader at a bank: a desk that has lost twice its full risk per trade on the account today ($100 at 0.5% of $10,000) is off the account until tomorrow. The other desks trade on.
+- **No flipping.** After the account loses on one side of a market, nothing the other way on that market for 30 minutes, from any desk. Selling oil, getting stopped out, then buying it and getting stopped again is how a choppy market takes both sides.
+- **Capital follows results.** A desk whose last 8 to 12 trades on the account lost money after costs, measured on what MT5 actually paid, trades at half size until its record turns positive again. The desk list says *half size* and why.
+- **Volatility is judged against the same time of day.** Markets are always busier at the London and New York opens than overnight. The committee used to compare volatility with the last 17 hours, which made every New York open look "extreme" and vetoed good trades. Now it compares with the same hour (±1 hour) on earlier days, and falls back to the recent range only without that history. A real spike, like news, still reads as extreme.
+
+The FTMO tab's *Today on the account* card counts each of these when it holds a trade back and says what it means.
 
 The Brain tab shows the account's phase and goal, its status (NORMAL, CAUTIOUS or STOPPED FOR TODAY), the risk per trade right now and why, how many clean 2R winners it is from the target, trading days (FTMO asks for at least 4) and every rule. All of it is editable under **Edit setup → The account plan** in the FTMO tab.
 

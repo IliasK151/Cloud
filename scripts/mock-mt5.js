@@ -98,12 +98,20 @@ const pnlOf = (p) => {
   return ((p.side === 'BUY' ? exit - p.open : p.open - exit) / s.tickSize) * s.tickValue * p.volume;
 };
 
+// Commission per lot per side, roughly as a prop broker charges it: FX and gold a few
+// dollars a lot, crypto a share of the notional, indices and oil none.
+function commissionPerLot(symbol, price) {
+  if (/^(BTC|ETH|SOL)/.test(symbol)) return price * 0.000325;
+  if (/^(EUR|GBP|USD|XAU)/.test(symbol)) return 2.5;
+  return 0;
+}
+
 function closePosition(p, volume, reason) {
   const s = SPECS[p.symbol];
   const part = Math.min(volume, p.volume);
   const q = quote(p.symbol);
   const exit = p.side === 'BUY' ? q.bid : q.ask;
-  const pnl = ((p.side === 'BUY' ? exit - p.open : p.open - exit) / s.tickSize) * s.tickValue * part;
+  const pnl = ((p.side === 'BUY' ? exit - p.open : p.open - exit) / s.tickSize) * s.tickValue * part - commissionPerLot(p.symbol, exit) * part;
   balance += pnl;
   closedToday += pnl;
   deals.push({ ticket: ++ticketSeq, position: p.ticket, symbol: p.symbol, type: p.side === 'BUY' ? 1 : 0, entry: 1, volume: part, price: exit, pnl: +pnl.toFixed(2), magic: p.magic, comment: reason, time: nowSec() });
@@ -152,6 +160,11 @@ function handle(text) {
         const tp = Number(tpDist) > 0 ? +(side === 'BUY' ? open + Number(tpDist) : open - Number(tpDist)).toFixed(s.digits) : 0;
         const ticket = ++ticketSeq;
         positions.set(ticket, { ticket, symbol, side, volume: Number(vol), open, sl, tp, magic: Number(magic), comment, time: nowSec() });
+        // The entry deal: no profit of its own, just the commission.
+        const fee = +(commissionPerLot(symbol, open) * Number(vol)).toFixed(2);
+        balance -= fee;
+        closedToday -= fee;
+        deals.push({ ticket: ++ticketSeq, position: ticket, symbol, type: side === 'BUY' ? 0 : 1, entry: 0, volume: Number(vol), price: open, pnl: -fee, magic: Number(magic), comment, time: nowSec() });
         console.log(`  [mock] OPEN ${side} ${vol} ${symbol} @ ${open} sl ${sl} tp ${tp || '-'} (${comment})`);
         ack(id, true, { ticket, price: open, volume: Number(vol) });
       } else if (cmd === 'close') {

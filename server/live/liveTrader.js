@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
-import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, PROGRAMS, normalizeProfile, guardMetrics, lotsForRisk, positionRisk, trainingOn, programRules, strictUntilKnown, bestDayCheck } from './rules.js';
+import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, PROGRAMS, COST_LIMIT_R, normalizeProfile, guardMetrics, lotsForRisk, positionRisk, tradeCost, trainingOn, programRules, strictUntilKnown, bestDayCheck } from './rules.js';
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS, SYMBOLS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
@@ -127,7 +127,7 @@ export class LiveTrader extends EventEmitter {
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       const links = [...this.links.values()].slice(-200).map(({ previousSession, ...l }) => l);
-      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, peaks: this.state.peaks || {}, actions: this.bridge.actions, links };
+      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, peaks: this.state.peaks || {}, costs: this.state.costs || {}, actions: this.bridge.actions, links };
       try {
         fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(data, null, 1));
         fs.renameSync(`${this.file}.tmp`, this.file);
@@ -521,6 +521,7 @@ export class LiveTrader extends EventEmitter {
     // trigger, a pending entry, a paper position to follow); slower otherwise, to save battery.
     this.bridge.urgent = !!p && this.armed && this.fund.agents.some((a) => p.desks?.[a.id] && this.eligible(a.id)
       && (a.setup?.armed || a.pending || a.book.positions.size));
+    this.#learnCosts();
     if (!p) return this.emit('change');
 
     // Market data from MT5
@@ -664,6 +665,30 @@ export class LiveTrader extends EventEmitter {
       this.state.peaks[this.login] = Math.round(peak * 100) / 100;
       this.save();
     }
+  }
+
+  // The broker's commission, measured from the account's own fills: MT5 charges it on the
+  // entry deal, which has no profit of its own, so that deal's result per lot is the
+  // commission per side. Kept per symbol, smoothed, remembered across restarts.
+  #learnCosts() {
+    this.seenDeals ||= new Set();
+    let changed = false;
+    for (const d of this.bridge.deals) {
+      if (d.entry !== 0 || !(d.volume > 0) || !Number.isFinite(d.pnl) || this.seenDeals.has(d.ticket)) continue;
+      this.seenDeals.add(d.ticket);
+      const perLot = Math.max(0, -d.pnl) / d.volume;
+      this.state.costs ||= {};
+      const prev = this.state.costs[d.symbol];
+      this.state.costs[d.symbol] = { perLot: Math.round((prev ? prev.perLot * 0.7 + perLot * 0.3 : perLot) * 10000) / 10000, n: (prev?.n || 0) + 1, at: Date.now() };
+      changed = true;
+    }
+    if (changed) this.save();
+  }
+
+  // What a trade on this broker symbol would cost, in R, with this stop.
+  costOf(brokerSymbol, stopDistance) {
+    const spec = this.bridge.quotes[brokerSymbol];
+    return tradeCost(spec, stopDistance, this.state.costs?.[brokerSymbol]?.perLot ?? null);
   }
 
   // FTMO 1-Step's Best Day rule, today included: null when the account's program doesn't have it.
@@ -883,6 +908,8 @@ export class LiveTrader extends EventEmitter {
       `${buy ? '🟩' : '🟥'} ${who} ${buy ? 'bought' : 'sold'} ${link.volume0} ${link.brokerSymbol} @ ${fmt(price)}${link.grade ? ` · grade ${link.grade}` : ''}`,
       `Stop ${fmt(stop)} (−${fmtUsd(risk, { cents: true }).replace('-', '')})${target != null ? ` · target ${fmt(target)} (+${fmtUsd(risk * rr, { cents: true })}, ${rr.toFixed(1)}R)` : ' · trailing exit'}`,
     ];
+    const c = this.costOf(link.brokerSymbol, link.stopDistance);
+    if (c) lines.push(`Costs ${c.totalR.toFixed(2)}R (spread ${c.spreadR.toFixed(2)}R + commission ${c.commissionKnown ? `${c.commissionR.toFixed(2)}R` : 'not measured yet'})`);
     const why = entryReasons(plan, this.fund.committee, (id) => this.fund.byId.get(id)?.profile.name.split(' ')[0] ?? id);
     if (why.length) lines.push('', ...why);
     const tv = SYMBOLS[link.floorSymbol]?.tv;
@@ -943,6 +970,12 @@ export class LiveTrader extends EventEmitter {
     if (!plan || !(plan.risk > 0)) return this.#skip(agent, pos, key, 'no stop-loss on the desk trade');
     if (plan.testAlert) return this.#skip(agent, pos, key, 'it was a test alert from the TradingView tab (tests never trade the account)');
     if (!spec) return this.#skip(agent, pos, key, `no MT5 price for ${brokerSymbol} yet`);
+    // Transaction costs: a trade that gives most of its edge to the spread and commission
+    // before it starts doesn't go (your own TradingView alerts are your call).
+    const cost = this.costOf(brokerSymbol, plan.risk);
+    if (cost && cost.totalR > COST_LIMIT_R && plan.tag !== 'TV') {
+      return this.#skip(agent, pos, key, `costs would eat ${cost.totalR.toFixed(2)}R before it starts (spread ${cost.spreadR.toFixed(2)}R + commission ${cost.commissionR.toFixed(2)}R), over the ${COST_LIMIT_R}R limit: the stop is too tight for ${brokerSymbol}'s costs`);
+    }
     if (!acc.algoAllowed || !acc.tradeAllowed) return this.#skip(agent, pos, key, 'Algo Trading is switched off in MT5');
     const actions = this.bridge.actionsToday();
     if (actions >= ACTION_LIMITS.newTrades) return this.#skip(agent, pos, key, `${actions} order actions sent to MT5 today; new trades stop at ${ACTION_LIMITS.newTrades}, far below FTMO's ${ACTION_LIMITS.ftmo} a day`);
@@ -993,7 +1026,7 @@ export class LiveTrader extends EventEmitter {
       comment, magic: this.magicFor(agent.id), paperEntry: plan.entry, paperQty0: Math.abs(pos.qty),
       stopDistance: plan.risk, volume0: lots, volumeNow: lots, liveEntry: side === 'BUY' ? spec.ask : spec.bid,
       risk: actualRisk, createdAt: Date.now(), reason: plan.reason, openedDay: this.bridge.serverDay,
-      thesis: plan.thesis ?? null, grade: plan.grade ?? null, riskMult: verdict.riskMult,
+      thesis: plan.thesis ?? null, grade: plan.grade ?? null, riskMult: verdict.riskMult, costR: cost?.totalR ?? null,
     };
     this.links.set(key, link);
     link.cmdId = this.bridge.open({

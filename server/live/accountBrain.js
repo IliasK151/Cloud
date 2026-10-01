@@ -1,5 +1,5 @@
 import { fmtUsd } from '../util/format.js';
-import { trainingOn, programRules } from './rules.js';
+import { trainingOn, programRules, COST_LIMIT_R } from './rules.js';
 
 // The account brain: the plan a professional prop trader follows to pass a challenge and
 // then keep getting paid. The paper desks can experiment; the account only gets the best
@@ -16,12 +16,25 @@ import { trainingOn, programRules } from './rules.js';
 //   - the boss's own TradingView alerts are the boss's decision: they skip the proven-desk
 //     and grade gates (the committee can still veto them) but every risk rule above applies;
 //   - near the profit target the risk shrinks so one loss can't undo the progress, and on a
-//     funded account risk is lighter to protect the payouts.
+//     funded account risk is lighter to protect the payouts;
+//   - risk limits that hold even while training (LIMITS below): a cool-off after a losing
+//     streak, each desk's own daily loss limit, no flipping a market right after a loss, and
+//     capital that follows each desk's record on the account after costs.
 
 export const GROUPS = {
   NAS100: 'US indices', SPX500: 'US indices',
   BTCUSD: 'Crypto', ETHUSD: 'Crypto', SOLUSD: 'Crypto',
   EURUSD: 'FX', GBPUSD: 'FX', USDJPY: 'FX', XAUUSD: 'Gold', USOIL: 'Oil',
+};
+
+// Risk limits, the way a bank's trading floor runs them: each holds whether or not the desks
+// are training on FTMO, and none of them stops the paper trading the desks learn from.
+export const LIMITS = {
+  cooloffMs: 2 * 3_600_000, // training: after the losing streak, the account pauses this long
+  noFlipMs: 30 * 60_000, // after a losing trade on a market, nothing the other way on it
+  deskLossR: 2, // a desk that loses this many full risks on the account in a day is off it
+  allocMin: 8, // account trades before a desk's own record sizes it
+  allocWindow: 12, // its most recent account trades
 };
 
 const GRADE_RANK = { A: 3, B: 2, C: 1 };
@@ -95,6 +108,14 @@ export class AccountBrain {
       reasons.push(`${streak} losses in a row: half risk until the next winner`);
     }
     if (holds && p.tradeCapOn !== false && tradesToday >= p.maxTradesPerDay) blocked = blocked || `${tradesToday} trades today, the plan's daily cap of ${p.maxTradesPerDay} (the trade cap can be switched off below)`;
+    // Training keeps a brake on losing streaks: a cool-off on the account instead of the rest
+    // of the day. The desks keep trading on paper meanwhile, so they keep learning.
+    let cooloff = null;
+    if (training && p.streakStopOn !== false && streak >= p.streakStop && lastToday && lastClosed.closedAt) {
+      const until = lastClosed.closedAt + LIMITS.cooloffMs;
+      const left = until - Date.now();
+      if (left > 0) cooloff = { until, minutes: Math.ceil(left / 60_000), text: `${streak} losses in a row on the account: a ${LIMITS.cooloffMs / 3_600_000}-hour cool-off, ${Math.ceil(left / 60_000)} minutes to go (the desks keep trading on paper meanwhile)` };
+    }
 
     // FTMO's own rules stop the day even while training: 1-Step's Best Day rule. A day that
     // makes more than half the target could be "too good" at the finish line, so the desks call
@@ -134,7 +155,18 @@ export class AccountBrain {
       ? 'Payouts: steady, small gains. Protect the account first'
       : `Pass: reach +${p.targetPct}% (${fmtUsd(m.targetEquity - size)}) without touching the ${p.dailyLossPct}% daily or ${maxText}${rules.bestDayPct ? `, no day over ${rules.bestDayPct}% of the profit` : ''}`;
     const winsToTarget = remaining != null && remaining > 0 && riskMoney > 0 ? Math.ceil(remaining / (riskMoney * 2)) : null;
-    const status = lt.halt ? 'HALTED' : blocked || ruleStop ? 'STOPPED FOR TODAY' : mult < 0.99 ? 'CAUTIOUS' : 'NORMAL';
+    const status = lt.halt ? 'HALTED' : blocked || ruleStop ? 'STOPPED FOR TODAY' : cooloff ? 'COOLING OFF' : mult < 0.99 ? 'CAUTIOUS' : 'NORMAL';
+    // The risk limits, in the plan's list.
+    const full = acc.balance * (base / 100);
+    const limitRules = [
+      training && (p.streakStopOn !== false
+        ? { text: `${p.streakStop} losses in a row: a ${LIMITS.cooloffMs / 3_600_000}-hour cool-off on the account, the desks keep learning on paper${cooloff ? ` (${cooloff.minutes} minutes to go)` : ` (streak ${streak})`}`, ok: !cooloff }
+        : { text: `Cool-off after ${p.streakStop} losses in a row is OFF (the losing-streak switch)`, ok: false }),
+      { text: `Desk loss limit: a desk that loses ${LIMITS.deskLossR}× its full risk (${fmtUsd(LIMITS.deskLossR * full)}) on the account in a day is off it until tomorrow`, ok: true },
+      { text: `No flipping: after a losing trade on a market, nothing the other way on it for ${LIMITS.noFlipMs / 60_000} minutes`, ok: true },
+      { text: `Costs: no trade whose spread and commission would eat more than ${COST_LIMIT_R}R of its risk`, ok: true },
+      { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
+    ].filter(Boolean);
     // FTMO's rules for this account, in the plan's list (any program).
     const ftmoRules = [
       !rules.program && { text: 'Which FTMO program is this account, 2-Step or 1-Step? Not set yet, so the guard follows the stricter 1-Step limits (3% daily, trailing max loss) until you choose in the FTMO tab', ok: false },
@@ -145,7 +177,7 @@ export class AccountBrain {
     ].filter(Boolean);
     const minGrade = p.minGrade;
     return {
-      phase, goal, status, blocked: blocked || ruleStop, ruleStop, reasons,
+      phase, goal, status, blocked: blocked || ruleStop || cooloff?.text || null, ruleStop, cooloff, reasons,
       program: rules.program, programLabel: rules.label, trailing: m.trailing, maxFloor: m.maxFloor, dailyFloor: m.dailyFloor, peakBalance: m.peakBalance,
       bestDay: best, bestDayPending,
       baseRiskPct: base, riskPct: Math.round(riskPct * 1000) / 1000, riskMoney, mult: Math.round(mult * 100) / 100,
@@ -155,12 +187,13 @@ export class AccountBrain {
       tradeCapOn: p.tradeCapOn !== false, streakStopOn: p.streakStopOn !== false, provenOnly: p.provenOnly !== false,
       training, canTrain: p.type === 'trial',
       rules: training ? [
-        { text: 'Training on FTMO: every trade the desks take goes to the account, so they learn on FTMO itself. The committee grade, proven-desk, correlation and daily-plan holds are paused', ok: false },
+        { text: 'Training on FTMO: every trade the desks take goes to the account, so they learn on FTMO itself. The committee grade, proven-desk, correlation and daily-plan holds are paused; the risk limits below stay', ok: false },
         { text: 'Real prices only: a market whose live feed is down is not traded, never simulated', ok: true },
         { text: `Risk ${riskPct.toFixed(2)}% per trade now (base ${base}%), smaller for the committee's B and C grades`, ok: mult >= 0.99 },
         { text: 'Every order carries its stop-loss', ok: true },
         { text: 'Flat before high-impact news, no trades in a blackout', ok: true },
         { text: `FTMO guard closes everything at ${p.guardPct}% of a limit, and no trade goes in that could breach it`, ok: !lt.halt },
+        ...limitRules,
         ...ftmoRules,
       ] : [
         p.provenOnly !== false
@@ -180,6 +213,7 @@ export class AccountBrain {
         { text: 'One position per correlated group', ok: true },
         { text: 'Flat before high-impact news, no trades in a blackout', ok: true },
         { text: `FTMO guard closes everything at ${p.guardPct}% of a limit`, ok: !lt.halt },
+        ...limitRules,
         ...ftmoRules,
       ],
     };
@@ -209,10 +243,21 @@ export class AccountBrain {
     if (!st) return { ok: true, riskMult: 1 };
     // The boss's own TradingView alert: not held back by the desk's paper record or grade.
     const boss = plan.tag === 'TV';
-    // FTMO's own rules hold even while training.
+    // FTMO's own rules and the risk limits hold even while training.
     if (st.ruleStop) return { ok: false, reason: st.ruleStop };
+    if (st.cooloff) return { ok: false, reason: st.cooloff.text };
+    const flip = this.#flip(pos);
+    if (flip) return { ok: false, reason: flip };
+    // The desk's own loss limit and its record on the account (your own alerts are your call).
+    let alloc = { mult: 1 };
+    if (!boss) {
+      const limit = this.deskLimit(agent);
+      if (limit) return { ok: false, reason: limit };
+      alloc = this.allocation(agent);
+    }
+    const reasons = alloc.text ? [...st.reasons, alloc.text] : st.reasons;
     // Training on FTMO: every trade goes, sized by the plan (and the desk's grade, in the live trader).
-    if (st.training) return { ok: true, riskMult: st.mult, reasons: st.reasons, boss, training: true };
+    if (st.training) return { ok: true, riskMult: st.mult * alloc.mult, reasons, boss, training: true };
     if (st.blocked) return { ok: false, reason: st.blocked };
     let probation = false;
     if (!boss) {
@@ -235,8 +280,51 @@ export class AccountBrain {
     const group = GROUPS[pos.symbol];
     const busy = this.#links().some((l) => !l.previousSession && ['pending', 'open', 'closing'].includes(l.state) && GROUPS[l.floorSymbol] === group);
     if (group && busy) return { ok: false, reason: `the account already has a ${group} position (one per correlated group)` };
-    if (probation) return { ok: true, riskMult: st.mult * 0.5, reasons: [...st.reasons, 'Unproven desk: half risk'], probation, boss };
-    return { ok: true, riskMult: st.mult, reasons: st.reasons, boss };
+    if (probation) return { ok: true, riskMult: st.mult * alloc.mult * 0.5, reasons: [...reasons, 'Unproven desk: half risk'], probation, boss };
+    return { ok: true, riskMult: st.mult * alloc.mult, reasons, boss };
+  }
+
+  // A desk's own loss limit, like a trader's at a bank: once it has lost LIMITS.deskLossR full
+  // risks on the account today, it's off the account until tomorrow.
+  deskLimit(agent) {
+    const lt = this.live;
+    const acc = lt.account;
+    const p = lt.profile;
+    if (!acc || !p) return null;
+    const day = lt.bridge.serverDay;
+    const full = acc.balance * (p.riskPerTradePct / 100);
+    const today = (l) => (l.closedDay ? l.closedDay === day : Date.now() - (l.closedAt || 0) < 12 * 3_600_000);
+    const pnl = this.#links().filter((l) => l.agentId === agent.id && l.state === 'closed' && Number.isFinite(l.pnl) && today(l)).reduce((s, l) => s + l.pnl, 0);
+    if (!(full > 0) || pnl > -LIMITS.deskLossR * full) return null;
+    return `desk loss limit: ${fmtUsd(pnl)} on the account today, ${LIMITS.deskLossR}× its full risk of ${fmtUsd(full)}. Off the account until tomorrow; it keeps trading on paper`;
+  }
+
+  // No whipsaws: after the account lost on one side of a market, nothing the other way on it
+  // for a while (selling oil, getting stopped, then buying it and getting stopped again).
+  #flip(pos) {
+    const side = pos.qty > 0 ? 'BUY' : 'SELL';
+    const now = Date.now();
+    const last = this.#links()
+      .filter((l) => l.floorSymbol === pos.symbol && l.state === 'closed' && l.pnl < 0 && l.side && l.side !== side && now - (l.closedAt || 0) < LIMITS.noFlipMs)
+      .sort((a, b) => b.closedAt - a.closedAt)[0];
+    if (!last) return null;
+    return `the account just lost on a ${last.side === 'BUY' ? 'long' : 'short'} ${pos.symbol} (${Math.max(1, Math.round((now - last.closedAt) / 60_000))} min ago): no flipping to the other side within ${LIMITS.noFlipMs / 60_000} minutes`;
+  }
+
+  // Capital follows results, as at a multi-manager fund: a desk whose recent trades on the
+  // account lost money after costs (spread, commission, slippage: what MT5 actually paid)
+  // trades at half size until its record turns positive again.
+  allocation(agent) {
+    const recent = this.#links()
+      .filter((l) => l.agentId === agent.id && l.state === 'closed' && l.risk > 0 && Number.isFinite(l.pnl))
+      .sort((a, b) => (a.closedAt || 0) - (b.closedAt || 0))
+      .slice(-LIMITS.allocWindow);
+    const n = recent.length;
+    if (n < LIMITS.allocMin) return { mult: 1, n, avgR: null };
+    const avgR = recent.reduce((s, l) => s + l.pnl, 0) / recent.reduce((s, l) => s + l.risk, 0);
+    const r = `${avgR >= 0 ? '+' : '−'}${Math.abs(avgR).toFixed(2)}R`;
+    if (avgR >= 0) return { mult: 1, n, avgR };
+    return { mult: 0.5, n, avgR, text: `${agent.profile.name.split(' ')[0]}'s last ${n} account trades made ${r} each after costs: half size until it earns it back` };
   }
 
   // Where a desk stands with the account right now, in one line the whole floor can show.
@@ -249,9 +337,14 @@ export class AccountBrain {
     if (open) return { state: 'live', label: 'LIVE', text: `Live on MT5: ${open.side} ${open.volumeNow ?? open.volume0} ${open.brokerSymbol}` };
     if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };
     if (st?.ruleStop && lt.armed) return { state: 'stopped', label: 'Stopped today', text: st.ruleStop };
+    if (st?.cooloff && lt.armed) return { state: 'stopped', label: 'Cooling off', text: st.cooloff.text };
+    const limit = this.deskLimit(agent);
+    if (limit && lt.armed) return { state: 'stopped', label: 'Desk limit', text: limit };
+    const alloc = this.allocation(agent);
+    const half = alloc.text ? ` ${alloc.text}.` : '';
     if (st?.training) {
       if (!lt.armed) return { state: 'ready', label: 'Training · not armed', text: 'Every trade it takes will go to FTMO (training on FTMO). Arm live trading to start.' };
-      return { state: 'training', label: 'Training on FTMO', text: 'Every trade it takes goes to your FTMO account (training on FTMO).' };
+      return { state: 'training', label: alloc.text ? 'Training · half size' : 'Training on FTMO', text: `Every trade it takes goes to your FTMO account (training on FTMO).${half}` };
     }
     const c = this.clearance(agent);
     const alerts = agent.profile.tvDesk ? ' Your TradingView alerts through this desk still go to the account.' : '';
@@ -263,6 +356,6 @@ export class AccountBrain {
     if (!c.ok) return { state: 'proving', label: 'Proving on paper', text: `Paper only for now: ${c.text}.${alerts}` };
     if (!lt.armed) return { state: 'ready', label: 'Cleared · not armed', text: 'Cleared for the account. Arm live trading in the FTMO tab to start.' };
     if (st?.blocked) return { state: 'stopped', label: 'Stopped today', text: st.blocked };
-    return { state: 'cleared', label: 'Cleared', text: `Cleared: its ${st?.minGrade === 'B' ? 'A and B-grade' : 'A-grade'} trades go to MT5.` };
+    return { state: 'cleared', label: alloc.text ? 'Cleared · half size' : 'Cleared', text: `Cleared: its ${st?.minGrade === 'B' ? 'A and B-grade' : 'A-grade'} trades go to MT5.${half}` };
   }
 }

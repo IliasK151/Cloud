@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { SYMBOLS } from '../market/symbols.js';
+import { volText } from './market.js';
 import { opinion, say, thesisLine, researchFactor, styleKey, styleOf, FACTORS } from './personas.js';
 
 // The investment committee. No desk trades on its own say-so: every trade idea is put to
@@ -122,7 +123,7 @@ export class Committee extends EventEmitter {
       const v = a.rr >= 2 ? 0.5 : a.rr >= 1.5 ? 0.2 : -0.5;
       a.f.room = { value: v, text: `the scalp targets liquidity ${a.rr.toFixed(1)}R away at ${Number(a.target).toFixed(dec)}` };
     }
-    if (a.read.volPct >= 0.93) a.f.volatility = { value: 0.1, text: `volatility is high (${Math.round(a.read.volPct * 100)}th percentile): that's when liquidity runs happen` };
+    if (a.read.volPct >= 0.93) a.f.volatility = { value: 0.1, text: `volatility is high (${volText(a.read)}): that's when liquidity runs happen` };
   }
 
   #reviewers(proposer, symbol) {
@@ -139,6 +140,9 @@ export class Committee extends EventEmitter {
   // entries shortly before news averaged -0.30R, in extreme volatility -0.24R and in a
   // dead-quiet market -0.21R, against -0.05R for everything else), plus basic arithmetic.
   //
+  // "Extreme" volatility is measured against the same time of day on earlier days (see
+  // volPercentile in market.js), so the London and New York opens aren't extreme by default.
+  //
   // Liquidity scalpers are exempt from the extreme-volatility veto: a run of liquidity is a
   // volatility burst by definition, and on real history (scripts/scalp-test.js) the scalps
   // this veto would have stopped did better than the rest, not worse.
@@ -146,7 +150,7 @@ export class Committee extends EventEmitter {
     const out = [];
     const r = a.read;
     if (r.news && r.news.minutes <= (r.news.impact === 'high' ? 45 : 20)) out.push(`${r.news.label} is due in ${r.news.minutes} minutes`);
-    if (r.volPct >= 0.93 && styleKey(proposerId) !== 'scalper') out.push(`volatility is extreme (${Math.round(r.volPct * 100)}th percentile)`);
+    if (r.volPct >= 0.93 && styleKey(proposerId) !== 'scalper') out.push(`volatility is extreme (${volText(r)})`);
     if (r.volPct <= 0.07) out.push('the market is dead quiet, costs eat small moves');
     if (a.rr != null && a.rr < 0.9) out.push(`the target is only ${a.rr.toFixed(1)}R, less than the risk`);
     return out;
@@ -286,7 +290,7 @@ export class Committee extends EventEmitter {
       structure: { value: r.structure.value, text: r.structure.text },
       momentum: { value: r.momentum.value, text: r.momentum.text },
       vwap: { value: clamp(r.z / 2), text: `${r.z >= 0 ? '+' : ''}${r.z.toFixed(1)}σ from VWAP` },
-      volatility: { value: r.volPct, text: `volatility ${Math.round(r.volPct * 100)}th percentile`, neutral: true },
+      volatility: { value: r.volPct, text: `volatility ${volText(r)}`, neutral: true },
       news: { value: r.news && r.news.minutes <= 60 ? -1 : 0, text: r.news ? `${r.news.label} in ${r.news.minutes} min` : 'no big news due', neutral: true },
       regime: r.regime?.label || '',
       price: r.price,
