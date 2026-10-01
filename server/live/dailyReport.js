@@ -231,6 +231,14 @@ export class DailyReports {
 }
 
 // The headline numbers of a report.
+// A report's closed trades, oldest first, with each desk's first name (for the phone).
+export function closedTrades(r) {
+  return (r?.trades || [])
+    .filter((t) => t.closedAt != null && Number.isFinite(t.pnl))
+    .sort((a, b) => a.closedAt - b.closedAt)
+    .map((t) => ({ name: (r.desks?.[t.agentId]?.name || t.agentId || '').split(' ')[0], symbol: t.symbol, pnl: t.pnl, r: t.r }));
+}
+
 export function summarize(r) {
   const desks = Object.entries(r.desks || {}).map(([id, d]) => ({ id, ...d, avgR: d.countR ? round2(d.sumR / d.countR) : null }));
   const trades = desks.reduce((s, d) => s + d.trades, 0);
@@ -252,5 +260,6 @@ export function summarize(r) {
     best: ranked[0] || null,
     worst: ranked.length > 1 ? ranked[ranked.length - 1] : null,
     halted: (r.events || []).some((e) => e.kind === 'guard'),
+    list: closedTrades(r),
   };
 }

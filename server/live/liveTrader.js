@@ -7,7 +7,7 @@ import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, normalizeProfile, guardMetrics,
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
-import { DailyReports } from './dailyReport.js';
+import { DailyReports, closedTrades } from './dailyReport.js';
 import { locateExpertsFolders } from '../../scripts/install-ea.js';
 import { fmtUsd } from '../util/format.js';
 
@@ -417,7 +417,10 @@ export class LiveTrader extends EventEmitter {
         if (ack.volume) link.volume0 = link.volumeNow = ack.volume;
         this.#note(`${this.#who(link)} filled ${link.side} ${link.volume0} ${link.brokerSymbol} @ ${ack.price}`, 'live', link.agentId);
         this.reports.opened(this.reportDay(), { key: link.key, agentId: link.agentId, ...this.#deskInfo(link.agentId), symbol: link.brokerSymbol, side: link.side, volume: link.volume0, entry: link.liveEntry, risk: link.risk, grade: link.grade });
-        this.#alert('trade', `${link.side === 'BUY' ? '🟩' : '🟥'} ${this.#who(link)} ${link.side === 'BUY' ? 'bought' : 'sold'} ${link.volume0} ${link.brokerSymbol} @ ${ack.price} · risk ${fmtUsd(link.risk || 0)}${link.grade ? ` · grade ${link.grade}` : ''}`);
+        // Some brokers report a market order's fill price as 0: then the alert waits for the
+        // next sync, which has the position's real open price.
+        if (ack.price > 0) this.#fillAlert(link, ack.price);
+        else link.fillAlertPending = true;
       } else {
         link.state = 'failed';
         link.reason = ack.msg;
@@ -521,6 +524,7 @@ export class LiveTrader extends EventEmitter {
         link.liveEntry = pos.open;
         link.profit = pos.profit;
         link.missing = 0;
+        if (link.fillAlertPending && pos.open > 0) this.#fillAlert(link, pos.open);
       } else if (link.state === 'pending') {
         // MT5 never confirmed this order (and it isn't on the account): it didn't happen.
         if (Date.now() - link.createdAt > 120_000 && !this.#busy(link)) {
@@ -532,7 +536,9 @@ export class LiveTrader extends EventEmitter {
       } else {
         link.missing = (link.missing || 0) + 1;
         if (link.missing >= MISSING_SYNCS_TO_CLOSE) {
-          const pnl = this.bridge.deals.filter((d) => d.position === link.ticket && d.entry !== 0).reduce((s, d) => s + d.pnl, 0);
+          // Every deal of the position, the entry's commission included, as MT5 adds it up.
+          const pnl = Math.round(this.bridge.deals.filter((d) => d.position === link.ticket).reduce((s, d) => s + d.pnl, 0) * 100) / 100;
+          link.fillAlertPending = false; // closed before MT5 showed it open: the close alert says it all
           link.state = 'closed';
           link.closedAt = Date.now();
           link.closedDay = this.bridge.serverDay;
@@ -541,9 +547,7 @@ export class LiveTrader extends EventEmitter {
           this.#note(`${this.#who(link)} ${link.brokerSymbol} ${how}: ${fmtUsd(pnl, { sign: true })}`, 'live', link.agentId);
           this.reports.closed(this.reportDay(), { key: link.key, agentId: link.agentId, ...this.#deskInfo(link.agentId), symbol: link.brokerSymbol, side: link.side, volume: link.volume0, entry: link.liveEntry, risk: link.risk, grade: link.grade, pnl, openedAt: link.createdAt });
           const r = link.risk > 0 ? ` (${pnl >= 0 ? '+' : '−'}${Math.abs(pnl / link.risk).toFixed(1)}R)` : '';
-          const m = this.metrics();
-          const today = m ? ` · account today ${fmtUsd(this.account.equity - m.dayStartBalance, { sign: true })}` : '';
-          this.#alert('trade', `${pnl >= 0 ? '✅' : '❌'} ${this.#who(link)} closed ${link.brokerSymbol} ${fmtUsd(pnl, { sign: true })}${r} · ${link.closeRequested ? 'desk exit' : 'stop, target or manual on MT5'}${today}`);
+          this.#alert('trade', `${pnl >= 0 ? '✅' : '❌'} ${this.#who(link)} closed ${link.brokerSymbol} ${fmtUsd(pnl, { sign: true, cents: true })}${r} · ${link.closeRequested ? 'desk exit' : 'stop, target or manual on MT5'}\n\n${this.#todayTradesText()}`);
           this.save();
         }
       }
@@ -755,6 +759,19 @@ export class LiveTrader extends EventEmitter {
       recent: (r?.skipSamples || []).slice(-6).reverse(),
       byDesk,
     };
+  }
+
+  #fillAlert(link, price) {
+    link.fillAlertPending = false;
+    this.#alert('trade', `${link.side === 'BUY' ? '🟩' : '🟥'} ${this.#who(link)} ${link.side === 'BUY' ? 'bought' : 'sold'} ${link.volume0} ${link.brokerSymbol} @ ${price} · risk ${fmtUsd(link.risk || 0, { cents: true })}${link.grade ? ` · grade ${link.grade}` : ''}`);
+  }
+
+  // Today's closed trades on the account, one line each, for the phone.
+  #todayTradesText() {
+    const r = this.reports.current?.day === this.reportDay() ? this.reports.current : null;
+    const m = this.metrics();
+    const floating = m ? this.account.equity - m.dayStartBalance : null;
+    return tradesListText(closedTrades(r), { accountToday: floating });
   }
 
   #skip(agent, pos, key, reason) {
@@ -1050,6 +1067,19 @@ export class LiveTrader extends EventEmitter {
   }
 }
 
+// "Today on FTMO": every closed trade with its P&L, like MT5's history, and the total.
+export function tradesListText(list, { accountToday = null, title = 'Today on FTMO', max = 15 } = {}) {
+  if (!list.length) return `${title}: no closed trades yet.`;
+  const total = Math.round(list.reduce((s, t) => s + t.pnl, 0) * 100) / 100;
+  const wins = list.filter((t) => t.pnl > 0).length;
+  const shown = list.slice(-max);
+  const lines = [`${title} · ${list.length} closed trade${list.length === 1 ? '' : 's'}, ${wins} won:`];
+  if (list.length > shown.length) lines.push(`… ${list.length - shown.length} earlier`);
+  for (const t of shown) lines.push(`${t.pnl >= 0 ? '🟢' : '🔴'} ${t.name} ${t.symbol} ${fmtUsd(t.pnl, { sign: true, cents: true })}${t.r != null ? ` (${t.r >= 0 ? '+' : '−'}${Math.abs(t.r).toFixed(1)}R)` : ''}`);
+  lines.push(`Closed trades: ${fmtUsd(total, { sign: true, cents: true })}${accountToday != null ? ` · account today ${fmtUsd(accountToday, { sign: true, cents: true })} (with open trades)` : ''}`);
+  return lines.join('\n');
+}
+
 // The end-of-day message on the boss's phone.
 export function dailyAlertText(s) {
   const pnl = fmtUsd(s.dayPnl ?? 0, { sign: true });
@@ -1059,6 +1089,7 @@ export function dailyAlertText(s) {
   if (s.best) lines.push(`Best: ${s.best.name.split(' ')[0]} ${fmtUsd(s.best.pnl, { sign: true })}.${s.worst ? ` Worst: ${s.worst.name.split(' ')[0]} ${fmtUsd(s.worst.pnl, { sign: true })}.` : ''}`);
   if (s.skipped) lines.push(`Held back on paper: ${s.skipped} (${s.topReasons.map(([k, n]) => `${k.toLowerCase()} ${n}`).join(', ')}).`);
   if (s.halted) lines.push('The risk guard stopped trading during the day.');
+  if (s.list?.length) lines.push('', tradesListText(s.list, { title: 'Trades', max: 25 }));
   lines.push('Full report on the floor\'s Dashboard.');
   return lines.join('\n');
 }

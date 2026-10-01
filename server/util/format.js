@@ -17,10 +17,12 @@ export function fmtQty(value) {
   return abs.toLocaleString('en-US', { maximumFractionDigits: 3 });
 }
 
-export function fmtUsd(value, { sign = false } = {}) {
+export function fmtUsd(value, { sign = false, cents = false } = {}) {
   if (value == null || !Number.isFinite(value)) return '—';
-  const abs = Math.abs(Math.round(value));
-  const body = '$' + abs.toLocaleString('en-US');
+  const body = '$' + (cents
+    ? Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : Math.abs(Math.round(value)).toLocaleString('en-US'));
+  if (cents && Math.abs(value) < 0.005) return body;
   if (value < 0) return '-' + body;
   return sign ? '+' + body : body;
 }

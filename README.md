@@ -478,11 +478,28 @@ Pick any earlier day from the list. Each day is saved in `data/reports/` (one JS
 
 The FTMO tab's **Alerts on your phone** card sends Telegram messages from your own free bot:
 
-- a trade opened on the account (who, what, price, risk, grade), closed (P&L and R, and the account's day so far), or rejected by MT5;
+- a trade opened on the account (who, what, the real fill price, risk, grade), or rejected by MT5;
+- a trade closed, with its P&L to the cent and in R, then every trade closed on the account today, one per line, like MT5's history:
+
+  ```
+  ✅ Lucas closed USOIL.cash +$8.57 (+0.5R) · stop, target or manual on MT5
+
+  Today on FTMO · 7 closed trades, 5 won:
+  🟢 Lucas USOIL.cash +$10.11
+  🔴 Chen ETHUSD -$1.01
+  …
+  🟢 Lucas USOIL.cash +$8.57
+  Closed trades: +$34.51 · account today +$31.20 (with open trades)
+  ```
+
+  A trade's P&L is counted the way MT5 counts it: every deal of the position, the commission on the way in included. "Account today" also counts the trades still open.
+- the daily report also lists the day's trades when the FTMO server day ends;
 - the risk guard or profit target stopping trading;
 - MT5 silent for a minute (Mac asleep, MT5 closed, internet down), and back again;
 - armed, disarmed, re-armed after a restart;
 - the day's report card when the FTMO server day ends.
+
+Some brokers report a market order's fill price as 0. The floor then waits for the next sync, under 2 seconds later, and sends the position's real open price instead.
 
 Setup takes about 2 minutes: in Telegram open **@BotFather**, send `/newbot` and pick a name. Paste the token it gives you into the card, press **Start** in your new bot, then **Find my chat** and **Send a test message**. Each kind of alert has its own switch. The bot token is kept in `data/telegram.json`, readable only by you, and is never sent back to the browser.
 

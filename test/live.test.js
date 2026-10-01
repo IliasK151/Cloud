@@ -530,7 +530,8 @@ test('the daily report card records the day: trades, R, what stayed on paper, an
   for (let i = 0; i < 3; i++) sync();
   assert.equal(link.state, 'closed');
   const closeAlert = alerts.find((a) => a.kind === 'trade' && /closed XAUUSD/.test(a.text));
-  assert.match(closeAlert.text, /Chen closed XAUUSD \+\$125 \(\+0\.\dR\)/);
+  assert.match(closeAlert.text, /Chen closed XAUUSD \+\$125\.00 \(\+0\.\dR\)/);
+  assert.match(closeAlert.text, /Today on FTMO · 1 closed trade, 1 won:\n🟢 Chen XAUUSD \+\$125\.00/);
 
   const r = live.reports.current;
   assert.equal(r.day, '2026.09.29', 'the FTMO server day');
@@ -853,4 +854,64 @@ test('EA 1.2 follows the floor\'s pace, re-reads the account history only after 
   // Line by line: strings first (a URL holds "//"), then comments.
   const code = ea.split('\n').map((l) => l.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/'(?:[^'\\]|\\.)'/g, "''").replace(/\/\/.*$/, '')).join('\n');
   for (const [o, c] of [['{', '}'], ['(', ')'], ['[', ']']]) assert.equal(code.split(o).length, code.split(c).length, `${o}${c} balanced`);
+});
+
+test('phone alerts: the real fill price, and every closed trade of the day with its P&L, as MT5 counts it', async () => {
+  const { live, sync, mt5, chen } = setup();
+  const alerts = [];
+  live.on('alert', (a) => alerts.push(a));
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  assert.equal(live.arm().ok, true);
+  assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3815 }).ok, true);
+  await tick();
+  live.reconcile();
+  const open = sync().find((c) => c[0] === 'open');
+  // This broker reports a market order's fill price as 0: the alert waits for the position.
+  mt5.acks.push({ id: open[1], ok: true, ticket: 9401, price: 0, volume: Number(open[4]) });
+  sync();
+  assert.ok(!alerts.some((a) => /bought/.test(a.text)), 'no "@ 0"');
+  mt5.positions.push({ ticket: 9401, symbol: 'XAUUSD', side: 'BUY', volume: Number(open[4]), open: 3800.35, sl: 3795, tp: 3815, profit: 0, magic: Number(open[7]), comment: open[8] });
+  sync();
+  const fill = alerts.filter((a) => /bought/.test(a.text));
+  assert.equal(fill.length, 1);
+  assert.match(fill[0].text, /Chen bought [\d.]+ XAUUSD @ 3800\.35 · risk \$/);
+  sync();
+  assert.equal(alerts.filter((a) => /bought/.test(a.text)).length, 1, 'once');
+
+  // Closed: the P&L counts every deal of the position, the entry's commission included.
+  mt5.positions = [];
+  mt5.deals = [{ position: 9401, entry: 0, pnl: -0.34 }, { position: 9401, entry: 1, pnl: 10.45 }];
+  for (let i = 0; i < 3; i++) sync();
+  const close = alerts.find((a) => /closed XAUUSD/.test(a.text));
+  assert.match(close.text, /Chen closed XAUUSD \+\$10\.11/);
+  assert.match(close.text, /🟢 Chen XAUUSD \+\$10\.11/);
+  assert.equal(live.reports.current.trades.at(-1).pnl, 10.11);
+});
+
+test('the list of the day\'s trades reads like MT5\'s history', async () => {
+  const { tradesListText, dailyAlertText } = await import('../server/live/liveTrader.js');
+  const { summarize } = await import('../server/live/dailyReport.js');
+  // The boss's trades on 1 October (MT5 history), net of commission.
+  const day = [['Lucas', 'USOIL.cash', 10.11], ['Chen', 'ETHUSD', -1.01], ['Marcus', 'US100.cash', 6.2], ['Chen', 'ETHUSD', -3.39], ['Jake', 'GBPUSD', 9.82], ['Marcus', 'US100.cash', 4.21], ['Lucas', 'USOIL.cash', 8.57]];
+  const list = day.map(([name, symbol, pnl]) => ({ name, symbol, pnl, r: null }));
+  const text = tradesListText(list, { accountToday: 31.2 });
+  assert.equal(text, [
+    'Today on FTMO · 7 closed trades, 5 won:',
+    '🟢 Lucas USOIL.cash +$10.11',
+    '🔴 Chen ETHUSD -$1.01',
+    '🟢 Marcus US100.cash +$6.20',
+    '🔴 Chen ETHUSD -$3.39',
+    '🟢 Jake GBPUSD +$9.82',
+    '🟢 Marcus US100.cash +$4.21',
+    '🟢 Lucas USOIL.cash +$8.57',
+    'Closed trades: +$34.51 · account today +$31.20 (with open trades)',
+  ].join('\n'));
+  // A long day keeps the message short: the latest 15, and how many came before.
+  const many = Array.from({ length: 20 }, (_, i) => ({ name: 'Ryan', symbol: 'XAUUSD', pnl: i % 2 ? 2 : -1, r: null }));
+  assert.match(tradesListText(many), /… 5 earlier/);
+  // The end-of-day report on the phone lists them too.
+  const report = { day: '2026.10.01', account: { dayPnl: 32.15 }, desks: { lucas: { name: 'Lucas Meyer', trades: 1, wins: 1, pnl: 10.11, sumR: 0.5, countR: 1 } }, skipped: {}, events: [],
+    trades: [{ agentId: 'lucas', symbol: 'USOIL.cash', pnl: 10.11, r: 0.5, openedAt: 1, closedAt: 2 }] };
+  assert.match(dailyAlertText(summarize(report)), /Trades · 1 closed trade, 1 won:\n🟢 Lucas USOIL\.cash \+\$10\.11 \(\+0\.5R\)/);
 });
