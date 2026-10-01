@@ -12,6 +12,7 @@ import { VideoWall } from './videowall.js';
 import { money, escapeHtml, STATUS_COLORS, deskKey } from '../format.js';
 import { deskBook } from '../book.js';
 import { voice } from '../voice.js';
+import { fpsFor } from './power.js';
 
 const OVERVIEW = { pos: new THREE.Vector3(-2.4, 18.5, 33.5), target: new THREE.Vector3(-2.4, 0.0, 0.8) };
 
@@ -41,21 +42,72 @@ export class TradingFloor {
     this.wallTimer = 0;
     this.frameTimes = [];
     this.autoQuality = true;
+    // Battery saver (on unless switched off in Settings): a calmer frame rate when nobody is
+    // touching the floor, plain graphics on battery, and no drawing at all on other tabs.
+    this.eco = true;
+    this.onBattery = false;
+    this.qualityBeforeBattery = false;
+    this.lastInput = performance.now();
+    this.lastRender = 0;
 
     this.#initRenderer();
     this.#initScene();
     this.#initInput();
     window.addEventListener('resize', () => this.#resize());
+    for (const evt of ['pointermove', 'pointerdown', 'wheel', 'keydown']) {
+      window.addEventListener(evt, () => { this.lastInput = performance.now(); }, { passive: true });
+    }
     this.#resize();
-    this.renderer.setAnimationLoop(() => this.#frame());
+    this.#loop(true);
+  }
+
+  // The render loop runs only while the floor is on screen.
+  #loop(on) {
+    if (on === this.looping) return;
+    this.looping = on;
+    this.renderer.setAnimationLoop(on ? () => this.#frame() : null);
+  }
+
+  // Frames per second the floor needs right now (0: as fast as the display). Moving the
+  // camera, talking to a desk or using the mouse gets a smooth picture; a floor nobody is
+  // touching only needs to keep the traders and screens moving.
+  fpsCap(now = performance.now()) {
+    return fpsFor({
+      eco: this.eco,
+      battery: this.onBattery,
+      busy: !!this.tween || !!(this.focused && voice.isSpeaking(this.focused)) || now - this.lastInput < 15_000,
+      focused: document.hasFocus(),
+    });
+  }
+
+  setEco(on) {
+    this.eco = on;
+    this.#applyPower();
+  }
+
+  // On battery the saver also switches the shadows and glow off, and back on with the charger.
+  setPower({ battery }) {
+    this.onBattery = !!battery;
+    this.#applyPower();
+  }
+
+  #applyPower() {
+    const saving = this.eco && this.onBattery;
+    if (saving && this.quality) {
+      this.qualityBeforeBattery = true;
+      this.setQuality(false, { auto: true });
+    } else if (!saving && this.qualityBeforeBattery) {
+      this.qualityBeforeBattery = false;
+      this.setQuality(true, { auto: true });
+    }
   }
 
   on(evt, fn) {
     this.listeners[evt].push(fn);
   }
 
-  #emit(evt, v) {
-    for (const fn of this.listeners[evt]) fn(v);
+  #emit(evt, ...v) {
+    for (const fn of this.listeners[evt]) fn(...v);
   }
 
   #initRenderer() {
@@ -218,9 +270,10 @@ export class TradingFloor {
   setActive(on) {
     this.active = on;
     if (on) this.lastFrame = performance.now();
+    this.#loop(on || !this.eco);
   }
 
-  setQuality(on) {
+  setQuality(on, { auto = false } = {}) {
     this.quality = on;
     this.renderer.setPixelRatio(on ? Math.min(window.devicePixelRatio, 1.5) : 1);
     this.renderer.shadowMap.enabled = on;
@@ -232,7 +285,7 @@ export class TradingFloor {
       }
     });
     this.#resize();
-    this.#emit('quality', on);
+    this.#emit('quality', on, auto);
   }
 
   // ---- camera director ----------------------------------------------------------------
@@ -376,6 +429,9 @@ export class TradingFloor {
   #frame() {
     if (!this.active || document.hidden) return;
     const now = performance.now();
+    const cap = this.fpsCap(now);
+    if (cap && now - this.lastRender < 1000 / cap - 4) return;
+    this.lastRender = now;
     // realDt drives refresh timers; dt (clamped) drives animation so slow frames don't jump.
     const realDt = Math.min(1, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
@@ -437,16 +493,20 @@ export class TradingFloor {
     this.#placeLabels();
     if (this.quality) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
-    this.#watchPerformance(realDt);
+    this.#watchPerformance(realDt, cap);
   }
 
-  // Drop to the fast path automatically if the machine struggles.
-  #watchPerformance(realDt) {
-    if (!this.quality || !this.autoQuality) return;
+  // Drop to the fast path automatically if the machine struggles (judged against the frame
+  // rate the battery saver asked for, not the display's).
+  #watchPerformance(realDt, cap = 0) {
+    if (!this.quality || !this.autoQuality || (cap && cap < 24)) {
+      this.frameTimes = [];
+      return;
+    }
     this.frameTimes.push(realDt);
-    if (this.frameTimes.length < 180) return;
+    if (this.frameTimes.length < (cap ? 90 : 180)) return;
     const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
     this.frameTimes = [];
-    if (avg > 1 / 24) this.setQuality(false);
+    if (avg > (cap ? 1.5 / cap : 1 / 24)) this.setQuality(false);
   }
 }

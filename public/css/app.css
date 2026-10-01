@@ -691,6 +691,10 @@ details.how p { color: var(--text-3); }
 .rail-note.today { border-color: var(--hairline-strong); background: rgba(255, 255, 255, 0.03); }
 .rail-note.today b { color: var(--text-1); }
 
+/* ---- battery saver: no endless animations (each one keeps the browser redrawing) ---------- */
+html.eco .mode-badge.live::before, html.eco .speech-text .caret, html.eco .live-pill.armed i,
+html.eco .news-pill i, html.eco .lab-busy i, html.eco .brain-graph .talk, html.eco .brain-graph .dnode.fresh circle { animation: none; }
+
 /* ---- today on the account ------------------------------------------------------------------- */
 .today-card { margin-bottom: 14px; }
 .today-head { margin: 4px 0 6px; font-size: 16px; line-height: 1.45; color: var(--text-1); font-weight: 500; }

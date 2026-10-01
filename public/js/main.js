@@ -152,10 +152,36 @@ if (params.get('hq') === '0') hq = false;
 floor?.setQuality(hq);
 hqBox.checked = hq;
 hqBox.addEventListener('change', () => floor?.setQuality(hqBox.checked));
-floor?.on('quality', (on) => {
+floor?.on('quality', (on, auto) => {
   hqBox.checked = on;
-  try { localStorage.setItem('floor.hq', on ? 'on' : 'off'); } catch { /* ignore */ }
+  // The battery saver's own switch-off on battery isn't the boss's choice: don't remember it.
+  if (!auto) try { localStorage.setItem('floor.hq', on ? 'on' : 'off'); } catch { /* ignore */ }
 });
+
+// Battery saver (on by default): see Floor.fpsCap. It also stops the blinking lights (CSS),
+// which otherwise keep the browser redrawing 60 times a second on every tab.
+const ecoBox = document.getElementById('set-eco');
+let eco = true;
+try { eco = localStorage.getItem('floor.eco') !== 'off'; } catch { /* ignore */ }
+if (params.get('eco') === '0') eco = false;
+function setEco(on) {
+  eco = on;
+  if (ecoBox) ecoBox.checked = on;
+  document.documentElement.classList.toggle('eco', on);
+  floor?.setEco(on);
+  floor?.setActive(view === 'floor');
+}
+setEco(eco);
+ecoBox?.addEventListener('change', () => {
+  setEco(ecoBox.checked);
+  try { localStorage.setItem('floor.eco', ecoBox.checked ? 'on' : 'off'); } catch { /* ignore */ }
+});
+// Chrome tells the page whether the Mac is on its charger.
+navigator.getBattery?.().then((b) => {
+  const apply = () => floor?.setPower({ battery: !b.charging });
+  b.addEventListener('chargingchange', apply);
+  apply();
+}).catch(() => {});
 if (params.get('hq') === '1' && floor) floor.autoQuality = false; // pin high quality (skip auto-downgrade)
 
 // News protection (server-side setting, shared by every desk).

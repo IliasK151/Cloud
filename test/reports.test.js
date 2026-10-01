@@ -158,3 +158,16 @@ test('Telegram: "Find my chat" says what to do when the bot has no message yet',
   assert.equal(res.ok, false);
   assert.match(res.error, /press Start or send it "hi"/);
 });
+
+test('battery saver: the 3D floor draws only as often as it needs to', async () => {
+  const { fpsFor } = await import('../public/js/floor/power.js');
+  // Off: as fast as the display, as before.
+  assert.equal(fpsFor({ eco: false, battery: true }), 0);
+  // On the charger: smooth while you use it, calm when nobody touches it.
+  assert.equal(fpsFor({ busy: true }), 30);
+  assert.equal(fpsFor({ busy: false }), 15);
+  assert.equal(fpsFor({ busy: true, focused: false }), 15, 'another window in front counts as not watching');
+  // On battery: less again.
+  assert.equal(fpsFor({ battery: true, busy: true }), 24);
+  assert.equal(fpsFor({ battery: true }), 6);
+});
