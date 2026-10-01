@@ -5,7 +5,7 @@ import { MarketBrain } from '../server/brain/market.js';
 import { Committee, DEPARTMENTS, departmentFor } from '../server/brain/committee.js';
 import { opinion, FACTORS } from '../server/brain/personas.js';
 import { AccountBrain } from '../server/live/accountBrain.js';
-import { normalizeProfile } from '../server/live/rules.js';
+import { normalizeProfile, guardMetrics, programRules, bestDayCheck } from '../server/live/rules.js';
 import { MarketClock, Session, nyWallToMs } from '../server/market/session.js';
 import { MarketData } from '../server/market/marketData.js';
 import { Broker } from '../server/engine/broker.js';
@@ -153,15 +153,19 @@ test('trades carry their thesis and grade, and rejected ideas are never traded',
 });
 
 // ---- the account brain ---------------------------------------------------------------------
-function account({ size = 10_000, equity = 10_000, dayStart = 10_000, links = [], type = 'trial', profile = {} } = {}) {
-  const p = { ...normalizeProfile({ type, size, training: false, ...profile }, {}), symbolMap: {} };
+function account({ size = 10_000, equity = 10_000, dayStart = 10_000, links = [], type = 'trial', profile = {}, peak = null, days = [] } = {}) {
+  const p = { ...normalizeProfile({ program: '2-step', type, size, training: false, ...profile }, {}), symbolMap: {} };
   const live = {
     login: '1', profile: p, account: { equity, balance: equity }, halt: null,
     bridge: { serverDay: '2026.10.14' },
     links: new Map(links.map((l, i) => [String(i), { login: '1', createdAt: Date.now(), ...l }])),
-    metrics() {
-      const targetEquity = p.targetPct ? size * (1 + p.targetPct / 100) : null;
-      return { dayStartBalance: dayStart, targetEquity, profit: equity - size };
+    metrics: () => guardMetrics(p, { balance: dayStart, equity, closedToday: 0 }, 0, { peakBalance: peak }),
+    consistency() {
+      const r = programRules(p);
+      if (!r.bestDayPct) return null;
+      const c = bestDayCheck([...days, { day: 'today', pnl: equity - dayStart }], r.bestDayPct);
+      c.dayCap = p.size * (p.targetPct / 100) * (r.bestDayPct / 100);
+      return c;
     },
   };
   return { brain: new AccountBrain(live), live };

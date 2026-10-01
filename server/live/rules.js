@@ -1,6 +1,5 @@
-// FTMO rule presets and the guard maths. Numbers are the classic FTMO 2-Step values;
-// always check them against your own account in the FTMO Client Area and edit them
-// in the FTMO tab if your program differs.
+// FTMO rule presets and the guard maths. Always check the numbers against your own account
+// in the FTMO Client Area (Account MetriX) and edit them in the FTMO tab if they differ.
 
 export const ACCOUNT_TYPES = {
   trial: { label: 'Free Trial', targetPct: 10, dailyLossPct: 5, maxLossPct: 10 },
@@ -8,6 +7,32 @@ export const ACCOUNT_TYPES = {
   verification: { label: 'Verification', targetPct: 5, dailyLossPct: 5, maxLossPct: 10 },
   funded: { label: 'FTMO Account', targetPct: null, dailyLossPct: 5, maxLossPct: 10 },
 };
+
+// FTMO's two programs (a Free Trial comes in both).
+//   2-Step: daily loss 5% of the starting balance, max loss 10% fixed at the starting balance.
+//   1-Step: daily loss 3%, max loss 10% that trails the best end-of-day balance (it rises,
+//           never falls, and stops rising once it reaches the starting balance), and the
+//           Best Day rule: before the account passes, no single day's profit may be more than
+//           50% of the profit of all winning days together. Not a breach: more winning days fix it.
+// Until the boss says which one an account is on, the guard follows the stricter of the two.
+export const PROGRAMS = {
+  '2-step': { label: '2-Step', dailyLossPct: 5, maxLossPct: 10, trailing: false, bestDayPct: null, minTradingDays: 4 },
+  '1-step': { label: '1-Step', dailyLossPct: 3, maxLossPct: 10, trailing: true, bestDayPct: 50, minTradingDays: null },
+};
+const STRICT = PROGRAMS['1-step'];
+
+export function programRules(p) {
+  const known = PROGRAMS[p?.program];
+  const rules = known || STRICT;
+  return {
+    program: known ? p.program : null,
+    label: known ? known.label : 'not set yet',
+    trailing: rules.trailing,
+    // The Best Day rule is for passing; a funded account has no target to pass.
+    bestDayPct: p?.type === 'funded' || !p?.targetPct ? null : rules.bestDayPct,
+    minTradingDays: known ? (p.type === 'funded' ? null : known.minTradingDays) : null,
+  };
+}
 
 export const DEFAULTS = {
   guardPct: 80, // act at 80% of each FTMO limit, leaving a safety buffer
@@ -44,13 +69,22 @@ const clampNum = (v, lo, hi, fallback) => {
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
 };
 
+// A program not chosen yet: the daily limit is never looser than 1-Step's.
+export function strictUntilKnown(p) {
+  if (p && !PROGRAMS[p.program] && p.dailyLossPct > STRICT.dailyLossPct) p.dailyLossPct = STRICT.dailyLossPct;
+  return p;
+}
+
 export function normalizeProfile(input = {}, account = {}) {
-  const type = ACCOUNT_TYPES[input.type] ? input.type : 'trial';
-  const preset = ACCOUNT_TYPES[type];
+  const program = PROGRAMS[input.program] ? input.program : null;
+  let type = ACCOUNT_TYPES[input.type] ? input.type : 'trial';
+  if (program === '1-step' && type === 'verification') type = 'challenge'; // 1-Step has no Verification
+  const preset = { ...ACCOUNT_TYPES[type], ...(program ? { dailyLossPct: PROGRAMS[program].dailyLossPct, maxLossPct: PROGRAMS[program].maxLossPct } : {}) };
   const size = clampNum(input.size, 1000, 10_000_000, account.initialDeposit || account.balance || 100_000);
   const target = input.targetPct === null || input.targetPct === '' ? null : input.targetPct;
-  return {
+  return strictUntilKnown({
     type,
+    program,
     size,
     targetPct: target == null && type === 'funded' ? null : clampNum(target ?? preset.targetPct, 0.5, 100, preset.targetPct),
     dailyLossPct: clampNum(input.dailyLossPct ?? preset.dailyLossPct, 0.5, 50, preset.dailyLossPct),
@@ -70,19 +104,25 @@ export function normalizeProfile(input = {}, account = {}) {
     streakStop: Math.round(clampNum(input.streakStop ?? DEFAULTS.streakStop, 2, 10, DEFAULTS.streakStop)),
     stayArmed: flag(input.stayArmed, DEFAULTS.stayArmed),
     training: type === 'trial' ? flag(input.training, true) : false,
-  };
+  });
 }
 
 // Where the account stands against its rules.
-//   dayStartBalance: balance at the start of the broker's trading day
+//   dayStartBalance: balance at the start of the broker's trading day (FTMO's midnight)
 //   openRisk:        money lost if every open live position hit its stop
-export function guardMetrics(profile, { balance, equity, closedToday = 0 }, openRisk = 0) {
+//   peakBalance:     the best end-of-day balance so far (1-Step's max loss trails it)
+export function guardMetrics(profile, { balance, equity, closedToday = 0 }, openRisk = 0, { peakBalance = null } = {}) {
   const dayStartBalance = balance - closedToday;
   const dailyLimit = (profile.dailyLossPct / 100) * profile.size;
   const maxLimit = (profile.maxLossPct / 100) * profile.size;
   const g = profile.guardPct / 100;
   const dailyLoss = Math.max(0, dayStartBalance - equity);
-  const totalLoss = Math.max(0, profile.size - equity);
+  // The max-loss line: fixed (2-Step), or trailing the best end-of-day balance until it
+  // reaches the starting balance (1-Step). Today's start is an end-of-day balance too.
+  const { trailing } = programRules(profile);
+  const peak = Math.max(profile.size, Number.isFinite(peakBalance) ? peakBalance : 0, dayStartBalance);
+  const maxBase = trailing ? Math.min(profile.size + maxLimit, peak) : profile.size;
+  const totalLoss = Math.max(0, maxBase - equity);
   const targetEquity = profile.targetPct ? profile.size * (1 + profile.targetPct / 100) : null;
   const profit = equity - profile.size;
   return {
@@ -91,6 +131,12 @@ export function guardMetrics(profile, { balance, equity, closedToday = 0 }, open
     maxLimit,
     dailyLoss,
     totalLoss,
+    trailing,
+    peakBalance: trailing ? peak : null,
+    maxBase,
+    // The equity FTMO's limits draw the line at (the guard acts before them).
+    dailyFloor: dayStartBalance - dailyLimit,
+    maxFloor: maxBase - maxLimit,
     dailyUsed: dailyLimit ? dailyLoss / dailyLimit : 0,
     maxUsed: maxLimit ? totalLoss / maxLimit : 0,
     dailyGuard: g * dailyLimit,
@@ -104,6 +150,26 @@ export function guardMetrics(profile, { balance, equity, closedToday = 0 }, open
     dailyBreach: dailyLoss >= g * dailyLimit,
     maxBreach: totalLoss >= g * maxLimit,
     targetHit: targetEquity != null && equity >= targetEquity,
+  };
+}
+
+// The Best Day rule (1-Step): the best day's profit as a share of all winning days' profit.
+//   days: [{ day, pnl }], closed profit per FTMO day, today included
+export function bestDayCheck(days = [], pct = 50) {
+  const wins = days.filter((d) => d.pnl > 0);
+  const total = wins.reduce((s, d) => s + d.pnl, 0);
+  const best = wins.reduce((b, d) => (!b || d.pnl > b.pnl ? d : b), null);
+  const share = total > 0 ? best.pnl / total : null;
+  const ok = share == null || share <= pct / 100 + 1e-9;
+  return {
+    pct,
+    best,
+    total: Math.round(total * 100) / 100,
+    share,
+    ok,
+    winningDays: wins.length,
+    // Profit still needed on other days to bring the best day down to the limit.
+    needed: ok ? 0 : Math.round((best.pnl / (pct / 100) - total) * 100) / 100,
   };
 }
 

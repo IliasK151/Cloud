@@ -11,7 +11,7 @@ import { RiskManager } from '../server/engine/risk.js';
 import { Fund } from '../server/engine/fund.js';
 import { Mt5Bridge } from '../server/live/bridge.js';
 import { LiveTrader, MAGIC_BASE, LATEST_EA, eaOutdated } from '../server/live/liveTrader.js';
-import { lotsForRisk, normalizeProfile, guardMetrics } from '../server/live/rules.js';
+import { lotsForRisk, normalizeProfile, guardMetrics, programRules, bestDayCheck } from '../server/live/rules.js';
 import { autoMap } from '../server/live/symbolMap.js';
 
 const GOLD = { bid: 3800, ask: 3800.2, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
@@ -55,11 +55,11 @@ test('position sizing turns account risk into lots', () => {
 });
 
 test('FTMO presets and guard maths', () => {
-  const p = normalizeProfile({ type: 'verification', size: 50_000 });
+  const p = normalizeProfile({ program: '2-step', type: 'verification', size: 50_000 });
   assert.equal(p.targetPct, 5);
   assert.equal(p.dailyLossPct, 5);
   assert.equal(normalizeProfile({ type: 'funded' }).targetPct, null);
-  const m = guardMetrics(normalizeProfile({ type: 'challenge', size: 100_000 }), { balance: 101_000, equity: 99_000, closedToday: 1_000 });
+  const m = guardMetrics(normalizeProfile({ program: '2-step', type: 'challenge', size: 100_000 }), { balance: 101_000, equity: 99_000, closedToday: 1_000 });
   assert.equal(m.dayStartBalance, 100_000);
   assert.equal(m.dailyLoss, 1_000);
   assert.equal(m.dailyGuard, 4_000); // 80% of the 5% ($5,000) limit
@@ -97,7 +97,7 @@ test('arming rules: live mode, desks enabled, confirmation for paid accounts', (
   const { live, sync } = setup();
   sync();
   assert.equal(live.arm().ok, false); // no setup yet
-  live.setup({ type: 'challenge', size: 100_000 });
+  live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
   assert.match(live.arm().error, /at least one desk/);
   assert.equal(live.setDesk('kenji', true).ok, false); // pairs desk is paper only
   live.setDesk('chen', true);
@@ -106,7 +106,7 @@ test('arming rules: live mode, desks enabled, confirmation for paid accounts', (
 
   const demo = setup({ mode: 'sim' });
   demo.sync();
-  demo.live.setup({ type: 'trial', training: false });
+  demo.live.setup({ program: '2-step', type: 'trial', training: false });
   demo.live.setDesk('chen', true);
   assert.match(demo.live.arm().error, /live market data/);
 });
@@ -114,7 +114,7 @@ test('arming rules: live mode, desks enabled, confirmation for paid accounts', (
 test('desk trades are mirrored: entry, scale-out, stop moves and exit', async () => {
   const { live, sync, mt5, chen } = setup();
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   live.setDesk('chen', true);
   assert.equal(live.arm().ok, true);
 
@@ -186,7 +186,7 @@ test('desk trades are mirrored: entry, scale-out, stop moves and exit', async ()
 test('the guard stops trading before the FTMO daily loss limit', () => {
   const { live, sync, mt5 } = setup();
   sync();
-  live.setup({ type: 'challenge', size: 100_000 });
+  live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
   live.setDesk('chen', true);
   live.arm({ confirm: '555' });
   mt5.positions = [{ ticket: 1, symbol: 'XAUUSD', side: 'BUY', volume: 1, open: 3800, sl: 3790, tp: 0, profit: -4100, magic: MAGIC_BASE + 10, comment: 'MF-chen-x' }];
@@ -201,7 +201,7 @@ test('the guard stops trading before the FTMO daily loss limit', () => {
 test('profit target reached locks the account', () => {
   const { live, sync, mt5 } = setup();
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   live.setDesk('chen', true);
   live.arm();
   mt5.balance = mt5.equity = 110_050;
@@ -231,7 +231,7 @@ test('switching to the broker feed does not create fake P&L on open positions', 
 test('briefings talk about the FTMO account once it is connected', () => {
   const { live, sync, chen, fund } = setup();
   sync();
-  live.setup({ type: 'trial', training: false, size: 10_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 10_000 });
   live.setDesk('chen', true);
   const text = chen.briefing().text;
   assert.match(text, /FTMO/);
@@ -243,7 +243,7 @@ test('briefings talk about the FTMO account once it is connected', () => {
 test('a market on simulated prices never reaches the FTMO account', async () => {
   const { fund, live, sync, chen } = setup();
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   live.setDesk('chen', true);
   assert.equal(live.arm().ok, true);
 
@@ -279,14 +279,14 @@ test('the daily stop switch is saved on the account and noted in the live log', 
   const { live, sync } = setup();
   sync();
   assert.equal(live.setPlan({ dailyStopOn: false }).ok, false, 'needs the account set up');
-  live.setup({ type: 'trial', training: false, size: 10_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 10_000 });
   assert.equal(live.profile.dailyStopOn, true);
   assert.equal(live.setPlan({ dailyStopOn: false }).ok, true);
   assert.equal(live.profile.dailyStopOn, false);
   assert.equal(live.view().plan.dailyStopOn, false);
   assert.match(live.events.at(-1).text, /Daily stop switched OFF/);
   // Saving the setup form keeps the choice it sends.
-  live.setup({ type: 'trial', training: false, size: 10_000, dailyStopOn: false });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 10_000, dailyStopOn: false });
   assert.equal(live.profile.dailyStopOn, false);
   live.setPlan({ dailyStopOn: true });
   assert.equal(live.profile.dailyStopOn, true);
@@ -295,7 +295,7 @@ test('the daily stop switch is saved on the account and noted in the live log', 
 test('the floor never says a desk is on FTMO while its trades stay on paper; the boss\'s alerts do go', async () => {
   const { fund, live, sync, chen } = setup({ committee: 'on' });
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   live.setDesk('amara', true);
   live.setDesk('chen', true);
   assert.equal(live.arm().ok, true);
@@ -365,12 +365,12 @@ test('an outdated EA gets a doable update: one click copies it into MT5, then it
 test('plan switches save together, survive the setup form, and ghost orders stop counting', async () => {
   const { live, sync, mt5, chen } = setup();
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   assert.equal(live.setPlan({ tradeCapOn: false, provenOnly: false }).ok, true);
   assert.equal(live.profile.tradeCapOn, false);
   assert.equal(live.profile.provenOnly, false);
   assert.ok(live.events.some((e) => /Trade cap switched OFF/.test(e.text)));
-  live.setup({ type: 'trial', training: false, size: 100_000 }); // saving the form keeps them
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 }); // saving the form keeps them
   assert.equal(live.profile.tradeCapOn, false);
   assert.equal(live.profile.provenOnly, false);
 
@@ -394,7 +394,7 @@ test('plan switches save together, survive the setup form, and ghost orders stop
 test('a trade below the broker minimum goes at the minimum lot only within the base risk', async () => {
   const { live, sync, chen } = setup();
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000, riskPerTradePct: 0.01 }); // $10 per trade
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000, riskPerTradePct: 0.01 }); // $10 per trade
   live.setDesk('chen', true);
   live.arm();
   // Gold, a $5 stop: 0.01 lot risks $5 → within $10, so it goes at the minimum.
@@ -409,7 +409,7 @@ test('a trade below the broker minimum goes at the minimum lot only within the b
 test('with "Proven desks only" off, a desk\'s own trade really reaches MT5 at half risk', async () => {
   const { fund, live, sync } = setup({ committee: 'on' });
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   live.setDesk('amara', true);
   assert.equal(live.arm().ok, true);
   const amara = fund.byId.get('amara');
@@ -441,7 +441,7 @@ test("a scalper's GBPUSD scalp reaches MT5 under its own magic number, with its 
   const { fund, live, sync } = setup({ quotes: { GBPUSD: CABLE }, symbols: ['GBPUSD'] });
   fund.md.applyTick('GBPUSD', 1.34004, 1, Date.now());
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   live.setPlan({ provenOnly: false });
   assert.equal(live.setDesk('jake', true).ok, true);
   assert.equal(live.arm().ok, true);
@@ -463,7 +463,7 @@ test("a scalper's GBPUSD scalp reaches MT5 under its own magic number, with its 
 test('a market added after the account was set up (GBPUSD) is mapped to the broker on the next sync', () => {
   const { live, sync } = setup({ symbols: ['GBPUSD'] });
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   // An account saved before GBPUSD existed, where the boss also chose to leave EURUSD unmapped.
   delete live.profile.symbolMap.GBPUSD;
   live.profile.symbolMap.EURUSD = null;
@@ -487,7 +487,7 @@ test('a market without real prices is never made up: its desks stand aside and s
   assert.equal(alert.ok, false);
   assert.match(alert.reason, /No real prices for GBPUSD/);
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   const w = live.view().warnings.find((x) => /^No real prices/.test(x));
   assert.ok(w, 'the FTMO tab says so');
   assert.match(w, /Nothing is simulated/);
@@ -501,7 +501,7 @@ test('the daily report card records the day: trades, R, what stayed on paper, an
   const alerts = [];
   live.on('alert', (a) => alerts.push(a));
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   live.setDesk('chen', true);
   live.setDesk('amara', true);
   assert.equal(live.arm().ok, true);
@@ -550,7 +550,7 @@ test('the daily report card records the day: trades, R, what stayed on paper, an
 test('stay armed after a restart: the same account re-arms by itself, never after disarm or a guard stop', async () => {
   const a = setup();
   a.sync();
-  a.live.setup({ type: 'trial', training: false, size: 100_000 });
+  a.live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   a.live.setDesk('chen', true);
   assert.equal(a.live.arm().ok, true);
   assert.equal(a.live.setStayArmed(true).ok, true);
@@ -601,7 +601,7 @@ test('MT5 going quiet for a minute is an alert, and so is it coming back', () =>
   const alerts = [];
   live.on('alert', (a) => alerts.push(a));
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   bridge.lastSync = Date.now() - 70_000;
   live.tick();
   live.tick();
@@ -616,7 +616,7 @@ test('Today on the account: ideas, what the committee turned down, what stayed o
   const { todaySummary, todayRailNote, marketClock, renderToday } = await import('../public/js/ui/todayCard.js');
   const { fund, live, sync } = setup({ committee: 'on' });
   sync();
-  live.setup({ type: 'trial', training: false, size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   live.setDesk('amara', true);
   live.setDesk('chen', true);
   live.setPlan({ provenOnly: false }); // as on the boss's Free Trial
@@ -696,7 +696,7 @@ test('Today on the account: ideas, what the committee turned down, what stayed o
 test('training on FTMO (Free Trial): every trade the desks take goes to the account, the loss guard stays', async () => {
   const { fund, live, sync, mt5 } = setup({ committee: 'on' });
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
   assert.equal(live.profile.training, true, 'on by default on a Free Trial');
   assert.ok(live.view().desks.filter((d) => d.eligible).every((d) => d.enabled), 'a new Free Trial starts with every desk on the account');
   live.setDesk('amara', true);
@@ -750,7 +750,7 @@ test('training on FTMO (Free Trial): every trade the desks take goes to the acco
   live.setPlan({ training: false });
   assert.equal(live.profile.training, false);
   assert.equal(live.view().desks.find((d) => d.id === 'amara').status.state !== 'training', true);
-  live.setup({ type: 'challenge', size: 100_000 });
+  live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
   assert.equal(live.profile.training, false);
   assert.match(live.setPlan({ training: true }).error, /for the Free Trial/);
   assert.equal(live.view().plan.canTrain, false);
@@ -759,7 +759,7 @@ test('training on FTMO (Free Trial): every trade the desks take goes to the acco
 test('training on FTMO: an account saved before it existed trains, and switching it on puts every desk on the account', () => {
   const { live, sync } = setup();
   sync();
-  live.setup({ type: 'trial', training: false, size: 10_000 });
+  live.setup({ program: '2-step', type: 'trial', training: false, size: 10_000 });
   delete live.state.profiles[live.login].training; // saved by an older version
   assert.equal(live.profile.training, true);
   live.setPlan({ training: false });
@@ -784,7 +784,7 @@ test('MT5 syncs only as often as needed: fast while orders go through, every 2 s
   sync();
   assert.equal(pace(), PACE.idle, 'nothing going on: every 2 seconds');
   // A desk on the account is waiting for its trigger: once a second.
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
   live.setDesk('amara', true);
   assert.equal(live.arm().ok, true);
   // MT5 has answered the history requests the setup made (this test's MT5 sends no bars).
@@ -820,7 +820,7 @@ test('MT5 syncs only as often as needed: fast while orders go through, every 2 s
 test('the trades that reached FTMO today still count after the floor restarts', async () => {
   const a = setup();
   a.sync();
-  a.live.setup({ type: 'trial', size: 100_000 });
+  a.live.setup({ program: '2-step', type: 'trial', size: 100_000 });
   a.live.setDesk('chen', true);
   assert.equal(a.live.arm().ok, true);
   assert.equal(a.chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
@@ -861,7 +861,7 @@ test('phone alerts: the real fill price, and every closed trade of the day with 
   const alerts = [];
   live.on('alert', (a) => alerts.push(a));
   sync();
-  live.setup({ type: 'trial', size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
   assert.equal(live.arm().ok, true);
   assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3815 }).ok, true);
   await tick();
@@ -952,4 +952,185 @@ test('why a desk entered, in a few lines: its setup, the evidence, its checklist
   ]);
   assert.deepEqual(entryReasons(null, committee), []);
   assert.deepEqual(brainLevels({ resistance: [{ label: 'VWAP', price: 2 }, { label: 'session high', price: 3 }, { label: 'x', price: 4 }], support: [{ label: 'session low', price: 1 }] }).map((l) => l.label), ['VWAP', 'session high', 'session low']);
+});
+
+// ---- FTMO 1-Step rules ------------------------------------------------------------------------
+test('FTMO 1-Step: 3% daily, a max loss that trails the best end-of-day balance, and the stricter rules until the program is set', () => {
+  const one = normalizeProfile({ program: '1-step', type: 'trial', size: 10_000 });
+  assert.equal(one.dailyLossPct, 3);
+  assert.equal(one.maxLossPct, 10);
+  assert.equal(normalizeProfile({ program: '1-step', type: 'verification' }).type, 'challenge', '1-Step has no Verification');
+  const unknown = normalizeProfile({ type: 'trial', size: 10_000, dailyLossPct: 5 });
+  assert.equal(unknown.program, null);
+  assert.equal(unknown.dailyLossPct, 3, 'not told yet: the stricter daily limit');
+  assert.equal(programRules(unknown).trailing, true);
+
+  // The line trails the best end-of-day balance: $10,400 → equity may not go below $9,400.
+  let m = guardMetrics(one, { balance: 10_200, equity: 9_800, closedToday: -100 }, 0, { peakBalance: 10_400 });
+  assert.equal(m.dayStartBalance, 10_300);
+  assert.equal(m.dailyFloor, 10_000); // 3% of the $10,000 start below today's $10,300 start
+  assert.equal(m.maxFloor, 9_400);
+  assert.equal(m.totalLoss, 600);
+  assert.equal(m.maxUsed, 0.6);
+  // …and stops rising once it reaches the starting balance.
+  assert.equal(guardMetrics(one, { balance: 11_800, equity: 11_800 }, 0, { peakBalance: 11_800 }).maxFloor, 10_000);
+  // Today's start is an end-of-day balance too.
+  assert.equal(guardMetrics(one, { balance: 10_500, equity: 10_500 }).maxFloor, 9_500);
+
+  // 2-Step: fixed at the start.
+  const two = normalizeProfile({ program: '2-step', type: 'trial', size: 10_000 });
+  m = guardMetrics(two, { balance: 10_200, equity: 9_800, closedToday: -100 }, 0, { peakBalance: 10_400 });
+  assert.equal(m.maxFloor, 9_000);
+  assert.equal(m.totalLoss, 200);
+  assert.equal(m.dailyFloor, 9_800);
+});
+
+test('the Best Day rule: the best day as a share of all winning days, and what it takes to pass', () => {
+  const c = bestDayCheck([{ day: 'a', pnl: 400 }, { day: 'b', pnl: 100 }, { day: 'c', pnl: -50 }, { day: 'd', pnl: 200 }], 50);
+  assert.equal(c.total, 700);
+  assert.equal(c.best.day, 'a');
+  assert.equal(Math.round(c.share * 100), 57);
+  assert.equal(c.ok, false);
+  assert.equal(c.needed, 100, '$400 is 50% of $800: $100 more on other days');
+  assert.equal(c.winningDays, 3);
+  assert.equal(bestDayCheck([{ pnl: 300 }, { pnl: 300 }]).ok, true, 'exactly 50% passes');
+  assert.deepEqual([bestDayCheck([]).share, bestDayCheck([]).ok], [null, true]);
+});
+
+test('the FTMO tab asks which program; 1-Step trails the best end-of-day balance the floor has seen', () => {
+  const { live, sync, mt5 } = setup();
+  // Two earlier days on this account (and one on another account), from the daily reports.
+  live.reports.snapshot('2026.09.26', { login: 999, server: 'FTMO-Demo', startBalance: 100_000, balance: 150_000, equity: 150_000 });
+  live.reports.snapshot('2026.09.27', { login: 555, server: 'FTMO-Demo', startBalance: 100_000, balance: 100_900, equity: 100_900 });
+  live.reports.snapshot('2026.09.28', { login: 555, server: 'FTMO-Demo', startBalance: 100_900, balance: 101_500, equity: 101_500 });
+  Object.assign(mt5, { balance: 101_300, equity: 101_300, closedToday: -200 }); // today started at $101,500
+  sync();
+  live.setup({ type: 'trial', training: false, size: 100_000 });
+  sync();
+  let v = live.view();
+  assert.equal(v.plan.program, null);
+  assert.equal(v.profile.dailyLossPct, 3, 'the stricter daily limit until the boss says');
+  assert.ok(v.plan.rules.some((r) => /Which FTMO program is this account/.test(r.text) && !r.ok));
+  assert.equal(v.metrics.maxFloor, 91_500, 'best end-of-day $101,500 − $10,000');
+  assert.ok(v.programs['1-step'] && v.programs['2-step']);
+
+  assert.equal(live.setProgram('2-step').ok, true);
+  v = live.view();
+  assert.equal(v.profile.dailyLossPct, 5);
+  assert.equal(v.metrics.maxFloor, 90_000);
+  assert.equal(v.metrics.trailing, false);
+  assert.equal(v.plan.bestDay, null, 'no Best Day rule on 2-Step');
+  assert.equal(v.plan.rules.some((r) => /Which FTMO program/.test(r.text)), false);
+
+  assert.equal(live.setProgram('1-step').ok, true);
+  assert.match(live.setProgram('3-step').error, /2-Step or 1-Step/);
+  v = live.view();
+  assert.equal(v.profile.dailyLossPct, 3);
+  assert.equal(v.metrics.maxFloor, 91_500);
+  assert.match(v.plan.rules.find((r) => /Max loss line/.test(r.text)).text, /stay above \$91,500/);
+  assert.match(v.plan.goal, /3% daily or 10% max loss \(trailing\), no day over 50% of the profit/);
+
+  // The best end-of-day balance never goes down, and is remembered.
+  Object.assign(mt5, { balance: 100_800, equity: 100_800, closedToday: -700 });
+  sync();
+  assert.equal(live.view().metrics.maxFloor, 91_500);
+  assert.equal(live.state.peaks['555'], 101_500);
+
+  // Best Day: +$900 and +$600 on the earlier days, today −$700: the best is 60% of $1,500.
+  const b = live.view().plan.bestDay;
+  assert.equal(b.total, 1_500);
+  assert.equal(Math.round(b.share * 100), 60);
+  assert.equal(b.ok, false);
+  assert.equal(b.needed, 300);
+  assert.equal(b.dayCap, 5_000, 'half the $10,000 target');
+  assert.ok(live.view().plan.rules.find((r) => /Best Day rule/.test(r.text)).ok, 'not a problem until the target is reached');
+});
+
+test('1-Step: a day stops at half the target, training too; the target only counts once the Best Day rule is met', async () => {
+  const { fund, live, sync, mt5 } = setup();
+  Object.assign(mt5, { balance: 105_100, equity: 105_100, closedToday: 5_100 });
+  sync();
+  live.setup({ program: '1-step', type: 'trial', size: 100_000 });
+  sync();
+  assert.equal(live.profile.training, true);
+  assert.equal(live.arm().ok, true);
+  const st = live.brain.state();
+  assert.match(st.blocked, /Best Day rule: \+\$5,100 today, half the target's profit/);
+  const amara = fund.byId.get('amara');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), true);
+  await tick();
+  live.reconcile();
+  assert.deepEqual(live.view().today.reasons, [['FTMO Best Day rule', 1]], 'held back even while training');
+  assert.equal(live.view().desks.find((d) => d.id === 'amara').status.state, 'stopped');
+
+  // Past the 10% target with one $8,000 day: not locked in, the desks trade on at half risk.
+  const b = setup();
+  b.live.reports.snapshot('2026.09.28', { login: 555, server: 'FTMO-Demo', startBalance: 100_000, balance: 108_000, equity: 108_000 });
+  Object.assign(b.mt5, { balance: 110_500, equity: 110_500, closedToday: 2_500 });
+  b.sync();
+  b.live.setup({ program: '1-step', type: 'trial', training: false, size: 100_000 });
+  b.sync();
+  assert.equal(b.live.halt, null, 'not locked in yet');
+  const s2 = b.live.brain.state();
+  assert.equal(s2.bestDayPending, true);
+  assert.ok(s2.reasons.some((r) => /Best Day rule needs about \$5,500 more on other days: half risk/.test(r)), s2.reasons.join(' | '));
+  assert.ok(b.live.events.some((e) => /Best Day rule isn't met yet: the best day \(\+\$8,000\) is 76%/.test(e.text)));
+  // Another good day brings the best day down to half: now it's locked in.
+  Object.assign(b.mt5, { balance: 116_000, equity: 116_000, closedToday: 8_000 });
+  b.sync();
+  assert.equal(b.live.halt?.kind, 'target');
+  assert.match(b.live.halt.reason, /and the Best Day rule is met/);
+});
+
+test('order actions are counted per FTMO day, survive a restart, and new trades stop far below FTMO\'s 2,000', async () => {
+  const br = new Mt5Bridge();
+  br.handleSync({ account: { login: 1 }, serverDay: '2026.09.29' });
+  br.open({ symbol: 'XAUUSD', side: 'BUY', volume: 0.1, slDistance: 5, magic: 1, comment: 'x' }, {});
+  br.modify(1, 3790, 'keep', {});
+  br.close(1, 1, {});
+  assert.equal(br.actionsToday(), 3);
+  br.positions = [{}, {}];
+  br.closeAll({});
+  assert.equal(br.actionsToday(), 5, 'closing everything is one request per position');
+  br.handleSync({ serverDay: '2026.09.30' });
+  assert.equal(br.actionsToday(), 0, 'a new FTMO day starts at zero');
+
+  const a = setup();
+  a.sync();
+  a.live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
+  a.live.setDesk('chen', true);
+  assert.equal(a.live.arm().ok, true);
+  a.bridge.actions = { day: '2026.09.29', n: 1_000 };
+  assert.deepEqual(a.live.view().today.actions, { n: 1_000, ftmo: 2_000, newTrades: 1_000, stopMoves: 1_500 });
+  assert.equal(a.chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
+  await tick();
+  a.live.reconcile();
+  assert.deepEqual(a.live.view().today.reasons, [['FTMO order-action limit', 1]]);
+  assert.equal(a.sync().filter((c) => c[0] === 'open').length, 0);
+  a.live.save();
+  await new Promise((r) => setTimeout(r, 300));
+  const b = setup({ dataDir: a.dataDir });
+  b.sync();
+  assert.equal(b.bridge.actionsToday(), 1_000, 'the count survives a restart of the floor');
+});
+
+test('the Today card shows FTMO\'s own limits in one line: actions, both loss lines, the Best Day rule', async () => {
+  const { ftmoLine } = await import('../public/js/ui/todayCard.js');
+  const { live, sync, mt5 } = setup();
+  live.reports.snapshot('2026.09.28', { login: 555, server: 'FTMO-Demo', startBalance: 100_000, balance: 100_900, equity: 100_900 });
+  Object.assign(mt5, { balance: 101_200, equity: 101_200, closedToday: 300 });
+  sync();
+  live.setup({ type: 'trial', training: false, size: 100_000 });
+  sync();
+  let html = ftmoLine(live.view());
+  assert.match(html, /FTMO program not set: <b>the stricter 1-Step limits apply<\/b>/);
+  assert.match(html, /Order actions today <b class="num">0<\/b> of FTMO's 2,000/);
+  assert.match(html, /Daily loss line <b class="num">\$97,900<\/b>/);
+  assert.match(html, /Max loss line <b class="num">\$90,900<\/b><small>trails the best end-of-day balance/);
+  assert.match(html, /Best Day rule <b class="num">75%<\/b><small>best day \+\$900 of \$1,200/);
+  live.setProgram('2-step');
+  html = ftmoLine(live.view());
+  assert.match(html, /FTMO 2-Step/);
+  assert.match(html, /Max loss line <b class="num">\$90,000<\/b><small>fixed at the start/);
+  assert.doesNotMatch(html, /Best Day/);
 });

@@ -377,7 +377,8 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 - **Your own risk sizing, not the paper desk's.** The default is **0.25% of balance per trade**, with at most 1.5% open risk and 5 live positions, all editable.
 - **Priced from MT5.** Once connected, the floor switches each mapped market to your broker's prices (US100.cash, XAUUSD, EURUSD and so on). The desks then analyse exactly the prices they trade.
 - **Your TradingView alerts can trade the account too.** Enable Chen's TradingView Signals desk (or any desk named in the alert). Each alert is debated by the committee like any other idea and executed on FTMO with the same sizing and stop rules (only A-grade alerts reach the account).
-- **FTMO rule guard.** It watches the daily and maximum loss using FTMO's method (equity against the day's starting balance, and against the account size). At 80% of a limit it closes the floor's positions and stops trading: until the next server day for the daily limit, and until you clear it for the max loss. It can also stop when the profit target is hit, which is on by default.
+- **FTMO rule guard.** It watches the daily and maximum loss using FTMO's method (equity against the day's starting balance, and against the account size, or on 1-Step against the best end-of-day balance). At 80% of a limit it closes the floor's positions and stops trading: until the next server day for the daily limit, and until you clear it for the max loss. It can also stop when the profit target is hit, which is on by default.
+- **2-Step or 1-Step** (below): the FTMO tab asks which program the account is on, and follows that program's limits.
 - **Arming is always your decision.** The floor starts disarmed after a restart, unless you switch on **Stay armed after a restart** (below). Paid accounts need you to type the account number to arm. **Close all & disarm** is always one click away.
 - **Two desks stay paper-only.** The stat-arb and market-making desks don't mirror onto a single prop account.
 - **Research desks can trade it too,** once you switch them on: they trade only validated strategies, at half size while a new strategy is on probation.
@@ -393,7 +394,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
    - **MetaEditor (easiest):** in MT5 press **F4**, then **File → New → Expert Advisor (template)** and name it `MeridianBridge`. Delete the template code, click **Copy EA code** in the floor's FTMO tab, paste it in (Cmd+V, or Ctrl+V / right-click → Paste) and press **Compile**.
    - **One command:** quit MT5 and run `npm run install-ea` in the trading-floor folder. It finds MT5's hidden `MQL5/Experts` folder and copies the file in. Reopen MT5, right-click **Expert Advisors → Refresh** in the Navigator, then right-click MeridianBridge → **Modify** → **Compile**.
 5. Drag **MeridianBridge** onto any chart. Paste the **bridge token** from the FTMO tab into the inputs, tick **Allow Algo Trading**, and switch on **Algo Trading** in the toolbar.
-6. The floor pops up **"New FTMO account detected"**. Pick the account type (Free Trial, Challenge, Verification or FTMO Account), check the limits against your Client Area, and save.
+6. The floor pops up **"New FTMO account detected"**. Pick the program (2-Step or 1-Step) and the account type (Free Trial, Challenge, Verification or FTMO Account), check the limits against your Client Area, and save.
 7. Switch on the desks that may trade the account, then press **Arm live trading**.
 
 ![New FTMO account detected](docs/ftmo-connect.jpg)
@@ -410,6 +411,29 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 - **Check FTMO's current rules on algorithmic trading yourself.** FTMO generally allows Expert Advisors but prohibits some trading practices, and their terms change. Complying with them on your account is your responsibility.
 - **A stop-loss is not a guarantee.** Gaps, news spikes and slippage can fill beyond it. The guard acts at 80% of each limit to leave a buffer, but it cannot promise you'll never breach one. The floor stands aside for news using a public calendar; FTMO's own list of restricted releases is what counts, so check it for funded accounts.
 - MT5 must stay open, and your Mac awake, while the desks trade. The floor keeps the Mac awake by itself while it runs (on a MacBook, keep the lid open: a closed lid sleeps it anyway).
+
+### FTMO's rules: 2-Step or 1-Step
+
+FTMO runs two programs, and a Free Trial comes in both. Their limits differ, so the FTMO tab asks once which one the account is on (**Which FTMO program is this account?**, or *FTMO program* in Edit setup). Not sure? In the FTMO Client Area open the account's **MetriX**: a *Max Daily Loss* of 5% of the account means 2-Step, 3% means 1-Step. **Until you choose, the guard follows the stricter one (1-Step)**, so nothing can breach either.
+
+| | 2-Step | 1-Step |
+| --- | --- | --- |
+| Max daily loss | 5% of the starting balance, below the day's starting balance | 3% |
+| Max loss | 10%, fixed at the starting balance | 10%, trailing the best end-of-day balance. The line moves up with new highs and never goes above the starting balance |
+| Best Day rule | none | Before the account passes, no single day may be more than 50% of the profit from all winning days. Not a breach: more winning days fix it |
+| Minimum trading days | 4 (Challenge and Verification) | none |
+
+What the floor does on 1-Step:
+
+- **The max-loss line trails.** The guard measures the max loss from the best end-of-day balance it has seen (from the daily report cards and every sync, remembered so it never goes down), and the FTMO tab shows the line: *equity must stay above $X*.
+- **The Best Day rule.** The desks call it a day once a day's profit reaches **half the profit target** ($500 on a $10,000 account), even while training on FTMO, so no single day can be "too good" at the finish line. The trades already open run to their exits. If the target is reached while the best day is still over 50%, the floor doesn't stop at the target: it says how much more profit on other days passes the rule, and trades on at half risk until it's met.
+- The Today card shows both loss lines, the Best Day share and the day's order actions in one line.
+
+**Fast trades are allowed.** FTMO bans high-frequency and tick scalping (dozens of trades a minute, trades held for seconds), latency arbitrage, copying the same trades onto another FTMO account, and hedging one account against another. Ordinary scalping that holds for minutes is fine, and so are Expert Advisors. The floor's scalpers decide on 1-minute candles, cut a scalp that isn't working after 30 minutes and close every scalp by 45 minutes.
+
+**Order actions.** FTMO allows 2,000 order actions a day (every open, close, stop move and partial close counts). The floor sends about 3 to 5 per trade, so a busy day is around a hundred. As a seatbelt it counts them per FTMO day (through restarts) and stops new trades at 1,000 and stop moves at 1,500; closing positions is always allowed.
+
+**Always check FTMO's own Trading Objectives page and FAQ** for your program: their rules change, and they are what counts.
 
 ### Run it non-stop
 

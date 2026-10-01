@@ -745,6 +745,19 @@ html.eco .news-pill i, html.eco .lab-busy i, html.eco .brain-graph .talk, html.e
 .acct-funnel .ft.good b { color: var(--pos-text); }
 .acct-funnel .ft + .ft::before { content: '›'; position: absolute; left: -8px; top: 50%; transform: translate(-50%, -50%); color: var(--text-3); font-size: 14px; }
 @media (max-width: 900px) { .acct-funnel { grid-template-columns: repeat(2, minmax(0, 1fr)); } .acct-funnel .ft + .ft::before { display: none; } }
+.ftmo-line { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px 18px; margin: 0 0 14px; padding: 9px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.025); border: 1px solid rgba(255, 255, 255, 0.06); font-size: 12.5px; color: var(--text-2); }
+.ftmo-line em { font-style: normal; color: var(--text-1); font-weight: 600; align-self: center; flex-basis: 100%; }
+.ftmo-line em b { color: var(--warn); font-weight: 600; }
+.ftmo-line span b { margin-left: 5px; color: var(--text-1); font-weight: 600; }
+.ftmo-line span small { display: block; font-size: 11.5px; color: var(--text-3); }
+.ftmo-line span.warn b { color: var(--warn); }
+.program-card { margin-bottom: 14px; border-color: rgba(242, 176, 30, 0.45); }
+.program-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 10px 0 8px; }
+@media (max-width: 700px) { .program-pick { grid-template-columns: 1fr; } }
+.program-opt { text-align: left; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.035); color: var(--text-2); font: inherit; cursor: pointer; }
+.program-opt:hover { border-color: var(--accent, #2962ff); background: rgba(41, 98, 255, 0.08); }
+.program-opt b { display: block; font-size: 16px; color: var(--text-1); margin-bottom: 4px; }
+.program-opt span { display: block; font-size: 12.5px; line-height: 1.5; }
 .today-reasons h3 { margin: 4px 0 6px; font-size: 13px; }
 .today-reasons ul { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
 .today-reasons li { font-size: 13px; }

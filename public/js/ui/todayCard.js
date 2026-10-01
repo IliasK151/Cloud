@@ -76,6 +76,8 @@ const MEANING = {
   'Algo Trading off in MT5': 'Turn on the Algo Trading button in MT5.',
   'TradingView test alert': 'Test alerts never trade the account.',
   'No real prices': 'Only real prices trade real money.',
+  'FTMO Best Day rule': 'FTMO 1-Step: no single day may be more than half the profit, so the desks call it a day at half the target\'s profit.',
+  'FTMO order-action limit': 'FTMO allows 2,000 order actions a day; the floor stops new trades at 1,000, far below it.',
 };
 
 const ago = (at, now) => {
@@ -177,12 +179,35 @@ export function renderToday(store, { now = Date.now(), timeZone } = {}) {
       ${tile('Held back', f.held, 'stayed on paper', f.held ? 'warn' : '')}
       ${tile('Sent to FTMO', f.sent, f.failed ? `${f.failed} refused by MT5` : 'orders on your account', f.sent ? 'good' : '')}
     </div>
+    ${ftmoLine(store.live)}
     ${reasons}
     <div class="table-wrap" style="max-height:none"><table class="table compact today-desks">
       <thead><tr><th>Desk</th><th>Doing now</th><th class="r">Ideas</th><th class="r">Paper</th><th class="r">FTMO</th><th>Latest on the account</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="6" class="muted">No desk is switched on for the account.</td></tr>'}</tbody>
     </table></div>
     <p class="fine">Counts start at the beginning of the trading day (18:00 New York). Ideas the committee turned down minutes earlier aren't counted twice.</p>`;
+}
+
+// FTMO's own limits today, in one line: order actions, the loss lines and the Best Day rule.
+const usd = (x, sign = false) => `${sign && x > 0 ? '+' : x < 0 ? '−' : ''}$${Math.abs(x).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+export function ftmoLine(v) {
+  const plan = v?.plan;
+  const a = v?.today?.actions;
+  if (!plan || !v.metrics) return '';
+  const bits = [];
+  if (a) bits.push(`<span>Order actions today <b class="num">${a.n.toLocaleString('en-US')}</b> of FTMO's ${a.ftmo.toLocaleString('en-US')}<small>new trades stop at ${a.newTrades.toLocaleString('en-US')}</small></span>`);
+  bits.push(`<span>Daily loss line <b class="num">${usd(v.metrics.dailyFloor)}</b><small>${plan.dailyLossPct}% below today's start</small></span>`);
+  bits.push(`<span>Max loss line <b class="num">${usd(plan.maxFloor)}</b><small>${plan.trailing ? 'trails the best end-of-day balance' : 'fixed at the start'}</small></span>`);
+  const b = plan.bestDay;
+  if (b) {
+    bits.push(b.share == null
+      ? `<span>Best Day rule <b class="num">—</b><small>no winning day yet · desks stop at ${usd(b.dayCap, true)} a day</small></span>`
+      : `<span class="${b.ok || !plan.bestDayPending ? '' : 'warn'}">Best Day rule <b class="num">${Math.round(b.share * 100)}%</b><small>best day ${usd(b.best.pnl, true)} of ${usd(b.total)} · ${b.pct}% or less to pass</small></span>`);
+  }
+  const program = plan.program
+    ? `FTMO ${escapeHtml(plan.programLabel)}`
+    : 'FTMO program not set: <b>the stricter 1-Step limits apply</b>';
+  return `<div class="ftmo-line"><em>${program}</em>${bits.join('')}</div>`;
 }
 
 // One line for the floor's desk rail: the day on the account, and where to see why.

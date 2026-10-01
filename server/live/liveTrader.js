@@ -3,11 +3,12 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
-import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, normalizeProfile, guardMetrics, lotsForRisk, positionRisk, trainingOn } from './rules.js';
+import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, PROGRAMS, normalizeProfile, guardMetrics, lotsForRisk, positionRisk, trainingOn, programRules, strictUntilKnown, bestDayCheck } from './rules.js';
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS, SYMBOLS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
 import { DailyReports, closedTrades } from './dailyReport.js';
+import { ACTION_LIMITS } from './bridge.js';
 import { locateExpertsFolders } from '../../scripts/install-ea.js';
 import { fmtUsd } from '../util/format.js';
 
@@ -74,6 +75,8 @@ export class LiveTrader extends EventEmitter {
     // Orders from an earlier run that MT5 never confirmed didn't happen.
     this.links = new Map((this.state.links || []).map((l) => [l.key, { ...l, previousSession: true, ...(l.state === 'pending' ? { state: 'failed', reason: 'never confirmed by MT5 before the floor restarted' } : {}) }]));
     this.agentIndex = new Map(fund.agents.map((a, i) => [a.id, i + 1]));
+    // Today's order actions survive a restart (FTMO counts them per day, not per run).
+    if (this.state.actions?.day && Number.isFinite(this.state.actions.n)) bridge.actions = { day: this.state.actions.day, n: this.state.actions.n };
     this.lastSkipNote = new Map();
     this.brain = new AccountBrain(this);
     // The daily report card, and the moments worth a message on the boss's phone ('alert').
@@ -124,7 +127,7 @@ export class LiveTrader extends EventEmitter {
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       const links = [...this.links.values()].slice(-200).map(({ previousSession, ...l }) => l);
-      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, links };
+      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, peaks: this.state.peaks || {}, actions: this.bridge.actions, links };
       try {
         fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(data, null, 1));
         fs.renameSync(`${this.file}.tmp`, this.file);
@@ -148,7 +151,7 @@ export class LiveTrader extends EventEmitter {
     const p = this.login ? this.state.profiles[this.login] || null : null;
     if (p) for (const k of PLAN_KEYS) if (p[k] == null && k in DEFAULTS) p[k] = DEFAULTS[k];
     if (p && p.training == null) p.training = p.type === 'trial';
-    return p;
+    return strictUntilKnown(p);
   }
 
   get halt() {
@@ -303,6 +306,26 @@ export class LiveTrader extends EventEmitter {
     }
     p.updatedAt = Date.now();
     this.save();
+    return { ok: true };
+  }
+
+  // Which FTMO program the account is on (2-Step or 1-Step): sets its limits. Until it's set,
+  // the guard follows the stricter of the two.
+  setProgram(program) {
+    const p = this.profile;
+    if (!p) return { ok: false, error: 'Set up the account first' };
+    const prog = PROGRAMS[program];
+    if (!prog) return { ok: false, error: 'Choose 2-Step or 1-Step' };
+    p.program = program;
+    p.dailyLossPct = prog.dailyLossPct;
+    p.maxLossPct = prog.maxLossPct;
+    if (program === '1-step' && p.type === 'verification') p.type = 'challenge';
+    p.updatedAt = Date.now();
+    this.pastDaysCache = null;
+    this.save();
+    this.#note(program === '1-step'
+      ? 'FTMO program set to 1-Step: 3% daily loss, 10% max loss that trails the best end-of-day balance, and the Best Day rule (no day over 50% of the profit)'
+      : 'FTMO program set to 2-Step: 5% daily loss, 10% max loss from the starting balance', 'risk');
     return { ok: true };
   }
 
@@ -560,6 +583,7 @@ export class LiveTrader extends EventEmitter {
         }
       }
     }
+    this.#trackPeak();
     this.#guard();
     this.#maybeRearm();
     this.#snapshot();
@@ -573,7 +597,7 @@ export class LiveTrader extends EventEmitter {
     if (!p || !acc || this.mode !== 'live') return;
     if (!force && Date.now() - this.lastSnapshot < 30_000) return;
     this.lastSnapshot = Date.now();
-    const m = guardMetrics(p, acc, 0);
+    const m = this.#metricsWith(0);
     const paper = {};
     // The paper side of the desks switched on for the account, to compare with FTMO.
     for (const a of this.fund.agents) {
@@ -601,7 +625,63 @@ export class LiveTrader extends EventEmitter {
     const p = this.profile;
     const acc = this.account;
     if (!p || !acc) return null;
-    return guardMetrics(p, acc, this.openRisk());
+    return this.#metricsWith(this.openRisk());
+  }
+
+  #metricsWith(openRisk) {
+    return guardMetrics(this.profile, this.account, openRisk, { peakBalance: this.peakBalance() });
+  }
+
+  // The account's days as the floor saw them (from the daily reports), before today. Past days
+  // don't change, so they're read once a day.
+  #pastDays() {
+    const today = this.reportDay();
+    const key = `${this.login}|${today}`;
+    if (this.pastDaysCache?.key !== key) {
+      this.pastDaysCache = { key, days: this.reports.balances(this.login).filter((d) => d.day !== today) };
+    }
+    return this.pastDaysCache.days;
+  }
+
+  // The best end-of-day balance so far (1-Step's max loss trails it). Every day's starting
+  // balance is the end of the day before; a past day's last balance is its end. Remembered,
+  // so it never goes down.
+  peakBalance() {
+    if (!this.login) return null;
+    let peak = this.state.peaks?.[this.login] ?? 0;
+    for (const d of this.#pastDays()) peak = Math.max(peak, d.startBalance, d.balance);
+    return peak || null;
+  }
+
+  #trackPeak() {
+    const acc = this.account;
+    if (!this.profile || !acc || !Number.isFinite(acc.balance)) return;
+    const start = acc.balance - (acc.closedToday || 0);
+    this.state.peaks ||= {};
+    const prev = this.state.peaks[this.login] ?? 0;
+    const peak = Math.max(prev, this.peakBalance() ?? 0, start);
+    if (peak > prev + 0.005) {
+      this.state.peaks[this.login] = Math.round(peak * 100) / 100;
+      this.save();
+    }
+  }
+
+  // FTMO 1-Step's Best Day rule, today included: null when the account's program doesn't have it.
+  consistency() {
+    const p = this.profile;
+    const acc = this.account;
+    if (!p || !acc) return null;
+    const rules = programRules(p);
+    if (!rules.bestDayPct) return null;
+    const today = this.reportDay();
+    const days = this.#pastDays().map((d) => ({ day: d.day, pnl: Math.round((d.balance - d.startBalance) * 100) / 100 }));
+    days.push({ day: today, pnl: Math.round((acc.closedToday || 0) * 100) / 100, today: true });
+    const c = bestDayCheck(days, rules.bestDayPct);
+    // A day that makes more than half the target's profit could break the rule at the finish
+    // line, so the plan calls it a day there (open trades still run to their exits).
+    c.dayCap = p.targetPct ? Math.round(p.size * (p.targetPct / 100) * (rules.bestDayPct / 100) * 100) / 100 : null;
+    c.known = !!rules.program;
+    return c;
   }
 
   #guard() {
@@ -615,18 +695,32 @@ export class LiveTrader extends EventEmitter {
       this.#note('New trading day on the FTMO server — daily loss guard reset (arm again to trade)', 'risk');
     }
     if (this.halt) return;
-    const m = guardMetrics(p, acc, 0);
+    const m = this.#metricsWith(0);
     let kind = null;
     let reason = null;
     if (m.maxBreach) {
       kind = 'max';
-      reason = `Loss reached ${p.guardPct}% of the ${p.maxLossPct}% max-loss limit (${fmtUsd(-m.totalLoss)})`;
+      reason = `Loss reached ${p.guardPct}% of the ${p.maxLossPct}% max-loss limit (${fmtUsd(-m.totalLoss)}${m.trailing ? ` below the best end-of-day balance, ${fmtUsd(m.maxBase)}` : ''})`;
     } else if (m.dailyBreach) {
       kind = 'daily';
       reason = `Today's loss reached ${p.guardPct}% of the ${p.dailyLossPct}% daily limit (${fmtUsd(-m.dailyLoss)})`;
     } else if (p.stopAtTarget && m.targetHit) {
-      kind = 'target';
-      reason = `Profit target of ${p.targetPct}% reached (${fmtUsd(m.profit, { sign: true })}) — locking it in`;
+      // 1-Step: the target only counts once the Best Day rule is met too. Until then the
+      // desks keep trading (at half risk, see the account brain) to add winning days.
+      const c = this.consistency();
+      if (c && !c.ok) {
+        const day = this.reportDay();
+        if (this.bestDayNoted !== day) {
+          this.bestDayNoted = day;
+          const text = `Profit target reached, but FTMO's Best Day rule isn't met yet: the best day (${fmtUsd(c.best.pnl, { sign: true })}) is ${Math.round(c.share * 100)}% of the ${fmtUsd(c.total)} made on winning days, over ${c.pct}%. About ${fmtUsd(c.needed)} more on other days passes it. Trading on at half risk`;
+          this.#note(text, 'risk');
+          this.reports.event(day, 'bestday', text);
+          this.#alert('guard', `🏁 ${text}.`);
+        }
+      } else {
+        kind = 'target';
+        reason = `Profit target of ${p.targetPct}% reached (${fmtUsd(m.profit, { sign: true })})${c ? ' and the Best Day rule is met' : ''} — locking it in`;
+      }
     }
     if (!kind) return;
     this.state.halts[this.login] = { kind, reason, day: this.bridge.serverDay, at: Date.now() };
@@ -766,6 +860,7 @@ export class LiveTrader extends EventEmitter {
       reasons: Object.entries(r?.skipped || {}).sort((a, b) => b[1] - a[1]),
       recent: (r?.skipSamples || []).slice(-6).reverse(),
       byDesk,
+      actions: { n: this.bridge.actionsToday(), ...ACTION_LIMITS },
     };
   }
 
@@ -849,6 +944,8 @@ export class LiveTrader extends EventEmitter {
     if (plan.testAlert) return this.#skip(agent, pos, key, 'it was a test alert from the TradingView tab (tests never trade the account)');
     if (!spec) return this.#skip(agent, pos, key, `no MT5 price for ${brokerSymbol} yet`);
     if (!acc.algoAllowed || !acc.tradeAllowed) return this.#skip(agent, pos, key, 'Algo Trading is switched off in MT5');
+    const actions = this.bridge.actionsToday();
+    if (actions >= ACTION_LIMITS.newTrades) return this.#skip(agent, pos, key, `${actions} order actions sent to MT5 today; new trades stop at ${ACTION_LIMITS.newTrades}, far below FTMO's ${ACTION_LIMITS.ftmo} a day`);
     const ours = this.bridge.positions.filter((x) => this.#ours(x)).length
       + [...this.links.values()].filter((l) => l.state === 'pending').length;
     // Training on FTMO: as many positions as the EA allows (its own cap, 8 unless changed).
@@ -879,7 +976,7 @@ export class LiveTrader extends EventEmitter {
     // Orders MT5 hasn't filled yet count too: several desks can send trades in the same second.
     const inFlight = [...this.links.values()].filter((l) => l.state === 'pending' && !l.previousSession && !l.ticket).reduce((sum, l) => sum + (l.risk || 0), 0);
     const openRisk = this.openRisk() + inFlight;
-    const m = guardMetrics(p, acc, openRisk);
+    const m = this.#metricsWith(openRisk);
     if (actualRisk > m.dailyRoom) return this.#skip(agent, pos, key, `not enough room under the daily loss guard (${fmtUsd(Math.max(0, m.dailyRoom))} left)`);
     if (actualRisk > m.maxRoom) return this.#skip(agent, pos, key, `not enough room under the max loss guard (${fmtUsd(Math.max(0, m.maxRoom))} left)`);
     // Training on FTMO leaves out the open-risk budget: the loss-guard room above already
@@ -927,6 +1024,7 @@ export class LiveTrader extends EventEmitter {
     const long = link.side === 'BUY';
     const tighter = long ? desired > link.sl + minMove : desired < link.sl - minMove;
     if (!tighter || (link.modifyFailures || 0) >= 3) return;
+    if (this.bridge.actionsToday() >= ACTION_LIMITS.stopMoves) return; // the stop already on MT5 stays
     const price = long ? spec.bid : spec.ask;
     if (long ? desired >= price : desired <= price) return; // the desk's own exit logic will close it
     const digits = spec.digits ?? 5;
@@ -1081,6 +1179,7 @@ export class LiveTrader extends EventEmitter {
       openRisk: this.openRisk(),
       plan,
       types: ACCOUNT_TYPES,
+      programs: PROGRAMS,
       defaults: DEFAULTS,
       brokerSymbolCount: brokerSymbols.length,
       suggestedMap: autoMap(brokerSymbols),

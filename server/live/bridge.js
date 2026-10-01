@@ -17,6 +17,10 @@ import { EventEmitter } from 'node:events';
 // sync wakes it up. Twice a second only while orders are on their way, once a second while
 // positions are open or a desk is about to trade, every 2 seconds otherwise.
 
+// FTMO allows 2,000 order actions (opens, closes, stop changes) a day. The floor normally
+// sends about a hundred; these are seatbelts in case something ever loops.
+export const ACTION_LIMITS = { ftmo: 2000, newTrades: 1000, stopMoves: 1500 };
+
 const STALE_MS = 5000;
 export const PACE = { busy: 500, active: 1000, idle: 2000 };
 const RESEND_MS = 8000;
@@ -43,6 +47,12 @@ export class Mt5Bridge extends EventEmitter {
     this.wantSymbols = false;
     this.lastCommandAt = 0;
     this.urgent = false; // set by the live trader: a desk is about to trade the account
+    this.actions = { day: null, n: 0 }; // order actions sent on this server day
+  }
+
+  // Order actions sent to MT5 on this server day (FTMO counts every order request).
+  actionsToday() {
+    return this.actions.day === this.serverDay ? this.actions.n : 0;
   }
 
   get connected() {
@@ -145,6 +155,9 @@ export class Mt5Bridge extends EventEmitter {
 
   #queue(kind, fields, meta) {
     const id = `c${Date.now().toString(36)}${(++seq).toString(36)}`;
+    if (this.actions.day !== this.serverDay) this.actions = { day: this.serverDay, n: 0 };
+    // Closing everything is one request per position on the server.
+    this.actions.n += kind === 'closeall' ? Math.max(1, this.positions.length) : 1;
     const clean = fields.map((f) => String(f).replace(/[|\n\r]/g, ' '));
     this.pending.set(id, { id, kind, line: [kind, id, ...clean].join('|'), createdAt: Date.now(), sentAt: 0, meta });
     this.lastCommandAt = Date.now();

@@ -249,6 +249,7 @@ app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
     close: () => live.closeTicket(b.ticket),
     'reset-halt': () => live.resetHalt(),
     plan: () => live.setPlan(b),
+    program: () => live.setProgram(b.program),
     'install-ea': () => live.installEa(),
     'stay-armed': () => live.setStayArmed(b.on),
   };

@@ -127,7 +127,7 @@ export class BrainView {
         <div><span>Risk per trade now</span><b class="num">${plan.riskPct.toFixed(2)}% · ${money(plan.riskMoney)}</b></div>
       </div>
       ${plan.reasons.length ? `<ul class="plan-why">${plan.reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join('')}</ul>` : '<p class="fine">Risk is at your base setting: no drawdown, no losing streak, room left today.</p>'}
-      <p class="fine">${plan.winsToTarget ? `About <b>${plan.winsToTarget}</b> clean 2R winners from the target at this risk · ` : ''}Trading days: ${plan.tradingDays} (FTMO asks for at least ${plan.minTradingDays}) · losing streak: ${plan.streak} · trades today: ${plan.tradesToday} of ${plan.maxTradesPerDay}</p>
+      <p class="fine">${plan.winsToTarget ? `About <b>${plan.winsToTarget}</b> clean 2R winners from the target at this risk · ` : ''}Trading days: ${plan.tradingDays}${plan.minTradingDays ? ` (FTMO asks for at least ${plan.minTradingDays})` : ''} · losing streak: ${plan.streak} · trades today: ${plan.tradesToday} of ${plan.maxTradesPerDay}</p>
       <ul class="plan-rules">${plan.rules.map((r) => `<li class="${r.ok ? 'ok' : 'warn'}">${escapeHtml(r.text)}</li>`).join('')}</ul>`;
   }
 

@@ -35,6 +35,7 @@ export class LiveView {
       <h1>FTMO live trading</h1>
       <p class="lede">Let the desks trade your FTMO account through MetaTrader 5. Every order carries a stop-loss, lots are sized for your account, and nothing trades for real until you arm it. Your FTMO password stays in MT5.</p>
       <div class="card steps-card" id="live-steps"></div>
+      <div class="card program-card" id="live-program" hidden></div>
       <div class="card today-card" id="live-today" hidden></div>
       <div class="card ea-card" id="live-ea" hidden></div>
       <div id="live-warnings"></div>
@@ -67,7 +68,7 @@ export class LiveView {
     this.root.addEventListener('change', (e) => {
       const t = e.target;
       if (t.matches('[data-desk]')) this.#post('desk', { agentId: t.dataset.desk, enabled: t.checked });
-      if (t.id === 'lv-type') this.#applyPreset(t.value);
+      if (t.id === 'lv-type' || t.id === 'lv-program') this.#applyPreset(this.root.querySelector('#lv-type').value);
       if (t.matches('[data-plan-switch]')) onPlanSwitch(t, this.store.live?.plan);
       if (t.matches('[data-stay-armed]')) this.#onStayArmed(t);
       if (t.id === 'tg-enabled') this.#alertsPost('settings', { enabled: t.checked }).then((r) => this.#afterAlerts(r));
@@ -205,6 +206,11 @@ export class LiveView {
       btn.disabled = true;
       await setPlanSwitch('provenOnly', false, v.plan);
       btn.disabled = false;
+    } else if (act === 'program') {
+      const prog = v.programs?.[btn.dataset.program];
+      if (!prog) return;
+      if (!confirm(`Set account ${v.account.login} to FTMO ${prog.label}?\n\n${btn.dataset.program === '1-step' ? '3% daily loss, 10% max loss trailing the best end-of-day balance, and the Best Day rule.' : '5% daily loss, 10% max loss fixed at the starting balance.'}\n\nCheck it matches your account in the FTMO Client Area (MetriX).`)) return;
+      await this.#post('program', { program: btn.dataset.program });
     } else if (act === 'hide-connect') {
       this.showConnect = false;
       this.render(true);
@@ -259,8 +265,12 @@ export class LiveView {
   }
 
   #applyPreset(type) {
-    const preset = this.store.live?.types?.[type];
-    if (!preset) return;
+    const program = this.store.live?.programs?.[this.root.querySelector('#lv-program')?.value];
+    const base = this.store.live?.types?.[type];
+    if (!base) return;
+    // The program sets the loss limits (no program yet: the stricter 1-Step daily limit).
+    const strict = this.store.live?.programs?.['1-step'];
+    const preset = { ...base, ...(program ? { dailyLossPct: program.dailyLossPct, maxLossPct: program.maxLossPct } : strict ? { dailyLossPct: Math.min(base.dailyLossPct, strict.dailyLossPct) } : {}) };
     const set = (id, val) => {
       const el = this.root.querySelector(id);
       if (el) el.value = val ?? '';
@@ -277,6 +287,7 @@ export class LiveView {
     const target = q('#lv-target').value;
     return {
       type: q('#lv-type').value,
+      program: q('#lv-program')?.value || null,
       size: Number(q('#lv-size').value),
       targetPct: target === '' ? null : Number(target),
       dailyLossPct: Number(q('#lv-daily').value),
@@ -360,6 +371,30 @@ export class LiveView {
       <div class="next-step"><span>${escapeHtml(next.text)}</span>${btn}</div>`;
   }
 
+  // Which FTMO program is the account on? Until the boss says, the guard follows the stricter
+  // 1-Step limits; one click sets it.
+  #renderProgram(v) {
+    const el = this.root.querySelector('#live-program');
+    const show = !!v.profile && !!v.plan && !v.plan.program && !!v.programs;
+    el.hidden = !show;
+    if (!show) return;
+    const size = v.profile.size;
+    const usd = (pct) => money(size * pct / 100);
+    const html = `
+      <h2>Which FTMO program is this account?</h2>
+      <p class="sub">FTMO's two programs have different rules, and a Free Trial comes in both. Until you choose, the guard follows the stricter one (1-Step), so nothing can breach either.</p>
+      <div class="program-pick">
+        <button class="program-opt" data-act="program" data-program="2-step"><b>2-Step</b>
+          <span>Max daily loss ${usd(5)} (5%) · max loss ${usd(10)} (10%), fixed at the starting balance · no Best Day rule</span></button>
+        <button class="program-opt" data-act="program" data-program="1-step"><b>1-Step</b>
+          <span>Max daily loss ${usd(3)} (3%) · max loss ${usd(10)} (10%) that trails your best end-of-day balance · Best Day rule: no day over 50% of the profit</span></button>
+      </div>
+      <p class="fine">Not sure? In the FTMO Client Area open this account's <b>MetriX</b>: "Max Daily Loss" of ${usd(5)} means 2-Step, ${usd(3)} means 1-Step.</p>`;
+    if (el.dataset.html === html) return;
+    el.dataset.html = html;
+    el.innerHTML = html;
+  }
+
   // Today on the account: are the desks trading, and if not, why not?
   #renderToday() {
     const el = this.root.querySelector('#live-today');
@@ -379,6 +414,7 @@ export class LiveView {
     const p = v.profile;
 
     this.#renderSteps(v);
+    this.#renderProgram(v);
     this.#renderToday();
     this.#renderEa(v);
     this.#renderAlerts();
@@ -432,7 +468,7 @@ export class LiveView {
       const today = acc.equity - m.dayStartBalance;
       $('#live-rules').innerHTML = `
         <h2>Account vs FTMO rules</h2>
-        <p class="sub">${escapeHtml(v.types[p.type].label)} · limits ${p.dailyLossPct}% daily / ${p.maxLossPct}% max${p.targetPct ? ` · target ${p.targetPct}%` : ''} · the guard acts at ${p.guardPct}% of each limit (white marker)</p>
+        <p class="sub">${escapeHtml(v.types[p.type].label)}${v.plan?.program ? ` · ${escapeHtml(v.plan.programLabel)}` : ''} · limits ${p.dailyLossPct}% daily / ${p.maxLossPct}% max${m.trailing ? ' (trailing)' : ''}${p.targetPct ? ` · target ${p.targetPct}%` : ''} · the guard acts at ${p.guardPct}% of each limit (white marker)</p>
         <div class="mini-tiles">
           <div><span>Balance</span><b class="num">${money(acc.balance)}</b></div>
           <div><span>Equity</span><b class="num">${money(acc.equity)}</b></div>
@@ -442,7 +478,9 @@ export class LiveView {
         <div class="meters">
           ${m.targetEquity ? meter('Profit target', Math.max(0, m.targetProgress), `${money(m.profit, { sign: true })} of ${money(m.targetEquity - p.size)}`, p.stopAtTarget ? 'Trading stops automatically when the target is reached.' : 'Keeps trading after the target.', 'good') : ''}
           ${meter('Daily loss used', m.dailyUsed, `${money(-m.dailyLoss)} of ${money(-m.dailyLimit)} · ${pct(m.dailyUsed)}`, `Measured from today's starting balance ${money(m.dayStartBalance)}. Stops at ${money(-m.dailyGuard)}.`)}
-          ${meter('Max loss used', m.maxUsed, `${money(-m.totalLoss)} of ${money(-m.maxLimit)} · ${pct(m.maxUsed)}`, `Account may not fall below ${money(p.size - m.maxLimit)}. Stops at ${money(p.size - m.maxGuard)}.`)}
+          ${meter('Max loss used', m.maxUsed, `${money(-m.totalLoss)} of ${money(-m.maxLimit)} · ${pct(m.maxUsed)}`, m.trailing
+            ? `Trailing (1-Step${v.plan?.program ? '' : ' rules, until you set the program'}): equity may not fall below ${money(m.maxFloor)}, ${p.maxLossPct}% under the best end-of-day balance ${money(m.maxBase)}. The line moves up with new highs, never above ${money(p.size)}. The guard stops at ${money(m.maxBase - m.maxGuard)}.`
+            : `Account may not fall below ${money(m.maxFloor)}. Stops at ${money(m.maxBase - m.maxGuard)}.`)}
         </div>
         ${planSwitches(v.plan)}`;
     } else {
@@ -506,6 +544,7 @@ export class LiveView {
       this.formLogin = acc.login;
       const cur = p || { type: 'trial', size: acc.initialDeposit || acc.balance, ...v.types.trial, ...v.defaults };
       const map = p?.symbolMap || v.suggestedMap;
+      const programOpts = `<option value="" ${cur.program ? '' : 'selected'}>Not sure yet (the stricter 1-Step limits apply)</option>${Object.entries(v.programs || {}).map(([k, t]) => `<option value="${k}" ${k === cur.program ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}`;
       const typeOpts = Object.entries(v.types).map(([k, t]) => `<option value="${k}" ${k === cur.type ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('');
       const mapRows = Object.keys(v.suggestedMap).map((id) => {
         const opts = [...new Set([...(v.candidates[id] || []), ...(map[id] ? [map[id]] : [])])];
@@ -513,8 +552,9 @@ export class LiveView {
       }).join('');
       $('#live-setup').innerHTML = `
         <h2>${p ? 'Edit account setup' : `Set up account ${escapeHtml(String(acc.login))}`}</h2>
-        <p class="sub">Is this a Free Trial or a Challenge? The FTMO limits below are pre-filled with FTMO's standard 2-Step values. <b>Check them against your account in the FTMO Client Area</b> and change them if your program differs.</p>
+        <p class="sub">Is this a Free Trial or a Challenge, 2-Step or 1-Step? The FTMO limits below are pre-filled with FTMO's standard values for the program you pick. <b>Check them against your account in the FTMO Client Area</b> and change them if yours differ.</p>
         <div class="form-grid">
+          <label>FTMO program<select id="lv-program">${programOpts}</select><span class="hint">MetriX shows it: max daily loss 5% = 2-Step, 3% = 1-Step</span></label>
           <label>Account type<select id="lv-type">${typeOpts}</select></label>
           <label>Account size (${escapeHtml(acc.currency || 'USD')})<input type="number" id="lv-size" min="1000" step="1000" value="${Math.round(cur.size)}"><span class="hint">Detected starting balance: ${money(acc.initialDeposit || acc.balance)}</span></label>
           <label>Profit target %<input type="number" id="lv-target" step="0.5" value="${cur.targetPct ?? ''}"><span class="hint">Empty = no target (funded account)</span></label>

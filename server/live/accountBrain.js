@@ -1,5 +1,5 @@
 import { fmtUsd } from '../util/format.js';
-import { trainingOn } from './rules.js';
+import { trainingOn, programRules } from './rules.js';
 
 // The account brain: the plan a professional prop trader follows to pass a challenge and
 // then keep getting paid. The paper desks can experiment; the account only gets the best
@@ -66,12 +66,17 @@ export class AccountBrain {
     const reasons = [];
     let blocked = null;
 
-    const ddFrac = Math.max(0, -profit) / size;
+    // Drawdown from where the max-loss line is measured: the start (2-Step), or the best
+    // end-of-day balance while 1-Step's line still trails it.
+    const rules = programRules(p);
+    const ddFrac = m.totalLoss / size;
     if (ddFrac > 0) {
       const k = clamp(1 - ddFrac / (0.5 * (p.maxLossPct / 100)), 0.4, 1);
       if (k < 0.995) {
         mult *= k;
-        reasons.push(`The account is ${fmtUsd(profit)} from its start, so risk is ×${k.toFixed(2)} until that's won back`);
+        reasons.push(m.trailing && m.maxBase > size + 0.005
+          ? `The account is ${fmtUsd(-m.totalLoss)} below its best end-of-day balance (${fmtUsd(m.maxBase)}), where FTMO's max loss is measured from, so risk is ×${k.toFixed(2)} until that's won back`
+          : `The account is ${fmtUsd(profit)} from its start, so risk is ×${k.toFixed(2)} until that's won back`);
       }
     }
     const dayLoss = Math.max(0, -dayPnl) / size;
@@ -90,6 +95,20 @@ export class AccountBrain {
       reasons.push(`${streak} losses in a row: half risk until the next winner`);
     }
     if (holds && p.tradeCapOn !== false && tradesToday >= p.maxTradesPerDay) blocked = blocked || `${tradesToday} trades today, the plan's daily cap of ${p.maxTradesPerDay} (the trade cap can be switched off below)`;
+
+    // FTMO's own rules stop the day even while training: 1-Step's Best Day rule. A day that
+    // makes more than half the target could be "too good" at the finish line, so the desks call
+    // it a day there. Past the target with the rule not met yet, they trade on at half risk.
+    const best = rules.bestDayPct ? lt.consistency?.() ?? null : null;
+    let ruleStop = null;
+    if (best?.dayCap && dayPnl >= best.dayCap) {
+      ruleStop = `Best Day rule: ${fmtUsd(dayPnl, { sign: true })} today, half the target's profit. Done for today so no single day is more than ${rules.bestDayPct}% of the profit (FTMO ${rules.program ? '1-Step' : '1-Step rules, until you set the program'})`;
+    }
+    const bestDayPending = !!(best && !best.ok && m.targetHit);
+    if (bestDayPending) {
+      mult *= 0.5;
+      reasons.push(`Target reached, but the Best Day rule needs about ${fmtUsd(best.needed)} more on other days: half risk to keep the target`);
+    }
 
     let remaining = null;
     if (m.targetEquity) {
@@ -110,16 +129,27 @@ export class AccountBrain {
     if (!reasons.length && profit > 0.02 * size) reasons.push('A profit cushion is built, so the normal risk applies (never more)');
 
     const phase = p.type === 'funded' ? 'Funded' : p.type === 'verification' ? 'Verification' : p.type === 'challenge' ? 'Challenge' : 'Free Trial';
+    const maxText = `${p.maxLossPct}% max loss${m.trailing ? ' (trailing)' : ''}`;
     const goal = p.type === 'funded'
       ? 'Payouts: steady, small gains. Protect the account first'
-      : `Pass: reach +${p.targetPct}% (${fmtUsd(m.targetEquity - size)}) without touching the ${p.dailyLossPct}% daily or ${p.maxLossPct}% max loss`;
+      : `Pass: reach +${p.targetPct}% (${fmtUsd(m.targetEquity - size)}) without touching the ${p.dailyLossPct}% daily or ${maxText}${rules.bestDayPct ? `, no day over ${rules.bestDayPct}% of the profit` : ''}`;
     const winsToTarget = remaining != null && remaining > 0 && riskMoney > 0 ? Math.ceil(remaining / (riskMoney * 2)) : null;
-    const status = lt.halt ? 'HALTED' : blocked ? 'STOPPED FOR TODAY' : mult < 0.99 ? 'CAUTIOUS' : 'NORMAL';
+    const status = lt.halt ? 'HALTED' : blocked || ruleStop ? 'STOPPED FOR TODAY' : mult < 0.99 ? 'CAUTIOUS' : 'NORMAL';
+    // FTMO's rules for this account, in the plan's list (any program).
+    const ftmoRules = [
+      !rules.program && { text: 'Which FTMO program is this account, 2-Step or 1-Step? Not set yet, so the guard follows the stricter 1-Step limits (3% daily, trailing max loss) until you choose in the FTMO tab', ok: false },
+      m.trailing && { text: `Max loss line: equity must stay above ${fmtUsd(m.maxFloor)}, ${p.maxLossPct}% below the best end-of-day balance${m.maxBase >= size + m.maxLimit - 0.005 ? ' (it has stopped trailing: it never goes above the starting balance)' : ` (${fmtUsd(m.maxBase)}); the line moves up with new highs, never above ${fmtUsd(size)}`}`, ok: m.maxUsed < 0.5 },
+      best && { text: best.share == null
+        ? `Best Day rule: no single day may be more than ${best.pct}% of the profit from winning days (none yet). The desks stop for the day at ${fmtUsd(best.dayCap, { sign: true })}`
+        : `Best Day rule: best day ${fmtUsd(best.best.pnl, { sign: true })} is ${Math.round(best.share * 100)}% of ${fmtUsd(best.total)} from ${best.winningDays} winning day${best.winningDays === 1 ? '' : 's'} (${best.pct}% or less to pass${best.ok ? '' : `, about ${fmtUsd(best.needed)} more on other days`}). Desks stop for the day at ${fmtUsd(best.dayCap, { sign: true })}`, ok: best.ok || !m.targetHit },
+    ].filter(Boolean);
     const minGrade = p.minGrade;
     return {
-      phase, goal, status, blocked, reasons,
+      phase, goal, status, blocked: blocked || ruleStop, ruleStop, reasons,
+      program: rules.program, programLabel: rules.label, trailing: m.trailing, maxFloor: m.maxFloor, dailyFloor: m.dailyFloor, peakBalance: m.peakBalance,
+      bestDay: best, bestDayPending,
       baseRiskPct: base, riskPct: Math.round(riskPct * 1000) / 1000, riskMoney, mult: Math.round(mult * 100) / 100,
-      equity: acc.equity, size, profit, dayPnl, streak, tradesToday, tradingDays, minTradingDays: 4,
+      equity: acc.equity, size, profit, dayPnl, streak, tradesToday, tradingDays, minTradingDays: rules.minTradingDays,
       remaining, winsToTarget,
       dailyStopPct: p.dailyStopPct, dailyStopOn: p.dailyStopOn !== false, dailyLossPct: p.dailyLossPct, guardPct: p.guardPct, maxTradesPerDay: p.maxTradesPerDay, streakStop: p.streakStop, minGrade,
       tradeCapOn: p.tradeCapOn !== false, streakStopOn: p.streakStopOn !== false, provenOnly: p.provenOnly !== false,
@@ -131,6 +161,7 @@ export class AccountBrain {
         { text: 'Every order carries its stop-loss', ok: true },
         { text: 'Flat before high-impact news, no trades in a blackout', ok: true },
         { text: `FTMO guard closes everything at ${p.guardPct}% of a limit, and no trade goes in that could breach it`, ok: !lt.halt },
+        ...ftmoRules,
       ] : [
         p.provenOnly !== false
           ? { text: `Only committee ${minGrade === 'A' ? 'A-grade' : 'A and B-grade'} trades from desks with a proven edge on real prices`, ok: true }
@@ -149,6 +180,7 @@ export class AccountBrain {
         { text: 'One position per correlated group', ok: true },
         { text: 'Flat before high-impact news, no trades in a blackout', ok: true },
         { text: `FTMO guard closes everything at ${p.guardPct}% of a limit`, ok: !lt.halt },
+        ...ftmoRules,
       ],
     };
   }
@@ -177,6 +209,8 @@ export class AccountBrain {
     if (!st) return { ok: true, riskMult: 1 };
     // The boss's own TradingView alert: not held back by the desk's paper record or grade.
     const boss = plan.tag === 'TV';
+    // FTMO's own rules hold even while training.
+    if (st.ruleStop) return { ok: false, reason: st.ruleStop };
     // Training on FTMO: every trade goes, sized by the plan (and the desk's grade, in the live trader).
     if (st.training) return { ok: true, riskMult: st.mult, reasons: st.reasons, boss, training: true };
     if (st.blocked) return { ok: false, reason: st.blocked };
@@ -214,6 +248,7 @@ export class AccountBrain {
     const open = this.#links().find((l) => l.agentId === agent.id && !l.previousSession && ['open', 'closing', 'pending'].includes(l.state));
     if (open) return { state: 'live', label: 'LIVE', text: `Live on MT5: ${open.side} ${open.volumeNow ?? open.volume0} ${open.brokerSymbol}` };
     if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };
+    if (st?.ruleStop && lt.armed) return { state: 'stopped', label: 'Stopped today', text: st.ruleStop };
     if (st?.training) {
       if (!lt.armed) return { state: 'ready', label: 'Training · not armed', text: 'Every trade it takes will go to FTMO (training on FTMO). Arm live trading to start.' };
       return { state: 'training', label: 'Training on FTMO', text: 'Every trade it takes goes to your FTMO account (training on FTMO).' };

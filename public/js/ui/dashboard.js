@@ -335,7 +335,7 @@ export class Dashboard {
         </tr>`).join('')}</tbody>`;
 
     $('#dash-risk-title').textContent = 'FTMO rules';
-    $('#dash-risk-sub').textContent = `Limits ${p.dailyLossPct}% daily / ${p.maxLossPct}% max${p.targetPct ? ` · target ${p.targetPct}%` : ''}. The guard closes the floor's positions at ${p.guardPct}% of a limit (white marker).`;
+    $('#dash-risk-sub').textContent = `${v.plan?.program ? `${v.plan.programLabel} · ` : ''}Limits ${p.dailyLossPct}% daily / ${p.maxLossPct}% max${m.trailing ? ' (trailing)' : ''}${p.targetPct ? ` · target ${p.targetPct}%` : ''}. The guard closes the floor's positions at ${p.guardPct}% of a limit (white marker).`;
     const guardAt = p.guardPct / 100;
     const meter = (label, used, detail, kind) => {
       const cls = kind || (used >= guardAt ? 'crit' : used >= guardAt * 0.6 ? 'warn' : '');

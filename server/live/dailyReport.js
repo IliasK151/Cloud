@@ -14,6 +14,8 @@ const EVENTS = 60;
 
 // Why a trade stayed on paper, grouped the way the boss thinks about it.
 const CATEGORIES = [
+  [/Best Day rule/i, 'FTMO Best Day rule'],
+  [/order actions/i, 'FTMO order-action limit'],
   [/committee grade/i, 'Committee grade too low'],
   [/correlated group/i, 'Correlated position already open'],
   [/live positions \(max/i, 'Max open positions reached'],
@@ -217,6 +219,18 @@ export class DailyReports {
       out.push({ day: this.current.day, final: false, dayPnl: s.dayPnl, trades: s.trades, wins: s.wins, skipped: s.skipped });
     }
     return out.sort((a, b) => String(b.day).localeCompare(String(a.day)));
+  }
+
+  // One account's balance at the start and end of every day the floor saw it, oldest first
+  // (for 1-Step's trailing max loss and Best Day rule).
+  balances(login) {
+    const out = [];
+    for (const { day } of this.list()) {
+      const a = this.get(day)?.account;
+      if (!a || String(a.login) !== String(login) || !Number.isFinite(a.startBalance) || !Number.isFinite(a.balance)) continue;
+      out.push({ day, startBalance: a.startBalance, balance: a.balance });
+    }
+    return out.reverse();
   }
 
   get(day) {
