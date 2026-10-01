@@ -717,6 +717,30 @@ export class LiveTrader extends EventEmitter {
     }
   }
 
+  // Today on the account: what went to MT5 and what stayed on paper, and why (the FTMO tab's
+  // "Today on the account" card answers "are they trading, and if not, why not?").
+  #todayView(links) {
+    const day = this.reportDay();
+    const r = this.reports.current?.day === day ? this.reports.current : null;
+    const sent = links.filter((l) => !l.previousSession && l.login === this.login && l.openedDay === day && (l.ticket || l.state === 'pending' || l.state === 'failed'));
+    const byDesk = {};
+    for (const l of sent) {
+      const d = (byDesk[l.agentId] ||= { sent: 0, failed: 0, held: 0 });
+      if (l.state === 'failed') d.failed++;
+      else d.sent++;
+    }
+    for (const [id, d] of Object.entries(r?.desks || {})) (byDesk[id] ||= { sent: 0, failed: 0, held: 0 }).held = d.skipped || 0;
+    return {
+      day,
+      sent: sent.filter((l) => l.state !== 'failed').length,
+      failed: sent.filter((l) => l.state === 'failed').length,
+      held: Object.values(r?.skipped || {}).reduce((s, n) => s + n, 0),
+      reasons: Object.entries(r?.skipped || {}).sort((a, b) => b[1] - a[1]),
+      recent: (r?.skipSamples || []).slice(-6).reverse(),
+      byDesk,
+    };
+  }
+
   #skip(agent, pos, key, reason) {
     this.links.set(key, {
       key, agentId: agent.id, floorSymbol: pos.symbol, brokerSymbol: this.profile.symbolMap[pos.symbol],
@@ -992,6 +1016,7 @@ export class LiveTrader extends EventEmitter {
           lastSkip: skip ? { reason: skip.reason, symbol: skip.floorSymbol, at: skip.createdAt, state: skip.state } : null,
         };
       }),
+      today: this.#todayView(links),
       equityHistory: this.equityHistory.slice(-240),
       ...this.#tradesView(links),
       positions: this.bridge.positions.map((x) => ({ ...x, agentId: this.#ours(x) ? this.agentForMagic(x.magic) : null, floor: this.#ours(x) })),

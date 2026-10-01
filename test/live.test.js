@@ -610,3 +610,84 @@ test('MT5 going quiet for a minute is an alert, and so is it coming back', () =>
   live.tick();
   assert.match(alerts.at(-1).text, /MT5 is back after 1 minute/);
 });
+
+test('Today on the account: ideas, what the committee turned down, what stayed on paper and why, what reached MT5', async () => {
+  const { todaySummary, todayRailNote, marketClock, renderToday } = await import('../public/js/ui/todayCard.js');
+  const { fund, live, sync } = setup({ committee: 'on' });
+  sync();
+  live.setup({ type: 'trial', size: 100_000 });
+  live.setDesk('amara', true);
+  live.setDesk('chen', true);
+  live.setPlan({ provenOnly: false }); // as on the boss's Free Trial
+  assert.equal(live.arm().ok, true);
+  const store = () => ({ live: live.view(), agents: Object.fromEntries(fund.agents.map((a) => [a.id, a.snapshot()])) });
+
+  let s = todaySummary(store());
+  assert.match(s.headline, /No trades yet today\. Everything is connected and armed.*hasn't given them a setup/);
+  assert.deepEqual([s.funnel.ideas, s.funnel.paper, s.funnel.held, s.funnel.sent], [0, 0, 0, 0]);
+
+  // The committee turns an idea down: counted once, with the reason, and not again when the
+  // desk repeats it a minute later.
+  const amara = fund.byId.get('amara');
+  const committee = fund.committee;
+  const review = committee.review.bind(committee);
+  committee.review = () => ({ ok: false, silent: false, reason: 'the target is only 0.6R, less than the risk', grade: '—' });
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3806, reason: 'sweep', symbol: 'XAUUSD' }), false);
+  committee.review = () => ({ ok: false, silent: true, reason: 'the target is only 0.6R, less than the risk', grade: '—' });
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3806, reason: 'sweep', symbol: 'XAUUSD' }), false);
+  committee.review = review;
+  assert.deepEqual(amara.snapshot().today, { ideas: 1, vetoed: 1, skipped: 0, entries: 0, whyNot: amara.day.whyNot });
+  assert.match(amara.day.whyNot.text, /committee said no: the target is only 0\.6R/);
+  s = todaySummary(store());
+  assert.match(s.headline, /found 1 setup and the committee turned it down/);
+
+  // The next idea the committee isn't convinced by (grade C): a paper trade, held back from
+  // the account.
+  committee.review = () => ({ ok: true, silent: false, grade: 'C', score: 0.05, sizeMult: 0.25, thesis: 'Sweep.', reason: 'not convinced' });
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), true);
+  committee.review = review;
+  await tick();
+  live.reconcile();
+  let t = live.view().today;
+  assert.equal(t.held, 1);
+  assert.deepEqual(t.reasons, [['Committee grade too low', 1]]);
+  assert.equal(t.byDesk.amara.held, 1);
+  s = todaySummary(store());
+  assert.match(s.headline, /No trades on FTMO yet today\. .*1 trade was held back from the account, mostly: committee grade too low/);
+  assert.match(s.meaning, /Only A and B-grade trades go to the account/);
+  const row = s.rows.find((r) => r.id === 'amara');
+  assert.deepEqual([row.ideas, row.vetoed, row.paper, row.sent], [2, 1, 1, 0]);
+  assert.match(row.why.text, /XAUUSD trade held back: committee grade C/);
+  amara.closeTrade('XAUUSD', 'test exit');
+
+  // The boss's TradingView alert through Chen goes to MT5.
+  assert.equal(fund.byId.get('chen').handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3815 }).ok, true);
+  await tick();
+  live.reconcile();
+  assert.equal(sync().filter((c) => c[0] === 'open').length, 1);
+  t = live.view().today;
+  assert.equal(t.sent, 1);
+  assert.equal(t.byDesk.chen.sent, 1);
+  s = todaySummary(store());
+  assert.equal(s.tone, 'good');
+  assert.match(s.headline, /^1 trade went to FTMO today\. 1 more stayed on paper, mostly: committee grade too low\./);
+  assert.match(todayRailNote(store()), /1 trade on FTMO today.*data-goto-view="ftmo"/);
+  const html = renderToday({ ...store(), fund: { marketTime: Date.UTC(2026, 9, 1, 6, 13) } }, { now: Date.now(), timeZone: 'Europe/Athens' });
+  assert.match(html, /Now <b>02:13<\/b> in New York, <b>09:13( AM)?<\/b> your time: the Asia session/);
+  assert.match(html, /Committee grade too low/);
+
+  // Disarmed: said first, plainly.
+  live.disarm();
+  assert.match(todaySummary(store()).headline, /isn't armed, so the desks trade on paper only/);
+
+  // The market hours, in the boss's own time (Athens, 1 Oct 2026, New York on summer time).
+  const c = marketClock(Date.UTC(2026, 9, 1, 6, 13), 'Europe/Athens');
+  assert.equal(c.ny, '02:13');
+  assert.match(c.local, /^09:13/);
+  assert.deepEqual(c.windows.map((w) => w.label), ['London open', 'New York open']);
+  assert.match(c.windows[0].local, /^10:00/);
+  assert.match(c.windows[1].local, /^(16:30|04:30 PM)/);
+  assert.deepEqual(c.scalp.map((k) => k.open), [true, false], 'the London scalpers are in their killzone');
+  assert.equal(marketClock(Date.UTC(2026, 9, 3, 12, 0), 'Europe/Athens').weekend, true, 'Saturday');
+  assert.match(marketClock(Date.UTC(2026, 9, 1, 14, 0), 'Europe/Athens').session, /New York session/);
+});

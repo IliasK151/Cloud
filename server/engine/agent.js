@@ -6,7 +6,10 @@ import { eventLabel, spokenLabel, spokenTime } from '../market/calendar.js';
 
 const LOG_SIZE = 80;
 
-const freshDayStats = () => ({ trades: 0, entries: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0 });
+// ideas: setups put to the committee today; vetoed / skipped: turned down by the committee or
+// by what the desk has learned; entries: paper trades; whyNot: the latest reason a signal
+// didn't become a trade (the FTMO tab's "Today on the account" shows it).
+const freshDayStats = () => ({ trades: 0, entries: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0, ideas: 0, vetoed: 0, skipped: 0, whyNot: null });
 
 // Base class for every desk. Strategies override `evaluate(symbol, bar)` and `pitch()`;
 // entries go through `openTrade`, which sizes via the risk desk and then manages the
@@ -92,6 +95,7 @@ export class TraderAgent {
     const check = this.risk.canOpen(this, symbol);
     if (!check.ok) {
       this.lastReject = check.reason;
+      this.#whyNot(`signal skipped: ${check.reason}`);
       this.setStage(`Signal skipped — ${check.reason}`);
       return false;
     }
@@ -106,8 +110,15 @@ export class TraderAgent {
     if (review && !review.ok) {
       this.lastReject = `the committee said no (${review.reason})`;
       this.setStage(`Committee said no: ${review.reason}`, review.silent ? 'quiet' : 'setup');
+      // A repeat of an idea turned down minutes ago isn't a new idea.
+      if (!review.silent) {
+        this.day.ideas++;
+        this.day.vetoed++;
+        this.#whyNot(`the committee said no: ${review.reason}`);
+      }
       return false;
     }
+    this.day.ideas++;
     if (review) riskMultiplier *= review.sizeMult;
 
     // What the desk has learned from its own trades: sit out losing situations, size by
@@ -115,6 +126,8 @@ export class TraderAgent {
     const learn = this.learner.beforeEntry({ symbol, side, entry, stop, target, partialAt, trail, external: tag === 'TV' });
     if (learn.skip) {
       this.lastReject = learn.reason;
+      this.day.skipped++;
+      this.#whyNot(`skipped from experience: ${learn.reason}`);
       this.setStage(`Skipped a signal: ${learn.reason}`);
       return false;
     }
@@ -122,7 +135,10 @@ export class TraderAgent {
     riskMultiplier *= learn.sizeMult;
 
     const qty = this.risk.size(this, symbol, entry, stop, { riskMultiplier });
-    if (!qty) return false;
+    if (!qty) {
+      this.#whyNot('the position size came out at zero');
+      return false;
+    }
     const initialRisk = qty * Math.abs(entry - stop) * usdPerQuote(symbol, entry);
     const meta = review ? { thesis: review.thesis, grade: review.grade, score: Math.round(review.score * 100) / 100, verdict: review.shadowVerdict ?? null, debate: review.debate?.id ?? null, f: review.debate ? Object.fromEntries(Object.entries(review.debate.factors).map(([k, v]) => [k, v ? Math.round(v.value * 100) / 100 : null])) : null } : null;
     const res = this.broker.execute(this.id, symbol, long ? qty : -qty, { reason, tag, stop, target, initialRisk, meta });
@@ -150,6 +166,10 @@ export class TraderAgent {
       { symbol, side, price: fillPx, qty },
     );
     return true;
+  }
+
+  #whyNot(text) {
+    this.day.whyNot = { text, at: this.env.clock.now() };
   }
 
   closeTrade(symbol, reason, fraction = 1) {
@@ -467,6 +487,7 @@ export class TraderAgent {
       lossLimit: this.risk.deskLossLimit(this),
       exposure: this.broker.grossExposure(this.id),
       stats: this.statsView(),
+      today: { ideas: this.day.ideas, vetoed: this.day.vetoed, skipped: this.day.skipped, entries: this.day.entries, whyNot: this.day.whyNot },
       learning: this.learner.summary(),
       news: this.newsView(),
       log: this.log.slice(-10),

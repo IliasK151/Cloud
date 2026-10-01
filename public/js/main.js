@@ -76,6 +76,11 @@ function setView(next, opts = {}) {
   if (next !== 'floor' && store.selected) deselect();
 }
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+// Buttons elsewhere that open a tab (e.g. "See why on the FTMO tab" in the desk rail).
+document.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-goto-view]');
+  if (go) setView(go.dataset.gotoView);
+});
 
 // ---- settings: voices, graphics, tour ------------------------------------------------------
 const settingsBtn = document.getElementById('btn-settings');

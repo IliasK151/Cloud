@@ -2,6 +2,7 @@ import { api } from '../net.js';
 import { money, escapeHtml, signClass } from '../format.js';
 import { planSwitches, onPlanSwitch, provingNote, setPlanSwitch } from './planSwitch.js';
 import { ftmoStatus } from '../book.js';
+import { renderToday } from './todayCard.js';
 
 // FTMO tab: connect MT5, set the account up, pick desks, arm, and watch the rules.
 export class LiveView {
@@ -34,6 +35,7 @@ export class LiveView {
       <h1>FTMO live trading</h1>
       <p class="lede">Let the desks trade your FTMO account through MetaTrader 5. Every order carries a stop-loss, lots are sized for your account, and nothing trades for real until you arm it. Your FTMO password stays in MT5.</p>
       <div class="card steps-card" id="live-steps"></div>
+      <div class="card today-card" id="live-today" hidden></div>
       <div class="card ea-card" id="live-ea" hidden></div>
       <div id="live-warnings"></div>
       <div class="grid live-top">
@@ -354,6 +356,16 @@ export class LiveView {
       <div class="next-step"><span>${escapeHtml(next.text)}</span>${btn}</div>`;
   }
 
+  // Today on the account: are the desks trading, and if not, why not?
+  #renderToday() {
+    const el = this.root.querySelector('#live-today');
+    const html = renderToday(this.store);
+    el.hidden = !html;
+    if (el.dataset.html === html) return;
+    el.dataset.html = html;
+    el.innerHTML = html;
+  }
+
   render(force = false) {
     const v = this.store.live;
     if (!v) return;
@@ -363,6 +375,7 @@ export class LiveView {
     const p = v.profile;
 
     this.#renderSteps(v);
+    this.#renderToday();
     this.#renderEa(v);
     this.#renderAlerts();
 

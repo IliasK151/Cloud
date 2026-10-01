@@ -425,6 +425,17 @@ A stop (uninstall, logging out, shutting down) closes the floor's FTMO positions
 
 A switch in the FTMO tab's Connection card, off until you switch it on. When it's on and the floor, the Mac or MT5 restarts while live trading is armed, the floor arms again by itself as soon as MT5 syncs, but only if every check that **Arm** makes still passes: the same account, live mode, MT5 connected with Algo Trading on, and no risk-guard stop. It never undoes your own decision: after **Disarm**, **Close all & disarm** or a risk-guard stop, it stays disarmed until you arm again yourself. The live log (and your phone, below) says when it re-armed.
 
+### Today on the account: are they trading, and if not, why not?
+
+The first card on the FTMO tab answers that in one sentence, for example *"No trades on FTMO yet today. Everything is connected and armed, and the desks are working: 3 trades were held back from the account, mostly: committee grade too low."* Below it:
+
+- **The market hours in your own time:** where New York is now (the Asia session overnight is the quietest; the London open and the New York open are the busy windows), when those open in your time zone, and whether the scalpers' killzones are open.
+- **The day's funnel, for the desks on the account:** trade ideas the desks found → turned down (by the committee, or by what a desk has learned) → paper trades → held back from the account → sent to FTMO.
+- **Why trades stayed on paper today,** counted by reason, with what each reason means. The usual one: the committee grades every idea A, B or C, and only A and B-grade trades go to the account. A C ("not convinced") stays on paper, so the desk keeps measuring.
+- **Every desk on the account:** what it's doing right now, its ideas, paper trades and FTMO trades today, and the latest reason it didn't trade the account.
+
+The floor's desk rail shows the same in one line (*No trades on FTMO yet today. 1 held back (committee grade too low)*) with a button to the FTMO tab. Counts start at the beginning of the trading day (18:00 New York).
+
 ### Daily report card
 
 The Dashboard shows a report card for each FTMO server day (the day FTMO's daily loss limit resets with), updated through the day and final once the day rolls over. It shows:

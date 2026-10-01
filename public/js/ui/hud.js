@@ -1,6 +1,7 @@
 import { money, nyTime, signClass, escapeHtml, STATUS_COLORS, deskKey } from '../format.js';
 import { fundBook, deskBook, hasFtmo, bookMode, setBookPref } from '../book.js';
 import { provingNote, setPlanSwitch } from './planSwitch.js';
+import { todayRailNote } from './todayCard.js';
 
 // Top bar KPIs, the desk rail on the left and the scrolling event tape.
 export class Hud {
@@ -153,11 +154,13 @@ export class Hud {
   // Mark desks that trade the FTMO account (red when a live position is open).
   setLive(v) {
     const note = document.getElementById('rail-note');
-    const html = bookMode(this.store) === 'ftmo' ? provingNote(v) : '';
+    const proving = bookMode(this.store) === 'ftmo' ? provingNote(v) : '';
+    const html = proving || (bookMode(this.store) === 'ftmo' ? todayRailNote(this.store) : '');
     if (note && note.dataset.html !== html) {
       note.dataset.html = html;
       note.innerHTML = html;
       note.hidden = !html;
+      note.classList.toggle('today', !proving);
     }
     for (const d of v.desks || []) {
       const row = this.rows.get(d.id);
