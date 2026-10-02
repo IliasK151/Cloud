@@ -462,6 +462,25 @@ What the floor does on 1-Step:
 
 **Always check FTMO's own Trading Objectives page and FAQ** for your program: their rules change, and they are what counts.
 
+### Ready for a paid challenge? `npm run edge`
+
+```bash
+cd ~/trading-floor && npm run edge
+```
+
+It answers the two questions that decide whether a challenge passes:
+
+1. **Which desks make money on your market?** Every trading desk is replayed minute by minute through the floor's own code on the real 1-minute bars saved in `data/history/`, which are your MT5 broker's prices once MT5 prices a market. The replay includes the committee, FTMO's costs and the desk's learning. Each desk gets its trades, win rate, average R after costs with a 90% confidence range, and both halves of the history, then a verdict:
+   - **EDGE:** the whole confidence range is above zero.
+   - **promising:** positive in both halves, not proven yet.
+   - **unclear** or **no edge.**
+   - **too few trades to tell:** under 15.
+2. **What are the chances of passing?** Thousands of FTMO challenges are played out with the trades of the desks that show an edge, under your program's rules (1-Step or 2-Step, from your FTMO setup) and the floor's loss guard, at 0.25% to 1.5% risk a trade. You get the pass rate, the fail rate and the typical days to pass. It ends with a plain verdict, and the result is saved to `data/edge-report.json`.
+
+It takes a few minutes and only reads market data. The more history the floor has saved (keep it running with MT5 connected), the sharper it gets. `--desk nico` tests one desk; `--seeds 1` is faster.
+
+**How to use it:** pay for a challenge only when the report shows desks with an edge passing most simulated challenges at a sensible risk, and the Free Trial confirms it over a couple of weeks with the same desks and the same risk. Trading more doesn't raise the pass rate. On the replays so far, all desks together averaged about −0.13R a trade, which passes a 1-Step challenge only 2–5% of the time at any risk. A desk with a real +0.4R edge passes about 99% of the time at 0.5% risk.
+
 ### Run it non-stop
 
 ```bash
@@ -695,6 +714,7 @@ npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow (MOC
 npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
 npm run backtest -- 5  # fast-forward 5 simulated sessions (news + research lab included) and print each desk's results
 npm run scalp-test     # replay the Scalping Desk on the real 1-minute bars saved in data/history
+npm run edge           # every desk on your saved history: who has an edge, and the odds of passing a challenge
 npm run reset          # wipe the saved track record (keeps your webhook secret)
 ```
 
