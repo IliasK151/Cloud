@@ -42,7 +42,7 @@ function structureOf(bars) {
 // Where the current 5-minute ATR sits among 5-minute ATRs at the same time of day (±1 hour)
 // on earlier days, when there's history for it; otherwise over the last ~17 hours.
 const DAY = 86_400;
-export function volPercentile(bars) {
+export function volPercentile(bars, { seasonal = true } = {}) {
   const b5 = resample(bars.slice(-6000), 5);
   const a = atr(b5, 14);
   let i = a.length - 1;
@@ -58,7 +58,7 @@ export function volPercentile(bars) {
     const d = Math.abs(tod(b5[j].time) - now);
     if (Math.min(d, DAY - d) <= 3600) same.push(a[j]);
   }
-  if (same.length >= 24) return { pct: same.filter((x) => x < cur).length / same.length, basis: 'time of day', n: same.length };
+  if (seasonal && same.length >= 24) return { pct: same.filter((x) => x < cur).length / same.length, basis: 'time of day', n: same.length };
   const recent = a.slice(0, i).filter(fin).slice(-200);
   return { pct: recent.length > 20 ? recent.filter((x) => x < cur).length / recent.length : 0.5, basis: 'recent', n: recent.length };
 }
@@ -75,7 +75,9 @@ function uniqLevels(levels, price, tol) {
 }
 
 export class MarketBrain {
-  constructor({ md, session, clock, news = null, history = null }) {
+  // volBasis: 'time of day' (the floor) or 'recent' (the old measure, for research).
+  constructor({ md, session, clock, news = null, history = null, volBasis = 'time of day' }) {
+    this.volBasis = volBasis;
     this.md = md;
     this.session = session;
     this.clock = clock;
@@ -130,7 +132,7 @@ export class MarketBrain {
     // that, it falls back to the recent range.
     const a5 = atr(b5, 14).filter(fin);
     const cur5 = a5[a5.length - 1];
-    const vol = volPercentile(bars);
+    const vol = volPercentile(bars, { seasonal: this.volBasis !== 'recent' });
     const volPct = vol.pct;
 
     // Levels that matter.

@@ -5,7 +5,7 @@ import { SYMBOLS, usdPerQuote, roundToTick } from '../market/symbols.js';
 // charges commissions, keeps positions per desk and books round-trip trades.
 // Emits 'fill' (fill) and 'trade' (closedTrade).
 
-const TAKER_FEE_BPS = 0.35;
+const TAKER_FEE_BPS = 0.35; // a market without its own commission (symbols.js feeBps)
 const MAKER_REBATE_BPS = 0.1;
 const MAX_TRADES_KEPT = 400;
 
@@ -65,7 +65,7 @@ export class Broker extends EventEmitter {
     }
     const fx = usdPerQuote(symbol, fillPrice);
     const notional = Math.abs(qty) * fillPrice * fx;
-    const fee = maker ? -(notional * MAKER_REBATE_BPS) / 1e4 : (notional * TAKER_FEE_BPS) / 1e4;
+    const fee = maker ? -(notional * MAKER_REBATE_BPS) / 1e4 : (notional * (sym.feeBps ?? TAKER_FEE_BPS)) / 1e4;
 
     const book = this.book(agentId);
     const now = this.clock.now();

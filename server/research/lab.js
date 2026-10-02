@@ -51,7 +51,7 @@ export class ResearchLab extends EventEmitter {
     const mode = this.mode === 'sim' ? 'sim' : 'live';
     return {
       id: job.id, symbol: job.symbol, bars, mode, windows,
-      spreadBps: SYMBOLS[job.symbol].spreadBps, budget: job.budget,
+      spreadBps: SYMBOLS[job.symbol].spreadBps, feeBps: SYMBOLS[job.symbol].feeBps, budget: job.budget,
       seed: hashString(`${job.agentId}-${job.symbol}-${job.id}-${bars.length}`),
     };
   }

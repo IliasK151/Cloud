@@ -1155,7 +1155,8 @@ test('transaction costs in R: the spread and the commission both ways, the same 
 });
 
 test('the account learns the commission from its own fills and refuses trades the costs would eat', async () => {
-  const { fund, live, sync, mt5 } = setup();
+  // MT5's gold spread is a whole dollar right now (a rollover spike): wider than the floor's usual estimate.
+  const { fund, live, sync, mt5 } = setup({ quotes: { XAUUSD: { ...GOLD, bid: 3800, ask: 3801 } } });
   sync();
   live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // training: every desk on
   assert.equal(live.arm().ok, true);
@@ -1165,9 +1166,10 @@ test('the account learns the commission from its own fills and refuses trades th
   sync(); // seen once, counted once
   assert.deepEqual([live.state.costs.XAUUSD.perLot, live.state.costs.XAUUSD.n], [2.5, 1]);
 
-  // A gold trade with a 0.6 stop: the 0.2 spread alone is a third of the risk.
+  // A gold trade with a $2 stop: fine at gold's usual costs, so the desk takes it on paper,
+  // but MT5's $1 spread right now is half the risk, so it stays off the account.
   const amara = fund.byId.get('amara');
-  assert.equal(amara.openTrade({ side: 'LONG', stop: 3799.5, target: 3801.5, reason: 'tight', symbol: 'XAUUSD' }), true);
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3798.1, target: 3806, reason: 'tight', symbol: 'XAUUSD' }), true);
   await tick();
   live.reconcile();
   const v = live.view();
@@ -1186,11 +1188,11 @@ test('the account learns the commission from its own fills and refuses trades th
   const open = sync().find((c) => c[0] === 'open');
   assert.ok(open, 'sent to MT5');
   const link = [...live.links.values()].find((l) => l.state === 'pending');
-  assert.ok(link.costR < 0.05);
+  assert.ok(link.costR > 0 && link.costR < 0.15, `${link.costR}`);
   mt5.acks.push({ id: open[1], ok: true, ticket: 9100, price: 3800.2, volume: Number(open[4]) });
   mt5.positions.push({ ticket: 9100, symbol: 'XAUUSD', side: 'BUY', volume: Number(open[4]), open: 3800.2, sl: 3790, tp: 0, profit: 0, magic: Number(open[7]), comment: open[8] });
   sync();
-  assert.match(alerts.find((a) => a.kind === 'trade').text, /Costs 0\.0\dR \(spread 0\.0\dR \+ commission 0\.0\dR\)/);
+  assert.match(alerts.find((a) => a.kind === 'trade').text, /Costs 0\.1\dR \(spread 0\.\d\dR \+ commission 0\.0\dR\)/);
 });
 
 test('risk limits that hold while training: no flipping, a desk loss limit, and capital that follows results', () => {
@@ -1235,4 +1237,41 @@ test('risk limits that hold while training: no flipping, a desk loss limit, and 
   closed('a8', { agentId: 'amara', floorSymbol: 'XAUUSD', side: 'BUY', pnl: 120, risk: 50, closedAt: Date.now() - 3_600_000, closedDay: '2026.09.28' });
   assert.equal(live.brain.allocation(amara).mult, 1);
   assert.ok(live.view().plan.rules.some((r) => /Capital follows results/.test(r.text)));
+});
+
+test('every desk refuses a trade its costs would eat, on paper too, and says what stop it needs', async () => {
+  const { roundTripCostBps, tradeCostR } = await import('../server/market/symbols.js');
+  // Costs as FTMO charges them: FX a few tenths of a pip plus $2.50 a lot a side; crypto 0.0325% a side.
+  assert.ok(Math.abs(roundTripCostBps('EURUSD') - 0.875) < 1e-9);
+  assert.ok(roundTripCostBps('BTCUSD') > 10, 'crypto is expensive on a prop account');
+  assert.ok(Math.abs(roundTripCostBps('NAS100') - 0.9) < 1e-9, 'indices: the spread only');
+  // A 1.5-pip EURUSD stop gives about two thirds of its risk to costs; a 10-pip stop under a tenth.
+  assert.ok(tradeCostR('EURUSD', 1.17, 1.16985) > 0.6);
+  assert.ok(tradeCostR('EURUSD', 1.17, 1.169) < 0.11);
+
+  const { fund } = setup();
+  const amara = fund.byId.get('amara');
+  // Gold at 3,800: a round trip costs about $0.42, so a 50-cent stop is mostly costs.
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3799.6, target: 3801.6, reason: 'tight', symbol: 'XAUUSD' }), false);
+  assert.match(amara.day.whyNot.text, /turned down: costs would eat 0\.\d\dR \(spread, slippage and commission\): the stop is too tight for XAUUSD, it needs at least 1\.\d\d/);
+  assert.deepEqual([amara.day.ideas, amara.day.vetoed], [1, 1]);
+  // The same signal on the next bar isn't a new idea.
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3799.6, target: 3801.6, reason: 'tight', symbol: 'XAUUSD' }), false);
+  assert.equal(amara.day.ideas, 1);
+  // A stop with room is taken.
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'room', symbol: 'XAUUSD' }), true);
+  // Your own TradingView alerts are your call.
+  const chen = fund.byId.get('chen');
+  chen.symbols.push('XAUUSD');
+  assert.equal(chen.openTrade({ side: 'SHORT', stop: 3800.6, reason: 'boss alert', symbol: 'XAUUSD', tag: 'TV' }), true);
+});
+
+test('the paper broker charges each market its own commission', () => {
+  const { fund } = setup();
+  fund.md.applyTick('BTCUSD', 100_000, 1, Date.now());
+  const fill = fund.broker.execute('viktor', 'BTCUSD', 1);
+  // 0.0325% of a $100,000 trade, as FTMO charges crypto.
+  assert.ok(Math.abs(fill.fill.fee - 32.5) < 0.2, `${fill.fill.fee}`);
+  const fx = fund.broker.execute('priya', 'EURUSD', 100_000);
+  if (fx) assert.ok(fx.fill.fee < 5, 'FX: about $2.50 a lot a side');
 });

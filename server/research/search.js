@@ -152,7 +152,7 @@ export function neighbours(g) {
   return out;
 }
 
-export function research({ bars, symbol, mode = 'live', windows = [], spreadBps = 1, budget = 360, seed = 1, onProgress = () => {} }) {
+export function research({ bars, symbol, mode = 'live', windows = [], spreadBps = 1, feeBps, budget = 360, seed = 1, onProgress = () => {} }) {
   const started = Date.now();
   const C = CRITERIA;
   const regime = classifyRegime(bars);
@@ -167,7 +167,7 @@ export function research({ bars, symbol, mode = 'live', windows = [], spreadBps 
   // Timeframes need enough bars to say anything.
   const tfs = TIMEFRAMES.filter((tf) => N / tf >= 400);
   const ctx = new Map(tfs.map((tf) => [tf, new TfContext(cols, tf, m.nyMin)]));
-  const cost = costModel(spreadBps);
+  const cost = costModel(spreadBps, feeBps);
   const warm = Math.min(600, Math.floor(N * 0.05));
   const isTo = Math.floor(N * C.split[0]);
   const oosTo = Math.floor(N * C.split[1]);

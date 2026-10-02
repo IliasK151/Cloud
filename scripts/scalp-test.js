@@ -53,7 +53,7 @@ function pathOf(b) {
 
 // Replay one scalper over `bars` (real 1-minute bars, oldest first). `warmup` bars go in
 // as history before the desk starts deciding.
-export function replay({ profile, bars, committee = 'on', warmup = 600 }) {
+export function replay({ profile, bars, committee = 'on', warmup = 600, brainOptions = {} }) {
   const symbol = profile.symbols[0];
   const clock = { mode: 'live', speed: 1, t: bars[0].time * 1000, now() { return this.t; } };
   const md = new MarketData(clock);
@@ -69,7 +69,7 @@ export function replay({ profile, bars, committee = 'on', warmup = 600 }) {
     if (p && id !== agent.id) agents.set(id, { id, profile: p, symbols: p.symbols, lifetime: {}, setup: {} });
   }
   if (committee !== 'off') {
-    env.committee = new Committee({ brain: new MarketBrain({ md, session, clock }), agents, clock, shadow: committee === 'shadow' });
+    env.committee = new Committee({ brain: new MarketBrain({ md, session, clock, ...brainOptions }), agents, clock, shadow: committee === 'shadow' });
   }
   const debates = [];
   env.committee?.on('debate', (d) => { if (d.proposer === agent.id) debates.push(d); });

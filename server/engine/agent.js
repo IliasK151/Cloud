@@ -1,4 +1,4 @@
-import { SYMBOLS, usdPerQuote, roundToLot } from '../market/symbols.js';
+import { SYMBOLS, usdPerQuote, roundToLot, tradeCostR, COST_LIMIT_R } from '../market/symbols.js';
 import { atr, last } from '../market/indicators.js';
 import { fmtPrice, fmtQty, fmtUsd, spokenPnl, round } from '../util/format.js';
 import { DeskLearner } from './learning.js';
@@ -105,6 +105,11 @@ export class TraderAgent {
     if (!Number.isFinite(entry) || !Number.isFinite(stop) || (long ? stop >= entry : stop <= entry)) return false;
     if (target != null && (long ? target <= entry : target >= entry)) target = null;
 
+    // Costs first, as on a professional desk: a trade whose spread, slippage and commission
+    // would eat more than a quarter of its risk starts too far behind to be worth taking.
+    // (Your own TradingView alerts are your call.)
+    if (tag !== 'TV' && this.#costTooHigh(symbol, side, entry, stop)) return false;
+
     // No trade on the desk's say-so alone: the department committee reviews the idea.
     const review = this.env.committee?.review({ agent: this, symbol, side, entry, stop, target, reason, external: tag === 'TV' }) ?? null;
     if (review && !review.ok) {
@@ -133,6 +138,7 @@ export class TraderAgent {
     }
     ({ stop, target, partialAt, trail } = learn);
     riskMultiplier *= learn.sizeMult;
+    if (tag !== 'TV' && this.#costTooHigh(symbol, side, entry, stop)) return false; // the learner moved the stop
 
     const qty = this.risk.size(this, symbol, entry, stop, { riskMultiplier });
     if (!qty) {
@@ -174,6 +180,27 @@ export class TraderAgent {
 
   #whyNot(text) {
     this.day.whyNot = { text, at: this.env.clock.now() };
+  }
+
+  // Too expensive for its stop? Said once per idea: the same signal on the next bars is
+  // turned down quietly for 10 minutes.
+  #costTooHigh(symbol, side, entry, stop) {
+    const costR = tradeCostR(symbol, entry, stop);
+    if (costR == null || costR <= COST_LIMIT_R) return false;
+    const key = `${symbol}|${side}`;
+    const now = this.env.clock.now();
+    this.costRejects ||= new Map();
+    const last = this.costRejects.get(key);
+    this.costRejects.set(key, now);
+    if (last != null && now - last < 10 * 60_000) return true;
+    const minStop = (Math.abs(entry - stop) * costR) / COST_LIMIT_R;
+    const why = `costs would eat ${costR.toFixed(2)}R (spread, slippage and commission): the stop is too tight for ${symbol}, it needs at least ${fmtPrice(minStop, SYMBOLS[symbol]?.decimals ?? 2)}`;
+    this.lastReject = why;
+    this.day.ideas++;
+    this.day.vetoed++;
+    this.#whyNot(`turned down: ${why}`);
+    this.setStage(`Too expensive: ${why}`);
+    return true;
   }
 
   closeTrade(symbol, reason, fraction = 1) {

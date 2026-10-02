@@ -12,10 +12,11 @@ import { signalAt } from './families.js';
 //     stop (the desk's 2% loss limit ≈ 4R) apply.
 // Results are in R (multiples of the initial risk), after costs.
 
-export const TAKER_FEE_BPS = 0.35; // same as the paper broker
+export const TAKER_FEE_BPS = 0.35; // a market without its own commission (symbols.js feeBps)
 
-export function costModel(spreadBps) {
-  return { half: spreadBps / 2 / 1e4, fee: TAKER_FEE_BPS / 1e4 };
+// feeBps: the market's commission per side (symbols.js), as the paper broker charges it.
+export function costModel(spreadBps, feeBps = TAKER_FEE_BPS) {
+  return { half: spreadBps / 2 / 1e4, fee: feeBps / 1e4 };
 }
 
 function firstEval(tfc, from) {

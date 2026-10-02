@@ -1,3 +1,5 @@
+import { COST_LIMIT_R } from '../market/symbols.js';
+
 // FTMO rule presets and the guard maths. Always check the numbers against your own account
 // in the FTMO Client Area (Account MetriX) and edit them in the FTMO tab if they differ.
 
@@ -192,7 +194,7 @@ export function lotsForRisk(riskMoney, stopDistance, spec) {
 // get in and out, and the broker's commission both ways. The same at any size. A desk that
 // risks 1R to make 1.5R and pays 0.3R in costs has given away most of its edge before it
 // starts, so the account refuses trades whose costs are more than COST_LIMIT_R.
-export const COST_LIMIT_R = 0.25;
+export { COST_LIMIT_R };
 export function tradeCost(spec, stopDistance, commissionPerLot = null) {
   const tickSize = spec?.tickSize || spec?.point;
   const tickValue = spec?.tickValueLoss || spec?.tickValue;
