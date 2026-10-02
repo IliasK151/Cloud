@@ -479,6 +479,16 @@ It answers the two questions that decide whether a challenge passes:
 
 It takes a few minutes and only reads market data. The more history the floor has saved (keep it running with MT5 connected), the sharper it gets. `--desk nico` tests one desk; `--seeds 1` is faster.
 
+**The floor runs it by itself every night, and acts on it.** After the New York close (17:00, when the desks are flat), or at the weekend, it runs this review in a background thread, so trading isn't slowed down. The first review runs about 10 minutes after the floor first starts. The verdicts decide who trades the account, while training on FTMO too:
+- **no edge** on your prices: paper only until a later review finds one;
+- **unclear:** half size;
+- **EDGE** and **promising:** normal size;
+- **too few trades to tell:** unchanged.
+
+A review older than 4 days stops deciding anything. Your own TradingView alerts are your call. The summary goes to your phone with the daily report.
+
+The FTMO tab's **Nightly review** card shows every desk's verdict and what it means on the account. It also shows the chance of passing at each risk size, with **Run now**. When desks have an edge and another risk size passes clearly more often than yours, there's a **Use X% risk** button.
+
 **How to use it:** pay for a challenge only when the report shows desks with an edge passing most simulated challenges at a sensible risk, and the Free Trial confirms it over a couple of weeks with the same desks and the same risk. Trading more doesn't raise the pass rate. On the replays so far, all desks together averaged about −0.13R a trade, which passes a 1-Step challenge only 2–5% of the time at any risk. A desk with a real +0.4R edge passes about 99% of the time at 0.5% risk.
 
 ### Run it non-stop

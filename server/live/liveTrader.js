@@ -309,6 +309,20 @@ export class LiveTrader extends EventEmitter {
     return { ok: true };
   }
 
+  // Risk per trade, from the nightly review's "use the best risk" button (or anywhere else).
+  setRisk(pct) {
+    const p = this.profile;
+    if (!p) return { ok: false, error: 'Set up the account first' };
+    const v = Number(pct);
+    if (!Number.isFinite(v) || v < 0.05 || v > 2) return { ok: false, error: 'Risk per trade must be between 0.05% and 2%' };
+    const was = p.riskPerTradePct;
+    p.riskPerTradePct = Math.round(v * 100) / 100;
+    p.updatedAt = Date.now();
+    this.save();
+    this.#note(`Risk per trade set to ${p.riskPerTradePct}% (was ${was}%)`, 'risk');
+    return { ok: true };
+  }
+
   // Which FTMO program the account is on (2-Step or 1-Step): sets its limits. Until it's set,
   // the guard follows the stricter of the two.
   setProgram(program) {
@@ -1211,6 +1225,7 @@ export class LiveTrader extends EventEmitter {
       metrics: this.metrics(),
       openRisk: this.openRisk(),
       plan,
+      review: this.review?.view?.() ?? null,
       types: ACCOUNT_TYPES,
       programs: PROGRAMS,
       defaults: DEFAULTS,

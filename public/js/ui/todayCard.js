@@ -78,6 +78,7 @@ const MEANING = {
   'No real prices': 'Only real prices trade real money.',
   'FTMO Best Day rule': 'FTMO 1-Step: no single day may be more than half the profit, so the desks call it a day at half the target\'s profit.',
   'Cool-off after a losing streak': 'After 3 losses in a row the account pauses for 2 hours. The desks keep trading on paper, so they keep learning.',
+  'No edge on your prices': 'Every night each desk is replayed on your own MT5 prices with FTMO\'s costs. This desk lost money there, so it trades paper only until a review finds an edge.',
   'Desk out of form': 'The desk\'s last 12 trades on real prices lost on average. It trades paper only, where it keeps learning, and it\'s back on the account as soon as that average is 0R or better.',
   'Desk loss limit': 'A desk that has lost twice its full risk on the account today is off it until tomorrow, like a trader\'s loss limit at a bank.',
   'No flipping right after a loss': 'After a losing trade on a market, nothing the other way on it for 30 minutes: buying right after a losing sell is how a choppy market takes both sides.',

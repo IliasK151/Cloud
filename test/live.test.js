@@ -1326,3 +1326,79 @@ test('a desk saved before it kept its form starts it from its learning journal',
   fund.restore({ version: 1, dayKey: 'x', agents: { amara: { lifetime: { recentR: [1] }, learning: amara.learner.state } } });
   assert.deepEqual(amara.lifetime.recentR, [1]);
 });
+
+test('capital follows the nightly review: no edge on your prices is paper only, unclear is half size', async () => {
+  const { fund, live, sync } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // training: every desk on
+  assert.equal(live.arm().ok, true);
+  const verdicts = {
+    marcus: { id: 'marcus', n: 21, avgR: -0.56, verdict: 'no edge' },
+    amara: { id: 'amara', n: 40, avgR: 0.03, verdict: 'unclear' },
+    nico: { id: 'nico', n: 31, avgR: 0.42, verdict: 'EDGE' },
+    jake: { id: 'jake', n: 6, avgR: 0.5, verdict: 'too few trades to tell' },
+  };
+  live.review = { verdictFor: (id) => verdicts[id] || null, current: () => ({ at: Date.now() - 2 * 3_600_000, tradingDays: 18 }) };
+  const brain = live.brain;
+  const m = fund.byId.get('marcus');
+  const v = brain.allow(m, { symbol: 'NAS100', qty: 1 }, {});
+  assert.equal(v.ok, false, 'even while training');
+  assert.match(v.reason, /the nightly review found no edge on your prices \(−0\.56R a trade over 21 trades\): paper only until a review finds one/);
+  assert.equal(brain.deskStatus(m).label, 'Paper · no edge');
+  assert.equal(brain.allow(m, { symbol: 'NAS100', qty: 1 }, { tag: 'TV' }).ok, true, 'your own alerts are your call');
+
+  const full = brain.allow(fund.byId.get('nico'), { symbol: 'NAS100', qty: 1 }, {});
+  const half = brain.allow(fund.byId.get('amara'), { symbol: 'XAUUSD', qty: 1 }, {});
+  assert.equal(full.ok && half.ok, true);
+  assert.ok(Math.abs(half.riskMult - full.riskMult * 0.5) < 1e-9, `${half.riskMult} vs ${full.riskMult}`);
+  assert.ok(half.reasons.some((r) => /Amara is unproven on your prices \(\+0\.03R a trade over 40 trades in the nightly review\): half size/.test(r)));
+  assert.equal(brain.deskStatus(fund.byId.get('amara')).label, 'Training · half size');
+  assert.equal(brain.deskStatus(fund.byId.get('nico')).label, 'Training · proven');
+  assert.equal(brain.allow(fund.byId.get('jake'), { symbol: 'GBPUSD', qty: 1 }, {}).riskMult, full.riskMult, 'too few trades: unchanged');
+  assert.ok(live.view().plan.rules.some((r) => /Evidence first: every night each desk is replayed on your own prices \(last review 2 h ago, 18 trading days\)/.test(r.text)));
+
+  // The review's "use the best risk" button.
+  assert.equal(live.setRisk(0.75).ok, true);
+  assert.equal(live.profile.riskPerTradePct, 0.75);
+  assert.match(live.setRisk(5).error, /between 0\.05% and 2%/);
+});
+
+test('the review card: verdicts, what they mean for the account, and the odds at each risk', async () => {
+  const { renderReview, riskAdvice } = await import('../public/js/ui/reviewCard.js');
+  const sim = {
+    trades: 92, avgR: 0.21, tradesPerDay: 4.1,
+    rows: [{ riskPct: 0.25, passed: 0.31, failed: 0.02, open: 0.67, medianDays: 44 }, { riskPct: 0.5, passed: 0.68, failed: 0.12, open: 0.2, medianDays: 21 }, { riskPct: 1, passed: 0.52, failed: 0.48, open: 0, medianDays: 9 }],
+    best: { riskPct: 0.5, passed: 0.68 },
+  };
+  assert.deepEqual(riskAdvice(sim, 0.25).worth, true);
+  assert.deepEqual(riskAdvice(sim, 0.5).worth, false, 'already at the best');
+  const v = {
+    mode: 'live', profile: { riskPerTradePct: 0.25 },
+    review: {
+      running: null, lastError: null, fresh: true,
+      report: {
+        at: Date.now() - 3 * 3_600_000, tookMs: 240_000, program: '1-step', size: 10_000, tradingDays: 18,
+        desks: [
+          { id: 'nico', name: 'Nico Rossi', desk: 'Scalping · NAS100 New York', symbol: 'NAS100', n: 31, winRate: 0.68, avgR: 0.42, ci: [0.08, 0.77], verdict: 'EDGE' },
+          { id: 'marcus', name: 'Marcus Reid', desk: 'Index Futures', symbol: 'NAS100', n: 21, winRate: 0.29, avgR: -0.56, ci: [-0.85, -0.25], verdict: 'no edge' },
+          { id: 'sofia', name: 'Sofia Laurent', desk: 'Global Macro', symbol: 'USDJPY', n: 0, verdict: 'no saved history' },
+        ],
+        withEdge: sim, everyone: null,
+      },
+    },
+  };
+  const html = renderReview(v);
+  assert.match(html, /Nightly review: who has an edge on your prices/);
+  assert.match(html, /Last review 3 h ago \(took 4 min\) · 18 trading days of your prices/);
+  assert.match(html, /<span class="verdict-chip v-edge">Edge<\/span><\/td>\s*<td>Full size/);
+  assert.match(html, /<span class="verdict-chip v-none">No edge<\/span><\/td>\s*<td>Paper only/);
+  assert.match(html, /no saved history/);
+  assert.match(html, /Chance of passing FTMO 1-step \(\$10,000\), trading the desks with an edge/);
+  assert.match(html, /data-act="use-risk" data-risk="0\.5">Use 0\.5% risk a trade/);
+  assert.match(html, /The desks with an edge pass 68% of simulated challenges at 0\.5% risk/);
+  // Running, and no review yet.
+  const first = renderReview({ mode: 'live', profile: { riskPerTradePct: 0.5 }, review: { running: { startedAt: Date.now(), line: 'Nico Rossi on NAS100 (9,000 bars)…' }, report: null, fresh: false } });
+  assert.match(first, /Reviewing…/);
+  assert.match(first, /Nico Rossi on NAS100/);
+  assert.match(first, /No review yet/);
+});

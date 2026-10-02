@@ -3,6 +3,7 @@ import { money, escapeHtml, signClass } from '../format.js';
 import { planSwitches, onPlanSwitch, provingNote, setPlanSwitch } from './planSwitch.js';
 import { ftmoStatus } from '../book.js';
 import { renderToday } from './todayCard.js';
+import { renderReview } from './reviewCard.js';
 
 // FTMO tab: connect MT5, set the account up, pick desks, arm, and watch the rules.
 export class LiveView {
@@ -37,6 +38,7 @@ export class LiveView {
       <div class="card steps-card" id="live-steps"></div>
       <div class="card program-card" id="live-program" hidden></div>
       <div class="card today-card" id="live-today" hidden></div>
+      <div class="card review-card" id="live-review" hidden></div>
       <div class="card ea-card" id="live-ea" hidden></div>
       <div id="live-warnings"></div>
       <div class="grid live-top">
@@ -206,6 +208,13 @@ export class LiveView {
       btn.disabled = true;
       await setPlanSwitch('provenOnly', false, v.plan);
       btn.disabled = false;
+    } else if (act === 'review-run') {
+      btn.disabled = true;
+      await this.#post('review');
+    } else if (act === 'use-risk') {
+      const risk = Number(btn.dataset.risk);
+      if (!confirm(`Set the risk per trade to ${risk}%?\n\nThat's the size the nightly review found gives the best chance of passing. Every trade on the account is sized from it; the loss guard and every rule stay the same.`)) return;
+      await this.#post('risk', { riskPct: risk });
     } else if (act === 'program') {
       const prog = v.programs?.[btn.dataset.program];
       if (!prog) return;
@@ -395,6 +404,17 @@ export class LiveView {
     el.innerHTML = html;
   }
 
+  // The nightly review: who has an edge on your prices, and the chance of passing.
+  #renderReview(v) {
+    const el = this.root.querySelector('#live-review');
+    // Minutes in "ago" change the html each minute; the rest only when the review does.
+    const html = renderReview(v, { now: Math.floor(Date.now() / 60_000) * 60_000 });
+    el.hidden = !html;
+    if (el.dataset.html === html) return;
+    el.dataset.html = html;
+    el.innerHTML = html;
+  }
+
   // Today on the account: are the desks trading, and if not, why not?
   #renderToday() {
     const el = this.root.querySelector('#live-today');
@@ -416,6 +436,7 @@ export class LiveView {
     this.#renderSteps(v);
     this.#renderProgram(v);
     this.#renderToday();
+    this.#renderReview(v);
     this.#renderEa(v);
     this.#renderAlerts();
 

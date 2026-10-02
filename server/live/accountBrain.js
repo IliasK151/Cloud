@@ -1,5 +1,6 @@
 import { fmtUsd } from '../util/format.js';
 import { trainingOn, programRules, COST_LIMIT_R, COST_MAX_R } from './rules.js';
+import { VERDICT_EFFECT } from './review.js';
 
 // The account brain: the plan a professional prop trader follows to pass a challenge and
 // then keep getting paid. The paper desks can experiment; the account only gets the best
@@ -167,6 +168,13 @@ export class AccountBrain {
       { text: `Desk loss limit: a desk that loses ${LIMITS.deskLossR}× its full risk (${fmtUsd(LIMITS.deskLossR * full)}) on the account in a day is off it until tomorrow`, ok: true },
       { text: `No flipping: after a losing trade on a market, nothing the other way on it for ${LIMITS.noFlipMs / 60_000} minutes`, ok: true },
       { text: `Costs: a stop too tight for the market's costs is widened (smaller size, same risk) until they're ${COST_LIMIT_R}R of it; a trade that would cost over ${COST_MAX_R}R doesn't go`, ok: true },
+      (() => {
+        const rv = lt.review?.current?.();
+        const ago = rv ? Math.max(1, Math.round((Date.now() - rv.at) / 3_600_000)) : null;
+        return rv
+          ? { text: `Evidence first: every night each desk is replayed on your own prices (last review ${ago} h ago, ${rv.tradingDays} trading days). No edge: paper only. Unclear: half size`, ok: true }
+          : { text: 'Evidence first: the nightly review replays each desk on your own prices after the New York close. No review yet, so no desk is held back by it', ok: false };
+      })(),
       { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R trades paper only until its record recovers`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
     ].filter(Boolean);
@@ -253,14 +261,19 @@ export class AccountBrain {
     if (flip) return { ok: false, reason: flip };
     // The desk's own loss limit and its record on the account (your own alerts are your call).
     let alloc = { mult: 1 };
+    let ev = null;
     if (!boss) {
       const limit = this.deskLimit(agent);
       if (limit) return { ok: false, reason: limit };
+      // The nightly review on your own prices decides first: no edge, no account.
+      ev = this.evidence(agent);
+      if (ev?.mult === 0) return { ok: false, reason: ev.text };
       const form = this.form(agent);
       if (!form.ok) return { ok: false, reason: form.text };
       alloc = this.allocation(agent);
+      if (ev && ev.mult < 1) alloc = { ...alloc, mult: alloc.mult * ev.mult };
     }
-    const reasons = alloc.text ? [...st.reasons, alloc.text] : st.reasons;
+    const reasons = [...st.reasons, ...(alloc.text ? [alloc.text] : []), ...(ev && ev.mult < 1 ? [ev.text] : [])];
     // Training on FTMO: every trade goes, sized by the plan (and the desk's grade, in the live trader).
     if (st.training) return { ok: true, riskMult: st.mult * alloc.mult, reasons, boss, training: true };
     if (st.blocked) return { ok: false, reason: st.blocked };
@@ -316,6 +329,19 @@ export class AccountBrain {
     return `the account just lost on a ${last.side === 'BUY' ? 'long' : 'short'} ${pos.symbol} (${Math.max(1, Math.round((now - last.closedAt) / 60_000))} min ago): no flipping to the other side within ${LIMITS.noFlipMs / 60_000} minutes`;
   }
 
+  // What the nightly review (live/review.js) found for this desk on your own prices: null
+  // when there's no recent review or too few trades to tell.
+  evidence(agent) {
+    const d = this.live.review?.verdictFor?.(agent.id);
+    const eff = d ? VERDICT_EFFECT[d.verdict] : null;
+    if (!eff) return null;
+    const name = agent.profile.name.split(' ')[0];
+    const rec = `${d.avgR >= 0 ? '+' : '−'}${Math.abs(d.avgR).toFixed(2)}R a trade over ${d.n} trades`;
+    if (eff.mult === 0) return { mult: 0, verdict: d.verdict, text: `the nightly review found no edge on your prices (${rec}): paper only until a review finds one` };
+    if (eff.mult < 1) return { mult: eff.mult, verdict: d.verdict, text: `${name} is unproven on your prices (${rec} in the nightly review): half size` };
+    return { mult: 1, verdict: d.verdict, text: `${name} has an edge on your prices (${rec} in the nightly review)` };
+  }
+
   // A desk earns its place on the account with its current form: once it has LIMITS.formMin
   // trades on real prices, the average of its last LIMITS.formWindow must be 0R or better.
   // Below that it trades paper only, where it keeps learning, and it's back on the account as
@@ -361,13 +387,16 @@ export class AccountBrain {
     if (st?.cooloff && lt.armed) return { state: 'stopped', label: 'Cooling off', text: st.cooloff.text };
     const limit = this.deskLimit(agent);
     if (limit && lt.armed) return { state: 'stopped', label: 'Desk limit', text: limit };
+    const ev = this.evidence(agent);
+    if (ev?.mult === 0) return { state: 'proving', label: 'Paper · no edge', text: `${ev.text.charAt(0).toUpperCase()}${ev.text.slice(1)}.` };
     const form = this.form(agent);
     if (!form.ok) return { state: 'proving', label: 'Paper · out of form', text: `${form.text.charAt(0).toUpperCase()}${form.text.slice(1)}.` };
     const alloc = this.allocation(agent);
-    const half = alloc.text ? ` ${alloc.text}.` : '';
+    const half = [alloc.text, ev && ev.mult < 1 ? ev.text : null].filter(Boolean).map((t) => ` ${t}.`).join('');
+    const halfSize = !!alloc.text || (ev && ev.mult < 1);
     if (st?.training) {
       if (!lt.armed) return { state: 'ready', label: 'Training · not armed', text: 'Every trade it takes will go to FTMO (training on FTMO). Arm live trading to start.' };
-      return { state: 'training', label: alloc.text ? 'Training · half size' : 'Training on FTMO', text: `Every trade it takes goes to your FTMO account (training on FTMO).${half}` };
+      return { state: 'training', label: halfSize ? 'Training · half size' : ev?.mult === 1 ? 'Training · proven' : 'Training on FTMO', text: `Every trade it takes goes to your FTMO account (training on FTMO).${half}${ev?.mult === 1 ? ` ${ev.text}.` : ''}` };
     }
     const c = this.clearance(agent);
     const alerts = agent.profile.tvDesk ? ' Your TradingView alerts through this desk still go to the account.' : '';
@@ -379,6 +408,6 @@ export class AccountBrain {
     if (!c.ok) return { state: 'proving', label: 'Proving on paper', text: `Paper only for now: ${c.text}.${alerts}` };
     if (!lt.armed) return { state: 'ready', label: 'Cleared · not armed', text: 'Cleared for the account. Arm live trading in the FTMO tab to start.' };
     if (st?.blocked) return { state: 'stopped', label: 'Stopped today', text: st.blocked };
-    return { state: 'cleared', label: alloc.text ? 'Cleared · half size' : 'Cleared', text: `Cleared: its ${st?.minGrade === 'B' ? 'A and B-grade' : 'A-grade'} trades go to MT5.${half}` };
+    return { state: 'cleared', label: halfSize ? 'Cleared · half size' : 'Cleared', text: `Cleared: its ${st?.minGrade === 'B' ? 'A and B-grade' : 'A-grade'} trades go to MT5.${half}` };
   }
 }

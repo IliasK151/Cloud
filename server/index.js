@@ -25,6 +25,7 @@ import { TunnelManager } from './tradingview/tunnel.js';
 import { VoiceEngine, toWav } from './voices/engine.js';
 import { Mt5Bridge } from './live/bridge.js';
 import { LiveTrader } from './live/liveTrader.js';
+import { EdgeReview, reviewText } from './live/review.js';
 import { summarize } from './live/dailyReport.js';
 import { TelegramNotifier } from './notify/telegram.js';
 import { FloorMemory } from './brain/memory.js';
@@ -92,6 +93,25 @@ live.on('alert', async (a) => {
   }
   notifier.notify(a);
 });
+// The nightly review: every desk replayed on the floor's saved real prices after the New York
+// close; its verdicts decide who trades the account (live/accountBrain.js).
+const review = new EdgeReview({
+  dataDir: config.dataDir,
+  log,
+  settings: () => ({ program: live.profile?.program, size: live.profile?.size, riskPct: live.profile?.riskPerTradePct }),
+});
+live.review = review;
+if (config.feed === 'live') {
+  setInterval(() => {
+    try {
+      review.tick();
+    } catch (err) {
+      log.warn(`[review] ${err.message}`);
+    }
+  }, 60_000).unref?.();
+}
+review.on('report', (rep) => notifier.notify({ kind: 'daily', text: reviewText(rep, { riskPct: live.profile?.riskPerTradePct ?? null }), at: Date.now() }));
+
 // Two weeks of entry charts are plenty.
 function pruneCharts() {
   try {
@@ -252,6 +272,8 @@ app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
     program: () => live.setProgram(b.program),
     'install-ea': () => live.installEa(),
     'stay-armed': () => live.setStayArmed(b.on),
+    review: () => (config.feed === 'live' ? review.run('asked') : { ok: false, error: 'The review replays real prices: it runs in live mode (npm start), not in demo mode.' }),
+    risk: () => live.setRisk(b.riskPct),
   };
   const fn = Object.hasOwn(actions, req.params.action) ? actions[req.params.action] : null;
   if (!fn) return res.status(404).json({ ok: false, error: 'unknown action' });
@@ -568,6 +590,7 @@ function pushLive(force = false) {
   broadcast({ type: 'live', live: view });
 }
 setInterval(() => pushLive(), 1000);
+review.on('change', () => pushLive(true));
 
 setInterval(() => {
   if (!wss.clients.size) {

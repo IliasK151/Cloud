@@ -2,14 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { isMainThread } from 'node:worker_threads';
 import { loadEnv } from './util/env.js';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv(path.join(ROOT, '.env'));
 
 // Everything the floor writes (secrets, account setup, track record) is readable by your
-// macOS user only: new files 0600, folders 0700.
-process.umask(0o077);
+// macOS user only: new files 0600, folders 0700. (Set once by the main thread: worker threads
+// share the process and aren't allowed to change it.)
+if (isMainThread) process.umask(0o077);
 
 const DATA_DIR = path.resolve(ROOT, process.env.DATA_DIR || 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
