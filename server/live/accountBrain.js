@@ -169,11 +169,13 @@ export class AccountBrain {
       { text: `No flipping: after a losing trade on a market, nothing the other way on it for ${LIMITS.noFlipMs / 60_000} minutes`, ok: true },
       { text: `Costs: a stop too tight for the market's costs is widened (smaller size, same risk) until they're ${COST_LIMIT_R}R of it; a trade that would cost over ${COST_MAX_R}R doesn't go`, ok: true },
       (() => {
-        const rv = lt.review?.current?.();
-        const ago = rv ? Math.max(1, Math.round((Date.now() - rv.at) / 3_600_000)) : null;
-        return rv
-          ? { text: `Evidence first: every night each desk is replayed on your own prices (last review ${ago} h ago, ${rv.tradingDays} trading days). No edge: paper only. Unclear: half size`, ok: true }
-          : { text: 'Evidence first: the nightly review replays each desk on your own prices after the New York close. No review yet, so no desk is held back by it', ok: false };
+        const rv = lt.review?.report || null;
+        const fresh = !!lt.review?.current?.();
+        const hours = rv ? Math.max(1, Math.round((Date.now() - rv.at) / 3_600_000)) : null;
+        const ago = hours == null ? '' : hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
+        if (!rv) return { text: 'Evidence first: the nightly review replays each desk on your own prices after the New York close. No review yet, so no desk is held back by it', ok: false };
+        if (!fresh) return { text: `Evidence first: the last nightly review is ${ago}, so the reviews have stopped (the Mac asleep after the close, or failing: see the Nightly review card). Its verdicts still apply until a new one runs`, ok: false };
+        return { text: `Evidence first: every night each desk is replayed on your own prices (last review ${ago}, ${rv.tradingDays} trading days). No edge: paper only. Unclear: half size`, ok: true };
       })(),
       { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R trades paper only until its record recovers`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
@@ -395,7 +397,7 @@ export class AccountBrain {
     const half = [alloc.text, ev && ev.mult < 1 ? ev.text : null].filter(Boolean).map((t) => ` ${t}.`).join('');
     const halfSize = !!alloc.text || (ev && ev.mult < 1);
     if (st?.training) {
-      if (!lt.armed) return { state: 'ready', label: 'Training · not armed', text: 'Every trade it takes will go to FTMO (training on FTMO). Arm live trading to start.' };
+      if (!lt.armed) return { state: 'ready', label: halfSize ? 'Training · half size · not armed' : 'Training · not armed', text: `Every trade it takes will go to FTMO (training on FTMO).${half} Arm live trading to start.` };
       return { state: 'training', label: halfSize ? 'Training · half size' : ev?.mult === 1 ? 'Training · proven' : 'Training on FTMO', text: `Every trade it takes goes to your FTMO account (training on FTMO).${half}${ev?.mult === 1 ? ` ${ev.text}.` : ''}` };
     }
     const c = this.clearance(agent);
@@ -406,7 +408,7 @@ export class AccountBrain {
       return { state: 'probation', label: 'Unproven · half risk', text: `Trades the account at half risk while it proves itself ("Proven desks only" is off): ${c.text}.` };
     }
     if (!c.ok) return { state: 'proving', label: 'Proving on paper', text: `Paper only for now: ${c.text}.${alerts}` };
-    if (!lt.armed) return { state: 'ready', label: 'Cleared · not armed', text: 'Cleared for the account. Arm live trading in the FTMO tab to start.' };
+    if (!lt.armed) return { state: 'ready', label: halfSize ? 'Cleared · half size · not armed' : 'Cleared · not armed', text: `Cleared for the account.${half} Arm live trading in the FTMO tab to start.` };
     if (st?.blocked) return { state: 'stopped', label: 'Stopped today', text: st.blocked };
     return { state: 'cleared', label: halfSize ? 'Cleared · half size' : 'Cleared', text: `Cleared: its ${st?.minGrade === 'B' ? 'A and B-grade' : 'A-grade'} trades go to MT5.${half}` };
   }

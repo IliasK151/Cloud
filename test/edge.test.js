@@ -68,7 +68,8 @@ test('npm run edge replays the desks on the saved history and says when there is
 });
 
 // ---- the nightly review ---------------------------------------------------------------------------
-import { EdgeReview, REVIEW, reviewText, VERDICT_EFFECT } from '../server/live/review.js';
+import { EdgeReview, REVIEW, reviewText, VERDICT_EFFECT, validReport } from '../server/live/review.js';
+import { tradingDaysOf } from '../scripts/edge-report.js';
 
 function historyDir() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-'));
@@ -105,10 +106,11 @@ test('the nightly review runs after the New York close or at the weekend, at mos
   rv.report = { at: Date.UTC(2026, 9, 2, 21, 10), desks: [] };
   t = Date.UTC(2026, 9, 3, 20, 0); // Saturday, 23 h later
   assert.equal(rv.isDue(), true, 'at the weekend any time');
-  // An old review stops deciding anything.
-  rv.report = { at: t - REVIEW.freshMs - 1, desks: [{ id: 'jake', n: 30, verdict: 'no edge' }] };
-  assert.equal(rv.current(), null);
-  assert.equal(rv.verdictFor('jake'), null);
+  // An old review is flagged, but its verdicts keep deciding: a desk taken off the account
+  // doesn't drift back just because the reviews stopped.
+  rv.report = { at: t - REVIEW.freshMs - 1, desks: [{ id: 'jake', n: 30, avgR: -0.2, verdict: 'no edge' }] };
+  assert.equal(rv.current(), null, 'not fresh');
+  assert.equal(rv.verdictFor('jake').verdict, 'no edge');
   // No saved history: nothing to review.
   const empty = new EdgeReview({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'review-')), log: quiet, now: () => t });
   assert.equal(empty.isDue(), false);
@@ -146,5 +148,120 @@ test('a review runs in a worker thread, is saved, and its summary reads well on 
   assert.match(text, /➗ Unclear, half size: Amara \+0\.03R/);
   assert.match(text, /🎯 FTMO 1-step odds: 71% at your 0\.5% risk · best 74% at 0\.75%/);
   assert.match(text, /Verdict: the desks with an edge pass most simulated challenges/);
+  // Sizes that all fail have no "best" (one lucky pass in 4,000 isn't advice).
+  const losing = reviewText({ tradingDays: 5, program: '1-step', desks: [], withEdge: null, everyone: { rows: [{ riskPct: 0.5, passed: 0 }, { riskPct: 1.5, passed: 0.00025 }], best: { riskPct: 1.5, passed: 0.00025 } } }, { riskPct: 0.5 });
+  assert.match(losing, /odds \(every desk\): 0% at your 0\.5% risk · under 1% at every risk size/);
   assert.deepEqual(Object.keys(VERDICT_EFFECT).sort(), ['EDGE', 'no edge', 'promising', 'unclear']);
+});
+
+test('a failed review isn\'t retried every minute, a vanished worker isn\'t "running", and shutdown stops it', async () => {
+  const { dir } = historyDir();
+  let t = Date.UTC(2026, 9, 3, 18, 0); // Saturday: any time is a review window
+  const failures = [];
+  // A worker that dies without a word.
+  class DyingWorker {
+    constructor() { this.h = {}; }
+    on(ev, fn) { this.h[ev] = fn; return this; }
+    postMessage() { setImmediate(() => this.h.exit?.(1)); }
+    terminate() { return Promise.resolve(); }
+  }
+  const rv = new EdgeReview({ dataDir: dir, log: quiet, now: () => t, WorkerImpl: DyingWorker });
+  rv.on('failed', (f) => failures.push(f));
+  t += REVIEW.firstAfterMs;
+  rv.tick();
+  assert.ok(rv.running, 'started');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(rv.running, null, 'not left "running" after the worker vanished');
+  assert.match(rv.lastError.text, /stopped unexpectedly \(exit code 1\)/);
+  assert.deepEqual(failures.map((f) => f.reason), ['nightly']);
+  assert.equal(rv.view().retryAt, t + REVIEW.retryMs, 'the FTMO tab says when it tries again');
+  // The next minute: no new attempt, not for half an hour.
+  t += 60_000;
+  assert.equal(rv.isDue(), false);
+  t += REVIEW.retryMs;
+  assert.equal(rv.isDue(), true);
+  // You can always ask for one.
+  assert.equal(rv.run('asked').ok, true);
+  await new Promise((r) => setImmediate(r));
+  // Failing again: the floor waits twice as long (a review that keeps failing mustn't keep a
+  // core busy all day), and says so.
+  assert.equal(rv.failures, 2);
+  assert.equal(failures.at(-1).retryInMs, 2 * REVIEW.retryMs);
+  t += REVIEW.retryMs;
+  assert.equal(rv.isDue(), false);
+  t += REVIEW.retryMs;
+  assert.equal(rv.isDue(), true);
+  for (let i = 0; i < 10; i++) rv.failures++;
+  assert.equal(rv.retryInMs(), REVIEW.retryMaxMs, 'never more than a few hours apart');
+
+  // A nightly review that times out at 17:45 New York is retried that evening, not tomorrow.
+  t = Date.UTC(2026, 9, 6, 21, 0); // Tuesday 17:00 New York
+  const rv3 = new EdgeReview({ dataDir: dir, log: quiet, now: () => t, WorkerImpl: DyingWorker });
+  rv3.report = { at: t - 24 * 3_600_000, desks: [] };
+  assert.equal(rv3.isDue(), true, 'in the window');
+  rv3.tick();
+  await new Promise((r) => setImmediate(r));
+  assert.ok(rv3.lastError);
+  t += 45 * 60_000; // 17:45: the failure; 18:15 is outside the window
+  rv3.failedAt = t;
+  t += REVIEW.retryMs;
+  assert.equal(rv3.isDue(), true, 'retried at 18:15 although the window has closed');
+  // Without a failure, a due review still waits for the window.
+  rv3.failedAt = null;
+  rv3.failures = 0;
+  assert.equal(rv3.isDue(), false);
+  // Shutting down stops a review in progress.
+  class HangingWorker {
+    constructor() { this.terminated = false; HangingWorker.last = this; }
+    on() { return this; }
+    postMessage() {}
+    terminate() { this.terminated = true; return Promise.resolve(); }
+  }
+  const rv2 = new EdgeReview({ dataDir: dir, log: quiet, WorkerImpl: HangingWorker });
+  rv2.run('asked');
+  rv2.stop();
+  assert.equal(HangingWorker.last.terminated, true);
+  assert.equal(rv2.running, null);
+});
+
+test('a review written by npm run edge reaches the running floor; a broken file is ignored', () => {
+  const { dir } = historyDir();
+  const file = path.join(dir, 'edge-report.json');
+  const rv = new EdgeReview({ dataDir: dir, log: quiet });
+  assert.equal(rv.report, null);
+  const good = { at: Date.now(), program: '1-step', size: 10_000, tradingDays: 12, desks: [{ id: 'nico', name: 'Nico Rossi', desk: 'Scalping', symbol: 'NAS100', n: 30, avgR: 0.4, verdict: 'EDGE' }], withEdge: null, everyone: null };
+  fs.writeFileSync(file, JSON.stringify(good));
+  rv.tick();
+  assert.equal(rv.verdictFor('nico').verdict, 'EDGE', 'picked up within a tick');
+  // Half-written, or the wrong shape: the floor keeps the review it has and the FTMO tab works.
+  fs.writeFileSync(file, '{"at": 1, "desks": [');
+  fs.utimesSync(file, new Date(), new Date(Date.now() + 5000));
+  rv.tick();
+  assert.equal(rv.verdictFor('nico').verdict, 'EDGE');
+  fs.writeFileSync(file, JSON.stringify({ at: Date.now() + 1, desks: 'everyone' }));
+  fs.utimesSync(file, new Date(), new Date(Date.now() + 10_000));
+  rv.tick();
+  assert.equal(rv.verdictFor('nico').verdict, 'EDGE');
+  assert.equal(validReport({ at: 1, desks: [{ id: 'x', name: 'X', verdict: 'EDGE' }] }), false, 'a verdict needs its numbers');
+  assert.equal(validReport(good), true);
+  // The browser only ever gets numbers for the odds.
+  rv.report = { ...good, withEdge: { trades: 5, avgR: 0.2, tradesPerDay: 2, rows: [{ riskPct: '0.5" onclick="x', passed: 0.5 }, { riskPct: 0.5, passed: 0.7 }], best: { riskPct: 0.5, passed: 0.7 } } };
+  const v = rv.view();
+  assert.deepEqual(v.report.withEdge.rows.map((r) => r.riskPct), [0.5]);
+  // A "best" risk that isn't a number never becomes a "Use 0% risk" button.
+  rv.report.withEdge.best = { riskPct: 'lots', passed: 0.9 };
+  assert.equal(rv.view().report.withEdge.best, null);
+});
+
+test('one unreadable history file doesn\'t sink the review, and each market counts its own trading days', () => {
+  const { dir, hist } = historyDir();
+  fs.writeFileSync(path.join(hist, 'XAUUSD.json'), '{ not json');
+  const rep = edgeReport({ dir: hist, seeds: 1 });
+  assert.equal(rep.desks.find((d) => d.id === 'amara').verdict, 'history file unreadable');
+  assert.ok(rep.desks.find((d) => d.id === 'jake').verdict !== 'history file unreadable', 'Jake was still replayed');
+  // Two full days and a few stray bars on a third: two trading days.
+  const t0 = Date.UTC(2026, 8, 28) / 1000;
+  const bars = [...Array(2 * 1440).keys()].map((i) => ({ time: t0 + i * 60 })).concat([{ time: t0 + 3 * 86_400 }, { time: t0 + 3 * 86_400 + 60 }]);
+  assert.equal(tradingDaysOf(bars), 2);
+  assert.equal(tradingDaysOf([]), 1);
 });

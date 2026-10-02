@@ -20,11 +20,24 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 export const REVIEW = {
   everyMs: 22 * 3_600_000, // at most once a day
-  freshMs: 4 * 86_400_000, // an older review no longer moves money: the market has moved on
+  freshMs: 4 * 86_400_000, // older than this, the floor warns that the reviews have stopped
   firstAfterMs: 10 * 60_000, // the very first review, once the floor has run a while
+  retryMs: 30 * 60_000, // after a failed review, before the floor tries again by itself...
+  retryMaxMs: 6 * 3_600_000, // ...doubling each time it fails again, up to this
   timeoutMs: 45 * 60_000,
   seeds: 2, // replays per desk (the paper broker's slippage is random)
 };
+
+const VERDICTS = new Set(['EDGE', 'promising', 'unclear', 'no edge']);
+
+// A review read from disk (the floor's own, or one written by npm run edge) is only used if
+// it has the shape the floor relies on: anything else (a half-written or hand-edited file) is
+// ignored rather than allowed to break the FTMO tab or move money.
+export function validReport(r) {
+  if (!r || typeof r !== 'object' || !Number.isFinite(r.at) || !Array.isArray(r.desks)) return false;
+  return r.desks.every((d) => d && typeof d.id === 'string' && typeof d.name === 'string' && typeof d.verdict === 'string'
+    && (!VERDICTS.has(d.verdict) || (Number.isFinite(d.n) && Number.isFinite(d.avgR))));
+}
 
 // Desks the review judges (the floor's trading desks; the research lab tests its own).
 export const VERDICT_EFFECT = {
@@ -52,14 +65,26 @@ export function reviewText(rep, { riskPct = null } = {}) {
   const sim = rep.withEdge || rep.everyone;
   if (sim?.best) {
     const mine = riskPct != null ? sim.rows.find((r) => Math.abs(r.riskPct - riskPct) < 1e-9) : null;
-    lines.push(`🎯 FTMO ${rep.program} odds${rep.withEdge ? '' : ' (every desk)'}: ${mine ? `${pct(mine.passed)} at your ${riskPct}% risk · ` : ''}best ${pct(sim.best.passed)} at ${sim.best.riskPct}%`);
+    const best = sim.best.passed >= 0.005 ? `best ${pct(sim.best.passed)} at ${sim.best.riskPct}%` : 'under 1% at every risk size';
+    lines.push(`🎯 FTMO ${rep.program} odds${rep.withEdge ? '' : ' (every desk)'}: ${mine ? `${pct(mine.passed)} at your ${riskPct}% risk · ` : ''}${best}`);
   }
-  lines.push(!rep.withEdge
+  lines.push(!rep.withEdge?.best
     ? 'Verdict: no proven edge yet. Keep training on the Free Trial.'
     : rep.withEdge.best.passed >= 0.6
       ? 'Verdict: the desks with an edge pass most simulated challenges. Confirm it on the Free Trial first.'
       : 'Verdict: not ready for a paid challenge yet.');
   return lines.join('\n');
+}
+
+// A challenge simulation for the browser: numbers only (the file may have been written by
+// another program).
+const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
+function simView(sim) {
+  if (!sim || !Array.isArray(sim.rows) || !sim.rows.length) return null;
+  const row = (r) => ({ riskPct: num(r?.riskPct), passed: num(r?.passed) ?? 0, failed: num(r?.failed) ?? 0, open: num(r?.open) ?? 0, medianDays: num(r?.medianDays) });
+  const rows = sim.rows.map(row).filter((r) => r.riskPct != null);
+  const best = sim.best ? row(sim.best) : null;
+  return rows.length ? { trades: num(sim.trades) ?? 0, avgR: num(sim.avgR), tradesPerDay: num(sim.tradesPerDay) ?? 0, rows, best: best?.riskPct != null ? best : null } : null;
 }
 
 export class EdgeReview extends EventEmitter {
@@ -76,22 +101,53 @@ export class EdgeReview extends EventEmitter {
     this.startedAt = now();
     this.running = null;
     this.lastError = null;
+    this.failedAt = null;
+    this.failures = 0; // in a row
     this.seq = 0;
     this.report = null;
-    try {
-      const r = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      if (r?.desks && Number.isFinite(r.at)) this.report = r;
-    } catch { /* no review yet */ }
+    this.loadedMtime = 0;
+    this.#reload();
   }
 
-  // The latest review, if it's recent enough to move money.
+  // The saved review: at start, and whenever the file changes (npm run edge while the floor
+  // runs writes the same file, and takes effect within a minute).
+  #reload() {
+    if (!this.file) return false;
+    let mtime;
+    try {
+      mtime = fs.statSync(this.file).mtimeMs;
+    } catch {
+      return false; // no review yet
+    }
+    if (mtime === this.loadedMtime) return false;
+    let r;
+    try {
+      r = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+    } catch {
+      return false; // being written right now: read again on the next tick
+    }
+    this.loadedMtime = mtime;
+    if (!validReport(r)) {
+      this.log.warn?.('[review] ignoring data/edge-report.json: it isn\'t a complete review');
+      return false;
+    }
+    if (this.report && r.at <= this.report.at) return false;
+    this.report = r;
+    this.emit('change');
+    return true;
+  }
+
+  // The latest review, if it's recent (the reviews are running as they should).
   current() {
     return this.report && this.now() - this.report.at <= REVIEW.freshMs ? this.report : null;
   }
 
-  // A desk's verdict from the latest review, or null.
+  // A desk's verdict from the latest review, or null. The latest review keeps deciding until
+  // a newer one replaces it: if the reviews stopped (the Mac asleep after the close, a broken
+  // file), desks it took off the account mustn't drift back by themselves. An old review is
+  // flagged in the FTMO tab and the rules list instead.
   verdictFor(agentId) {
-    const d = this.current()?.desks?.find((x) => x.id === agentId);
+    const d = this.report?.desks?.find((x) => x.id === agentId);
     return d && d.n ? d : null;
   }
 
@@ -101,14 +157,36 @@ export class EdgeReview extends EventEmitter {
     return p.weekday === 'Sat' || p.weekday === 'Sun' || p.hour === 17;
   }
 
+  // How long the floor waits after a failed review before trying again by itself.
+  retryInMs() {
+    return Math.min(REVIEW.retryMs * 2 ** Math.max(0, this.failures - 1), REVIEW.retryMaxMs);
+  }
+
   isDue(now = this.now()) {
     if (this.running || !this.#hasHistory()) return false;
+    // A review that failed isn't retried every minute: the floor waits a while first, longer
+    // each time it fails again (a review that keeps timing out mustn't keep a core busy all day).
+    if (this.failedAt != null && now - this.failedAt < this.retryInMs()) return false;
     if (!this.report) return now - this.startedAt >= REVIEW.firstAfterMs;
-    return now - this.report.at >= REVIEW.everyMs && this.#windowOpen(now);
+    if (now - this.report.at < REVIEW.everyMs) return false;
+    // The retry of a failed review doesn't wait for tomorrow's window: one that times out at
+    // 17:45 would otherwise leave yesterday's verdicts in charge for another day.
+    return this.failedAt != null || this.#windowOpen(now);
   }
 
   tick() {
+    this.#reload();
     if (this.isDue()) this.run('nightly');
+  }
+
+  // The floor is shutting down: stop a review in progress (it runs again after the restart).
+  stop() {
+    clearTimeout(this.timer);
+    this.timer = null;
+    const w = this.worker;
+    this.worker = null;
+    this.running = null;
+    if (w) w.terminate().catch?.(() => {});
   }
 
   #hasHistory() {
@@ -125,6 +203,7 @@ export class EdgeReview extends EventEmitter {
     const s = this.settings() || {};
     const job = { id: ++this.seq, dir: this.historyDir, seeds: REVIEW.seeds, program: s.program === '2-step' ? '2-step' : '1-step', size: s.size || 10_000 };
     this.running = { id: job.id, reason, startedAt: this.now(), line: 'Starting', i: 0 };
+    this.lastReason = reason;
     this.lastError = null;
     this.log.info?.(`[review] ${reason === 'nightly' ? 'Nightly review' : 'Review'} started: replaying every desk on the saved history`);
     this.emit('change');
@@ -149,8 +228,9 @@ export class EdgeReview extends EventEmitter {
       this.#finish(job.id, null, 'took too long and was stopped');
     }, REVIEW.timeoutMs);
     timer.unref?.();
+    this.timer = timer;
     w.on('message', (m) => {
-      if (m.id !== job.id) return;
+      if (m?.id !== job.id) return;
       if (m.type === 'progress') this.#progress(job.id, m.line);
       else {
         clearTimeout(timer);
@@ -162,6 +242,11 @@ export class EdgeReview extends EventEmitter {
     w.on('error', (err) => {
       clearTimeout(timer);
       this.#finish(job.id, null, `the review crashed: ${err.message}`);
+    });
+    // Gone without a word (killed, out of memory): not "running" for the next 45 minutes.
+    w.on('exit', (code) => {
+      clearTimeout(timer);
+      this.#finish(job.id, null, `the review stopped unexpectedly (exit code ${code})`);
     });
     w.postMessage(job);
     return { ok: true };
@@ -179,19 +264,30 @@ export class EdgeReview extends EventEmitter {
     const took = this.now() - this.running.startedAt;
     this.running = null;
     this.worker = null;
+    clearTimeout(this.timer);
+    this.timer = null;
+    if (!error && report) {
+      report.at = this.now();
+      report.tookMs = took;
+      if (!validReport(report)) error = 'the review came back incomplete';
+    }
     if (error || !report) {
-      this.lastError = { text: (error || 'no result').split('\n')[0], at: this.now() };
+      this.lastError = { text: String(error || 'no result').split('\n')[0], at: this.now() };
+      this.failedAt = this.now();
+      this.failures++;
       this.log.warn?.(`[review] failed: ${this.lastError.text}`);
+      this.emit('failed', { ...this.lastError, reason: this.lastReason, retryInMs: this.retryInMs() });
       this.emit('change');
       return;
     }
-    report.at = this.now();
-    report.tookMs = took;
+    this.failedAt = null;
+    this.failures = 0;
     this.report = report;
     if (this.file) {
       try {
         fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(report, null, 1));
         fs.renameSync(`${this.file}.tmp`, this.file);
+        this.loadedMtime = fs.statSync(this.file).mtimeMs;
       } catch (err) {
         this.log.warn?.(`[review] could not save: ${err.message}`);
       }
@@ -207,12 +303,20 @@ export class EdgeReview extends EventEmitter {
     return {
       running: this.running ? { startedAt: this.running.startedAt, line: this.running.line, i: this.running.i, reason: this.running.reason } : null,
       lastError: this.lastError,
+      // When the floor tries again by itself (only while a review is due).
+      retryAt: this.failedAt != null && !this.running && (!this.report || this.now() - this.report.at >= REVIEW.everyMs) ? this.failedAt + this.retryInMs() : null,
       fresh: !!this.current(),
       report: rep ? {
-        at: rep.at, tookMs: rep.tookMs ?? null, program: rep.program, size: rep.size, tradingDays: rep.tradingDays,
-        desks: rep.desks.map((d) => ({ id: d.id, name: d.name, desk: d.desk, symbol: d.symbol, n: d.n, winRate: d.winRate ?? null, avgR: d.avgR ?? null, ci: d.ci ?? null, halves: d.halves ?? null, verdict: d.verdict })),
-        withEdge: rep.withEdge ? { trades: rep.withEdge.trades, avgR: rep.withEdge.avgR, tradesPerDay: rep.withEdge.tradesPerDay, rows: rep.withEdge.rows, best: rep.withEdge.best } : null,
-        everyone: rep.everyone ? { trades: rep.everyone.trades, avgR: rep.everyone.avgR, tradesPerDay: rep.everyone.tradesPerDay, rows: rep.everyone.rows, best: rep.everyone.best } : null,
+        at: rep.at, program: rep.program === '2-step' ? '2-step' : '1-step',
+        desks: rep.desks.map((d) => ({
+          id: d.id, name: d.name, desk: String(d.desk ?? ''), symbol: String(d.symbol ?? ''), verdict: d.verdict,
+          n: num(d.n) ?? 0, winRate: num(d.winRate), avgR: num(d.avgR),
+          ci: Array.isArray(d.ci) && d.ci.length === 2 && d.ci.every((x) => num(x) != null) ? d.ci.map(Number) : null,
+          halves: Array.isArray(d.halves) ? d.halves.map(num) : null,
+        })),
+        tradingDays: num(rep.tradingDays) ?? 0, size: num(rep.size), tookMs: num(rep.tookMs),
+        withEdge: simView(rep.withEdge),
+        everyone: simView(rep.everyone),
       } : null,
     };
   }

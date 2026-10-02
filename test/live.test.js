@@ -1338,7 +1338,8 @@ test('capital follows the nightly review: no edge on your prices is paper only, 
     nico: { id: 'nico', n: 31, avgR: 0.42, verdict: 'EDGE' },
     jake: { id: 'jake', n: 6, avgR: 0.5, verdict: 'too few trades to tell' },
   };
-  live.review = { verdictFor: (id) => verdicts[id] || null, current: () => ({ at: Date.now() - 2 * 3_600_000, tradingDays: 18 }) };
+  const report = { at: Date.now() - 2 * 3_600_000, tradingDays: 18 };
+  live.review = { verdictFor: (id) => verdicts[id] || null, report, current: () => report };
   const brain = live.brain;
   const m = fund.byId.get('marcus');
   const v = brain.allow(m, { symbol: 'NAS100', qty: 1 }, {});
@@ -1356,11 +1357,20 @@ test('capital follows the nightly review: no edge on your prices is paper only, 
   assert.equal(brain.deskStatus(fund.byId.get('nico')).label, 'Training · proven');
   assert.equal(brain.allow(fund.byId.get('jake'), { symbol: 'GBPUSD', qty: 1 }, {}).riskMult, full.riskMult, 'too few trades: unchanged');
   assert.ok(live.view().plan.rules.some((r) => /Evidence first: every night each desk is replayed on your own prices \(last review 2 h ago, 18 trading days\)/.test(r.text)));
+  // Reviews stopped for days: flagged, and the old verdicts still decide.
+  report.at = Date.now() - 6 * 86_400_000;
+  live.review.current = () => null;
+  const stale = live.view().plan.rules.find((r) => /Evidence first/.test(r.text));
+  assert.equal(stale.ok, false);
+  assert.match(stale.text, /the last nightly review is 6 days ago, so the reviews have stopped .* Its verdicts still apply until a new one runs/);
+  assert.equal(brain.allow(m, { symbol: 'NAS100', qty: 1 }, {}).ok, false, 'Marcus stays off the account');
 
   // The review's "use the best risk" button.
   assert.equal(live.setRisk(0.75).ok, true);
   assert.equal(live.profile.riskPerTradePct, 0.75);
-  assert.match(live.setRisk(5).error, /between 0\.05% and 2%/);
+  assert.match(live.setRisk(5).error, /between 0\.01% and 2%/);
+  assert.equal(live.setRisk('abc').ok, false);
+  assert.equal(live.profile.riskPerTradePct, 0.75, 'a refused change leaves the risk as it was');
 });
 
 test('the review card: verdicts, what they mean for the account, and the odds at each risk', async () => {
@@ -1373,7 +1383,7 @@ test('the review card: verdicts, what they mean for the account, and the odds at
   assert.deepEqual(riskAdvice(sim, 0.25).worth, true);
   assert.deepEqual(riskAdvice(sim, 0.5).worth, false, 'already at the best');
   const v = {
-    mode: 'live', profile: { riskPerTradePct: 0.25 },
+    mode: 'live', profile: { riskPerTradePct: 0.25, program: '1-step', size: 10_000 },
     review: {
       running: null, lastError: null, fresh: true,
       report: {
@@ -1396,9 +1406,68 @@ test('the review card: verdicts, what they mean for the account, and the odds at
   assert.match(html, /Chance of passing FTMO 1-step \(\$10,000\), trading the desks with an edge/);
   assert.match(html, /data-act="use-risk" data-risk="0\.5">Use 0\.5% risk a trade/);
   assert.match(html, /The desks with an edge pass 68% of simulated challenges at 0\.5% risk/);
+  // The account changed program since the review: the odds don't fit it, nothing is suggested.
+  const moved = renderReview({ ...v, profile: { ...v.profile, program: '2-step' } });
+  assert.match(moved, /These odds are for FTMO 1-step \$10,000; your account is now 2-step \$10,000\. Press Run now/);
+  assert.doesNotMatch(moved, /data-act="use-risk"/);
+  // Every size fails (one lucky pass in 4,000 at 1.5%): no "best" and no time to pass.
+  const hopeless = { rows: [{ riskPct: 0.25, passed: 0, failed: 1, open: 0, medianDays: null }, { riskPct: 1.5, passed: 0.00025, failed: 0.99975, open: 0, medianDays: 4 }], best: { riskPct: 1.5, passed: 0.00025 }, trades: 220, avgR: -0.2, tradesPerDay: 44 };
+  const none = renderReview({ ...v, review: { ...v.review, report: { ...v.review.report, withEdge: null, everyone: hopeless } } });
+  assert.match(none, /with every desk \(none has an edge yet\)/);
+  assert.doesNotMatch(none, /class="b">best/);
+  assert.doesNotMatch(none, /~4 days/);
+  assert.doesNotMatch(none, /data-act="use-risk"/);
   // Running, and no review yet.
   const first = renderReview({ mode: 'live', profile: { riskPerTradePct: 0.5 }, review: { running: { startedAt: Date.now(), line: 'Nico Rossi on NAS100 (9,000 bars)…' }, report: null, fresh: false } });
   assert.match(first, /Reviewing…/);
   assert.match(first, /Nico Rossi on NAS100/);
   assert.match(first, /No review yet/);
+  // A failed review says when the floor tries again.
+  const failed = renderReview({ mode: 'live', profile: { riskPerTradePct: 0.5 }, review: { running: null, lastError: { text: 'took too long and was stopped' }, retryAt: Date.now() + 30 * 60_000, report: null, fresh: false } });
+  assert.match(failed, /The last review didn't finish: took too long and was stopped\. The floor tries again by itself in 30 min\./);
+});
+
+test('end to end: a review on disk takes a desk off the account, and the Today card says why', async () => {
+  const { EdgeReview } = await import('../server/live/review.js');
+  const { fund, live, sync, dataDir } = setup();
+  // The review npm run edge (or last night's) saved: Amara has no edge on these prices.
+  fs.writeFileSync(path.join(dataDir, 'edge-report.json'), JSON.stringify({
+    at: Date.now() - 3_600_000, program: '2-step', size: 100_000, tradingDays: 15, seeds: 2,
+    desks: [{ id: 'amara', name: 'Amara Okafor', desk: 'Metals', symbol: 'XAUUSD', n: 40, avgR: -0.31, winRate: 0.4, ci: [-0.6, -0.02], halves: [-0.3, -0.32], verdict: 'no edge' }],
+    withEdge: null, everyone: null,
+  }));
+  live.review = new EdgeReview({ dataDir, log: { info() {}, warn() {} } });
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  assert.equal(live.arm().ok, true);
+  const amara = fund.byId.get('amara');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), true, 'she still trades on paper');
+  await tick();
+  live.reconcile();
+  assert.equal(sync().filter((c) => c[0] === 'open').length, 0, 'nothing went to MT5');
+  const v = live.view();
+  assert.deepEqual(v.today.reasons, [['No edge on your prices', 1]]);
+  assert.equal(v.desks.find((d) => d.id === 'amara').status.label, 'Paper · no edge');
+  assert.equal(v.review.report.desks[0].verdict, 'no edge', 'the FTMO tab gets the review');
+  // A new review (written while the floor runs) puts her back on the account within a tick.
+  fs.writeFileSync(path.join(dataDir, 'edge-report.json'), JSON.stringify({
+    at: Date.now(), program: '2-step', size: 100_000, tradingDays: 16, seeds: 2,
+    desks: [{ id: 'amara', name: 'Amara Okafor', desk: 'Metals', symbol: 'XAUUSD', n: 44, avgR: 0.35, winRate: 0.55, ci: [0.05, 0.6], halves: [0.3, 0.4], verdict: 'EDGE' }],
+    withEdge: null, everyone: null,
+  }));
+  fs.utimesSync(path.join(dataDir, 'edge-report.json'), new Date(), new Date(Date.now() + 5000));
+  live.review.tick();
+  assert.notEqual(live.view().desks.find((d) => d.id === 'amara').status.label, 'Paper · no edge');
+  // Unclear, with the account disarmed: the desk table already says it will trade at half size.
+  fs.writeFileSync(path.join(dataDir, 'edge-report.json'), JSON.stringify({
+    at: Date.now() + 1, program: '2-step', size: 100_000, tradingDays: 16, seeds: 2,
+    desks: [{ id: 'amara', name: 'Amara Okafor', desk: 'Metals', symbol: 'XAUUSD', n: 44, avgR: 0.05, winRate: 0.5, ci: [-0.2, 0.3], halves: [0.1, 0], verdict: 'unclear' }],
+    withEdge: null, everyone: null,
+  }));
+  fs.utimesSync(path.join(dataDir, 'edge-report.json'), new Date(), new Date(Date.now() + 10_000));
+  live.review.tick();
+  live.disarm();
+  const st = live.view().desks.find((d) => d.id === 'amara').status;
+  assert.equal(st.label, 'Training · half size · not armed');
+  assert.match(st.text, /half size/);
 });

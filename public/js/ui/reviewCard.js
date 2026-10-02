@@ -42,11 +42,13 @@ export function renderReview(v, { now = Date.now() } = {}) {
       <p class="sub">Every night after the New York close, each desk is replayed minute by minute on the real prices the floor saved from your MT5, with FTMO's costs. Its verdict decides who trades the account: no edge means paper only, unclear means half size.</p></div>
       <button class="btn" data-act="review-run" ${running || v.mode !== 'live' ? 'disabled' : ''}>${running ? 'Reviewing…' : 'Run now'}</button></div>`;
   const progress = running ? `<p class="review-progress"><span class="spinner"></span>${escapeHtml(running.line || 'Starting')} <span class="muted">· started ${ago(running.startedAt, now)}, takes a few minutes</span></p>` : '';
-  const err = r.lastError ? `<p class="tg-msg bad">The last review didn't finish: ${escapeHtml(r.lastError.text)}</p>` : '';
+  const retry = Number.isFinite(r.retryAt) ? Math.max(1, Math.round((r.retryAt - now) / 60_000)) : null;
+  const when = retry == null ? '' : ` The floor tries again by itself in ${retry < 90 ? `${retry} min` : `${Math.round(retry / 60)} h`}.`;
+  const err = r.lastError ? `<p class="tg-msg bad">The last review didn't finish: ${escapeHtml(String(r.lastError.text).replace(/\.+$/, ''))}.${when}</p>` : '';
   if (!rep) {
     return `${head}${progress}${err}<p class="fine">No review yet. It runs by itself after the New York close (and once, about 10 minutes after the floor first starts), as soon as the floor has saved some real prices. Or press Run now.</p>`;
   }
-  const stale = !r.fresh ? ' <b class="warn-text">(over 4 days old: it no longer decides anything until the next one)</b>' : '';
+  const stale = !r.fresh ? ' <b class="warn-text">(over 4 days old: the nightly reviews have stopped. Its verdicts still decide who trades until a new one runs; press Run now)</b>' : '';
   const rows = rep.desks.map((d) => {
     const eff = EFFECT[d.verdict];
     const range = d.ci ? `${fr(d.ci[0])} to ${fr(d.ci[1])}` : '';
@@ -66,29 +68,36 @@ export function renderReview(v, { now = Date.now() } = {}) {
     const adv = riskAdvice(sim, riskPct);
     const bars = sim.rows.map((x) => {
       const yours = Math.abs(x.riskPct - riskPct) < 1e-9;
-      const best = adv.best && Math.abs(x.riskPct - adv.best.riskPct) < 1e-9;
+      // No "best" among sizes that all fail: 1 pass in 4,000 isn't a choice.
+      const best = adv.best && adv.best.passed >= 0.005 && Math.abs(x.riskPct - adv.best.riskPct) < 1e-9;
       return `<div class="odds-row${yours ? ' yours' : ''}${best ? ' best' : ''}">
         <span class="odds-risk">${x.riskPct}%${yours ? ' <em>yours</em>' : ''}${best ? ' <em class="b">best</em>' : ''}</span>
         <span class="odds-bar"><i class="p" style="width:${(x.passed * 100).toFixed(1)}%"></i><i class="f" style="width:${(x.failed * 100).toFixed(1)}%"></i></span>
-        <span class="odds-num">passes <b>${pct(x.passed)}</b> · fails ${pct(x.failed)}${x.medianDays ? ` · ~${x.medianDays} days` : ''}</span>
+        <span class="odds-num">passes <b>${pct(x.passed)}</b> · fails ${pct(x.failed)}${x.medianDays && x.passed >= 0.005 ? ` · ~${x.medianDays} days` : ''}</span>
       </div>`;
     }).join('');
+    // The odds were played out for the program and size of the account at the time of the
+    // review: changed since, they don't fit any more and nothing is suggested from them.
+    const program = v.profile.program === '2-step' ? '2-step' : '1-step';
+    const mismatch = rep.program !== program || Number(rep.size) !== Number(v.profile.size);
     // Only with desks that have an edge: without one, a bigger risk only fails faster.
-    const button = adv.worth && rep.withEdge ? `<button class="btn primary" data-act="use-risk" data-risk="${adv.best.riskPct}">Use ${adv.best.riskPct}% risk a trade</button>` : '';
+    const button = adv.worth && rep.withEdge && !mismatch ? `<button class="btn primary" data-act="use-risk" data-risk="${Number(adv.best.riskPct)}">Use ${Number(adv.best.riskPct)}% risk a trade</button>` : '';
     odds = `
       <h3 class="review-h">Chance of passing FTMO ${escapeHtml(rep.program)} ($${Number(rep.size).toLocaleString('en-US')}), ${rep.withEdge ? 'trading the desks with an edge' : 'with every desk (none has an edge yet)'}</h3>
+      ${mismatch ? `<p class="tg-msg bad">These odds are for FTMO ${escapeHtml(rep.program)} $${Number(rep.size).toLocaleString('en-US')}; your account is now ${program} $${Number(v.profile.size).toLocaleString('en-US')}. Press Run now for odds that fit it.</p>` : ''}
       <p class="fine">${sim.trades} replayed trades, ${fr(sim.avgR)} a trade after costs, about ${sim.tradesPerDay.toFixed(1)} a day. Thousands of challenges played out under the rules and the floor's loss guard, up to 60 trading days.</p>
       <div class="odds">${bars}</div>
       ${button ? `<div class="btn-row">${button}<span class="fine">Your risk per trade is ${riskPct}%.</span></div>` : ''}`;
   }
-  const verdict = !rep.withEdge
+  const best = rep.withEdge?.best || null;
+  const verdict = !rep.withEdge || !best
     ? 'No desk shows an edge on your prices yet. Keep training on the Free Trial; don\'t pay for a challenge on these results.'
-    : rep.withEdge.best.passed >= 0.6
-      ? `The desks with an edge pass ${pct(rep.withEdge.best.passed)} of simulated challenges at ${rep.withEdge.best.riskPct}% risk. Confirm it on the Free Trial with the same desks and risk before paying for one.`
-      : `Even the desks with an edge pass only ${pct(rep.withEdge.best.passed)} of simulated challenges. Not ready for a paid challenge yet.`;
+    : best.passed >= 0.6
+      ? `The desks with an edge pass ${pct(best.passed)} of simulated challenges at ${best.riskPct}% risk. Confirm it on the Free Trial with the same desks and risk before paying for one.`
+      : `Even the desks with an edge pass only ${pct(best.passed)} of simulated challenges. Not ready for a paid challenge yet.`;
   return `${head}${progress}${err}
     <p class="sub">Last review ${ago(rep.at, now)}${rep.tookMs ? ` (took ${Math.max(1, Math.round(rep.tookMs / 60_000))} min)` : ''} · ${rep.tradingDays} trading days of your prices${stale}</p>
-    <p class="review-verdict ${rep.withEdge && rep.withEdge.best.passed >= 0.6 ? 'good' : 'warn'}">${escapeHtml(verdict)}</p>
+    <p class="review-verdict ${best && best.passed >= 0.6 ? 'good' : 'warn'}">${escapeHtml(verdict)}</p>
     <div class="table-wrap" style="max-height:none"><table class="table compact review-desks">
       <thead><tr><th>Desk</th><th>Market</th><th class="r">Trades</th><th class="r">Won</th><th class="r">Per trade</th><th>Verdict</th><th>On the account</th></tr></thead>
       <tbody>${rows}</tbody>

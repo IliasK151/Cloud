@@ -485,7 +485,7 @@ It takes a few minutes and only reads market data. The more history the floor ha
 - **EDGE** and **promising:** normal size;
 - **too few trades to tell:** unchanged.
 
-A review older than 4 days stops deciding anything. Your own TradingView alerts are your call. The summary goes to your phone with the daily report.
+The latest review keeps deciding until a newer one replaces it, so a desk it took off the account never drifts back by itself. If the reviews stop (the Mac asleep after the close, a failing review), the card and the account's rule list say so after 4 days. A nightly review that fails is retried 30 minutes later, even once the evening window has passed (twice as long each time it fails again, up to 6 hours), and messages your phone, at most once a day. Your own TradingView alerts are your call. The summary goes to your phone with the daily report. Running `npm run edge` while the floor runs updates the floor's verdicts within a minute.
 
 The FTMO tab's **Nightly review** card shows every desk's verdict and what it means on the account. It also shows the chance of passing at each risk size, with **Run now**. When desks have an edge and another risk size passes clearly more often than yours, there's a **Use X% risk** button.
 

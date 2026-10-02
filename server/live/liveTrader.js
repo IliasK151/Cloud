@@ -314,7 +314,7 @@ export class LiveTrader extends EventEmitter {
     const p = this.profile;
     if (!p) return { ok: false, error: 'Set up the account first' };
     const v = Number(pct);
-    if (!Number.isFinite(v) || v < 0.05 || v > 2) return { ok: false, error: 'Risk per trade must be between 0.05% and 2%' };
+    if (!Number.isFinite(v) || v < 0.01 || v > 2) return { ok: false, error: 'Risk per trade must be between 0.01% and 2%' };
     const was = p.riskPerTradePct;
     p.riskPerTradePct = Math.round(v * 100) / 100;
     p.updatedAt = Date.now();

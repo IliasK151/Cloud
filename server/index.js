@@ -111,6 +111,15 @@ if (config.feed === 'live') {
   }, 60_000).unref?.();
 }
 review.on('report', (rep) => notifier.notify({ kind: 'daily', text: reviewText(rep, { riskPct: live.profile?.riskPerTradePct ?? null }), at: Date.now() }));
+// A nightly review that didn't finish is worth one message a day (the floor retries by itself).
+let reviewFailNoticeAt = 0;
+review.on('failed', (f) => {
+  if (f.reason !== 'nightly' || Date.now() - reviewFailNoticeAt < 20 * 3_600_000) return;
+  reviewFailNoticeAt = Date.now();
+  const mins = Math.round(f.retryInMs / 60_000);
+  const when = mins < 90 ? `${mins} minutes` : `${Math.round(mins / 60)} hours`;
+  notifier.notify({ kind: 'daily', text: `⚠️ Tonight's review didn't finish: ${f.text}. The last review's verdicts still decide who trades the account; the floor tries again in ${when}.`, at: Date.now() });
+});
 
 // Two weeks of entry charts are plenty.
 function pruneCharts() {
@@ -690,6 +699,7 @@ async function shutdown() {
   voices.stop();
   news.stop();
   lab.stop();
+  review.stop();
   history.stop();
   firewall.flush();
   process.exit(0);

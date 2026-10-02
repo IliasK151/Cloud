@@ -86,45 +86,76 @@ function seededReplay(args, seed) {
 export function edgeReport({ dir, deskId = null, seeds = 3, program = '1-step', size = 10_000, log = () => {} }) {
   const desks = ROSTER.filter((p) => !p.lab && !SKIP.has(p.id) && (!deskId || p.id === deskId));
   const out = [];
-  const pool = []; // trades of the desks that show an edge, for the challenge simulation
-  const all = [];
-  let days = new Set();
+  // Trades of the desks that show an edge (for the challenge simulation), and of every desk,
+  // with each desk's own trades per day: crypto trades seven days a week, the rest five, and a
+  // market saved for three days isn't slower than one saved for three weeks.
+  const pool = { rs: [], perDay: 0 };
+  const all = { rs: [], perDay: 0 };
+  let maxDays = 0;
   for (const p of desks) {
     const symbol = p.symbols[0];
+    const base = { id: p.id, name: p.name, desk: p.desk, symbol };
     const file = path.join(dir, `${symbol}.json`);
     if (!fs.existsSync(file)) {
-      out.push({ id: p.id, name: p.name, desk: p.desk, symbol, verdict: 'no saved history', n: 0 });
+      out.push({ ...base, verdict: 'no saved history', n: 0 });
       continue;
     }
-    const bars = loadBars(file);
+    // One unreadable file or one desk's replay failing must not sink every other desk's review.
+    let bars;
+    try {
+      bars = loadBars(file);
+    } catch (err) {
+      out.push({ ...base, verdict: 'history file unreadable', n: 0, error: err.message });
+      continue;
+    }
     if (bars.length < 1500) {
-      out.push({ id: p.id, name: p.name, desk: p.desk, symbol, verdict: `only ${bars.length} bars saved`, n: 0 });
+      out.push({ ...base, verdict: `only ${bars.length} bars saved`, n: 0 });
       continue;
     }
     log(`  ${p.name} on ${symbol} (${bars.length.toLocaleString('en-US')} bars)…`);
     let first = null;
     const runAvgs = [];
-    for (let s = 1; s <= seeds; s++) {
-      const res = seededReplay({ profile: p, bars }, s);
-      const trades = res.trades.map((t) => ({ r: t.r, time: t.closeTime ?? t.openTime }));
-      if (!first) first = trades;
-      if (trades.length) runAvgs.push(mean(trades.map((t) => t.r)));
+    try {
+      for (let s = 1; s <= seeds; s++) {
+        const res = seededReplay({ profile: p, bars }, s);
+        const trades = res.trades.filter((t) => Number.isFinite(t.r)).map((t) => ({ r: t.r, time: t.closeTime ?? t.openTime }));
+        if (!first) first = trades;
+        if (trades.length) runAvgs.push(mean(trades.map((t) => t.r)));
+      }
+    } catch (err) {
+      out.push({ ...base, verdict: 'replay failed', n: 0, error: err.message });
+      continue;
     }
-    for (const b of bars) days.add(new Date(b.time * 1000).toISOString().slice(0, 10));
+    const days = tradingDaysOf(bars);
+    maxDays = Math.max(maxDays, days);
     const j = judge(first, { runs: runAvgs });
-    out.push({ id: p.id, name: p.name, desk: p.desk, symbol, bars: bars.length, from: bars[0].time, to: bars.at(-1).time, ...j });
-    all.push(...first.map((t) => t.r));
-    if (j.verdict === 'EDGE' || j.verdict === 'promising') pool.push(...first);
+    out.push({ ...base, bars: bars.length, from: bars[0].time, to: bars.at(-1).time, days, ...j });
+    const rs = first.map((t) => t.r);
+    all.rs.push(...rs);
+    all.perDay += rs.length / days;
+    if (j.verdict === 'EDGE' || j.verdict === 'promising') {
+      pool.rs.push(...rs);
+      pool.perDay += rs.length / days;
+    }
   }
-  // Trading days in the history (weekdays with bars), for the trades-per-day of the simulation.
-  const tradingDays = [...days].filter((d) => ![0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay())).length || 1;
-  const sim = (rs, n) => (rs.length ? { trades: rs.length, avgR: mean(rs), tradesPerDay: n / tradingDays, ...riskSweep({ samples: rs, tradesPerDay: n / tradingDays, program, size }) } : null);
+  const sim = (g) => (g.rs.length ? { trades: g.rs.length, avgR: mean(g.rs), tradesPerDay: g.perDay, ...riskSweep({ samples: g.rs, tradesPerDay: g.perDay, program, size }) } : null);
   return {
-    at: Date.now(), program, size, tradingDays, seeds,
+    at: Date.now(), program, size, tradingDays: maxDays, seeds,
     desks: out,
-    withEdge: sim(pool.map((t) => t.r), pool.length),
-    everyone: sim(all, all.length),
+    withEdge: sim(pool),
+    everyone: sim(all),
   };
+}
+
+// Days with a real session in the history: at least an hour of minutes (a few stray bars on
+// a closed day don't count).
+export function tradingDaysOf(bars) {
+  const perDay = new Map();
+  for (const b of bars) {
+    const d = new Date(b.time * 1000).toISOString().slice(0, 10);
+    perDay.set(d, (perDay.get(d) || 0) + 1);
+  }
+  return [...perDay.values()].filter((n) => n >= 60).length || 1;
 }
 
 // ---- printing ------------------------------------------------------------------------------------
@@ -134,7 +165,8 @@ const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
 function printSim(label, s) {
   if (!s) return;
   console.log(`\n  ${label}: ${s.trades} trades, ${fr(s.avgR)} a trade, about ${s.tradesPerDay.toFixed(1)} a day`);
-  for (const r of s.rows) console.log(`    risk ${String(r.riskPct).padEnd(4)}% a trade → passes ${pct(r.passed).padStart(4)} · fails ${pct(r.failed).padStart(4)} · still going after 60 trading days ${pct(r.open).padStart(4)}${r.medianDays ? ` · median ${r.medianDays} days to pass` : ''}`);
+  // A pass time only means something when passing does: one lucky run in thousands has no median.
+  for (const r of s.rows) console.log(`    risk ${String(r.riskPct).padEnd(4)}% a trade → passes ${pct(r.passed).padStart(4)} · fails ${pct(r.failed).padStart(4)} · still going after 60 trading days ${pct(r.open).padStart(4)}${r.medianDays && r.passed >= 0.005 ? ` · median ${r.medianDays} days to pass` : ''}`);
 }
 
 export function printReport(rep) {
@@ -174,7 +206,8 @@ async function main() {
   if (!program || !size) {
     try {
       const live = JSON.parse(fs.readFileSync(path.join(config.dataDir, 'live.json'), 'utf8'));
-      const p = Object.values(live.profiles || {})[0];
+      // The account set up or changed most recently: the one MT5 trades now.
+      const p = Object.values(live.profiles || {}).sort((a, b) => (b?.updatedAt || 0) - (a?.updatedAt || 0))[0];
       program ||= p?.program || null;
       size ||= p?.size || null;
     } catch { /* no FTMO setup yet */ }
@@ -184,8 +217,13 @@ async function main() {
   console.log(`\n  Replaying every trading desk on ${dir} (takes a few minutes)…`);
   const rep = edgeReport({ dir, deskId: opt('desk'), seeds: Math.max(1, Number(opt('seeds')) || 3), program, size, log: (s) => console.log(s) });
   printReport(rep);
+  // Written whole and then moved into place: a running floor picks it up (within a minute) and
+  // must never read it half-written.
   try {
-    fs.writeFileSync(path.join(config.dataDir, 'edge-report.json'), JSON.stringify(rep, null, 1));
+    const file = path.join(config.dataDir, 'edge-report.json');
+    fs.writeFileSync(`${file}.cli.tmp`, JSON.stringify(rep, null, 1));
+    fs.renameSync(`${file}.cli.tmp`, file);
+    console.log('  Saved to data/edge-report.json: a running floor uses it within a minute.\n');
   } catch { /* read-only data folder: the printout is the report */ }
 }
 
