@@ -16,6 +16,7 @@ const EVENTS = 60;
 const CATEGORIES = [
   [/Best Day rule/i, 'FTMO Best Day rule'],
   [/cool-off/i, 'Cool-off after a losing streak'],
+  [/out of form/i, 'Desk out of form'],
   [/desk loss limit/i, 'Desk loss limit'],
   [/no flipping/i, 'No flipping right after a loss'],
   [/costs would eat/i, 'Costs too high for the stop'],

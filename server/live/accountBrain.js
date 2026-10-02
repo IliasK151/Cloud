@@ -35,6 +35,8 @@ export const LIMITS = {
   deskLossR: 2, // a desk that loses this many full risks on the account in a day is off it
   allocMin: 8, // account trades before a desk's own record sizes it
   allocWindow: 12, // its most recent account trades
+  formMin: 3, // real-price trades before a desk's form counts
+  formWindow: 12, // its most recent real-price trades (paper and account alike)
 };
 
 const GRADE_RANK = { A: 3, B: 2, C: 1 };
@@ -165,6 +167,7 @@ export class AccountBrain {
       { text: `Desk loss limit: a desk that loses ${LIMITS.deskLossR}× its full risk (${fmtUsd(LIMITS.deskLossR * full)}) on the account in a day is off it until tomorrow`, ok: true },
       { text: `No flipping: after a losing trade on a market, nothing the other way on it for ${LIMITS.noFlipMs / 60_000} minutes`, ok: true },
       { text: `Costs: no trade whose spread and commission would eat more than ${COST_LIMIT_R}R of its risk`, ok: true },
+      { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R trades paper only until its record recovers`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
     ].filter(Boolean);
     // FTMO's rules for this account, in the plan's list (any program).
@@ -253,6 +256,8 @@ export class AccountBrain {
     if (!boss) {
       const limit = this.deskLimit(agent);
       if (limit) return { ok: false, reason: limit };
+      const form = this.form(agent);
+      if (!form.ok) return { ok: false, reason: form.text };
       alloc = this.allocation(agent);
     }
     const reasons = alloc.text ? [...st.reasons, alloc.text] : st.reasons;
@@ -311,6 +316,22 @@ export class AccountBrain {
     return `the account just lost on a ${last.side === 'BUY' ? 'long' : 'short'} ${pos.symbol} (${Math.max(1, Math.round((now - last.closedAt) / 60_000))} min ago): no flipping to the other side within ${LIMITS.noFlipMs / 60_000} minutes`;
   }
 
+  // A desk earns its place on the account with its current form: once it has LIMITS.formMin
+  // trades on real prices, the average of its last LIMITS.formWindow must be 0R or better.
+  // Below that it trades paper only, where it keeps learning, and it's back on the account as
+  // soon as its paper trades lift the average again. (Replayed on real 1-minute history, this
+  // kept the two desks whose method didn't suit those markets off the account, and the rest
+  // were positive in both halves of the history.)
+  form(agent) {
+    const recent = (agent.lifetime?.recentR || []).slice(-LIMITS.formWindow);
+    const n = recent.length;
+    if (n < LIMITS.formMin) return { ok: true, n, avgR: null };
+    const avgR = recent.reduce((s, r) => s + r, 0) / n;
+    if (avgR >= 0) return { ok: true, n, avgR };
+    const name = agent.profile.name.split(' ')[0];
+    return { ok: false, n, avgR, text: `out of form: ${name}'s last ${n} trades on real prices averaged ${avgR >= 0 ? '+' : '−'}${Math.abs(avgR).toFixed(2)}R. Paper only until that's back to 0R or better; the desk keeps trading on paper` };
+  }
+
   // Capital follows results, as at a multi-manager fund: a desk whose recent trades on the
   // account lost money after costs (spread, commission, slippage: what MT5 actually paid)
   // trades at half size until its record turns positive again.
@@ -340,6 +361,8 @@ export class AccountBrain {
     if (st?.cooloff && lt.armed) return { state: 'stopped', label: 'Cooling off', text: st.cooloff.text };
     const limit = this.deskLimit(agent);
     if (limit && lt.armed) return { state: 'stopped', label: 'Desk limit', text: limit };
+    const form = this.form(agent);
+    if (!form.ok) return { state: 'proving', label: 'Paper · out of form', text: `${form.text.charAt(0).toUpperCase()}${form.text.slice(1)}.` };
     const alloc = this.allocation(agent);
     const half = alloc.text ? ` ${alloc.text}.` : '';
     if (st?.training) {

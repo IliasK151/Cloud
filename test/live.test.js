@@ -1275,3 +1275,41 @@ test('the paper broker charges each market its own commission', () => {
   const fx = fund.broker.execute('priya', 'EURUSD', 100_000);
   if (fx) assert.ok(fx.fill.fee < 5, 'FX: about $2.50 a lot a side');
 });
+
+test('a desk earns its place on the account with its form: out of form, it trades paper only until it recovers', () => {
+  const { fund, live, sync } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // training: every desk on
+  assert.equal(live.arm().ok, true);
+  const ryan = fund.byId.get('ryan');
+  const gold = { symbol: 'XAUUSD', qty: 1 };
+  // Its trades on real prices are remembered (simulated-feed trades never count).
+  ryan.lifetime.recentR = [];
+  ryan.onTradeClosed({ id: 'a', symbol: 'XAUUSD', pnl: -100, r: -1, exitReason: 'Stop loss' });
+  ryan.onTradeClosed({ id: 'b', symbol: 'XAUUSD', pnl: -100, r: -1, exitReason: 'Stop loss', simFeed: true });
+  assert.deepEqual(ryan.lifetime.recentR, [-1]);
+  assert.equal(live.brain.allow(ryan, gold, {}).ok, true, 'one or two trades say little');
+  ryan.lifetime.recentR = [-1, -1.1, 0.8];
+  const v = live.brain.allow(ryan, gold, {});
+  assert.match(v.reason, /out of form: Ryan's last 3 trades on real prices averaged −0\.43R\. Paper only until that's back to 0R or better/);
+  assert.equal(live.brain.deskStatus(ryan).label, 'Paper · out of form');
+  assert.equal(live.brain.allow(ryan, gold, { tag: 'TV' }).ok, true, 'your own alerts are your call');
+  // A good paper trade lifts the average back over 0R: on the account again.
+  ryan.lifetime.recentR.push(1.5);
+  assert.equal(live.brain.allow(ryan, gold, {}).ok, true);
+  // Only the last 12 count.
+  ryan.lifetime.recentR = [-5, ...Array(12).fill(0.1)];
+  assert.equal(live.brain.form(ryan).ok, true);
+  assert.ok(live.view().plan.rules.some((r) => /Desks earn their place/.test(r.text)));
+});
+
+test('a desk saved before it kept its form starts it from its learning journal', () => {
+  const { fund } = setup();
+  const amara = fund.byId.get('amara');
+  amara.learner.state.journal = [{ t: 1, r: 0.5 }, { t: 2, r: -1 }, { t: 3, r: 2 }];
+  fund.restore({ version: 1, dayKey: 'x', agents: { amara: { lifetime: { trades: 3, realN: 3, realSumR: 1.5 }, learning: amara.learner.state } } });
+  assert.deepEqual(amara.lifetime.recentR, [0.5, -1, 2]);
+  // Saved with its form: kept as it was.
+  fund.restore({ version: 1, dayKey: 'x', agents: { amara: { lifetime: { recentR: [1] }, learning: amara.learner.state } } });
+  assert.deepEqual(amara.lifetime.recentR, [1]);
+});

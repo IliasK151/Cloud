@@ -226,7 +226,7 @@ export class Fund extends EventEmitter {
       b.trades = [];
       b.fills = [];
       a.resetDay();
-      Object.assign(a.lifetime, { trades: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0, sumR: 0, countR: 0, best: 0, worst: 0, realN: 0, realSumR: 0 });
+      Object.assign(a.lifetime, { trades: 0, wins: 0, losses: 0, grossWin: 0, grossLoss: 0, sumR: 0, countR: 0, best: 0, worst: 0, realN: 0, realSumR: 0, recentR: [] });
       a.maxDrawdown = 0;
       a.equityPeak = a.totalPnl();
       this.dayCurves.set(a.id, []);
@@ -454,6 +454,11 @@ export class Fund extends EventEmitter {
       a.equityPeak = s.equityPeak || 0;
       a.paused = !!s.paused;
       a.learner.restore(s.learning);
+      // Saved before the desk kept its recent form: start it from the learner's journal
+      // (its trades on real prices).
+      if (!Array.isArray(s.lifetime?.recentR)) {
+        a.lifetime.recentR = (a.learner.state?.journal || []).filter((j) => Number.isFinite(j?.r)).slice(-20).map((j) => Math.round(j.r * 1000) / 1000);
+      }
       a.restoreExtra?.(s.extra);
       if (sameDay) {
         b.realizedDay = s.realizedDay || 0;
