@@ -37,10 +37,12 @@ function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], da
     login: 555, server: 'FTMO-Demo', currency: 'USD', balance: mt5.balance, equity: mt5.equity, closedToday: mt5.closedToday,
     initialDeposit: 100_000, tradeAllowed: true, expertAllowed: true, algoAllowed: true, connected: true, marginMode: 2,
   });
-  const sync = () => {
+  // extra: more of what the EA sends (history pages, say).
+  const sync = (extra = {}) => {
     const reply = bridge.handleSync({
       account: account(), positions: mt5.positions, deals: mt5.deals, quotes: { XAUUSD: GOLD, ...quotes },
       symbols: ['XAUUSD', 'US100.cash', 'EURUSD', ...symbols], serverDay: '2026.09.29', gmtOffset: 0, acks: mt5.acks.splice(0),
+      ...extra,
     });
     return reply.split('\n').filter((l) => /^(open|close|modify|closeall)\|/.test(l)).map((l) => l.split('|'));
   };
@@ -845,10 +847,15 @@ test('the trades that reached FTMO today still count after the floor restarts', 
   assert.equal(t.byDesk.chen.sent, 1);
 });
 
-test('EA 1.2 follows the floor\'s pace, re-reads the account history only after a trade, and redraws its chart only on news', () => {
+test('the EA follows the floor\'s pace, re-reads the account history only after a trade, redraws its chart only on news, and pages back through history', () => {
   const ea = fs.readFileSync(new URL('../mt5/MeridianBridge.mq5', import.meta.url), 'utf8');
-  assert.equal(LATEST_EA, '1.2.0');
+  assert.equal(LATEST_EA, '1.3.0');
   assert.equal(eaOutdated('1.1.1'), true, 'the boss is asked to update');
+  assert.equal(eaOutdated('1.2.0'), true, 'EA 1.2 can\'t page back through history');
+  // 1.3: history|SYM|COUNT|START, START bars back (older floors' history|SYM|COUNT still works).
+  assert.match(ea, /g_historyReq\[sz\] = f\[1\] \+ "\|" \+ f\[2\] \+ "\|" \+ \(k >= 4 \? f\[3\] : "1"\);/);
+  assert.match(ea, /int start = ArraySize\(parts\) >= 3 \? \(int\)StringToInteger\(parts\[2\]\) : 1;/);
+  assert.match(ea, /CopyRates\(s, PERIOD_M1, start, count, r\)/);
   assert.match(ea, /else if\(cmd == "pace" && k >= 2\)\s*SetPace\(/);
   assert.match(ea, /void SetPace\(const int ms\)[\s\S]*MathMax\(MathMax\(200, InpSyncMs\), MathMin\(5000, ms\)\)/);
   assert.match(ea, /void OnTrade\(\)\s*\{\s*g_dealsDirty = true;/);
@@ -1470,4 +1477,282 @@ test('end to end: a review on disk takes a desk off the account, and the Today c
   const st = live.view().desks.find((d) => d.id === 'amara').status;
   assert.equal(st.label, 'Training · half size · not armed');
   assert.match(st.text, /half size/);
+});
+
+// ---- the long-run record, research desks proving live, the drawdown cut, months of MT5 history ----
+
+const FROM = Date.UTC(2018, 6, 1) / 1000;
+const TO = Date.UTC(2020, 4, 14) / 1000;
+const LONG = {
+  v: 1, at: Date.now(), source: 'test bars', seed: 1,
+  desks: [
+    { id: 'amara', name: 'Amara Okafor', symbol: 'XAUUSD', n: 2078, avgR: -0.162, ci: [-0.21, -0.12], from: FROM, to: TO, verdict: 'loses', quarters: { positive: 1, total: 8 } },
+    { id: 'lucas', name: 'Lucas Meyer', symbol: 'USOIL', n: 4016, avgR: -0.166, ci: [-0.19, -0.14], from: FROM, to: TO, verdict: 'loses', quarters: { positive: 0, total: 8 } },
+    { id: 'nico', name: 'Nico Rossi', symbol: 'NAS100', n: 648, avgR: -0.014, ci: [-0.09, 0.06], from: FROM, to: TO, verdict: 'no edge', quarters: { positive: 4, total: 8 } },
+    { id: 'jake', name: 'Jake Morrison', symbol: 'GBPUSD', verdict: 'no history', n: 0 },
+  ],
+};
+
+test('long run: a desk that lost money over months of real prices stays off the account, even while training', async () => {
+  const { Baseline } = await import('../server/live/baseline.js');
+  const { skipCategory } = await import('../server/live/dailyReport.js');
+  const { fund, live, sync } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  assert.equal(live.arm().ok, true);
+  live.baseline = new Baseline(LONG);
+  const brain = live.brain;
+  const lucas = fund.byId.get('lucas');
+  const v = brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {});
+  assert.equal(v.ok, false, 'training doesn\'t send it');
+  assert.match(v.reason, /^Lucas lost money over the long run: −0\.17R a trade over 4,016 trades on 22 months \(Jul 2018 – May 2020\) of real 1-minute prices \(90% range −0\.19R to −0\.14R\)\. Paper only until the nightly review finds a real edge on your own prices$/);
+  assert.equal(skipCategory(v.reason), 'Loses over the long run');
+  assert.equal(brain.deskStatus(lucas).label, 'Paper · loses long-term');
+  assert.equal(brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, { tag: 'TV' }).ok, true, 'your own TradingView alerts are your call');
+  // No edge either way over the long run: half size. No long-run record: unchanged.
+  const full = brain.allow(fund.byId.get('jake'), { symbol: 'GBPUSD', qty: 1 }, {});
+  const nico = brain.allow(fund.byId.get('nico'), { symbol: 'NAS100', qty: 1 }, {});
+  assert.equal(full.ok && nico.ok, true);
+  assert.ok(Math.abs(nico.riskMult - full.riskMult * 0.5) < 1e-9);
+  assert.ok(nico.reasons.some((r) => /Nico has no edge over the long run \(−0\.01R a trade over 648 trades/.test(r)));
+  // The nightly review on your own prices: only a statistically real edge outweighs the long
+  // run, and then at half size; a promising few weeks don't.
+  const report = { at: Date.now() - 3_600_000, tradingDays: 20 };
+  const recent = {
+    amara: { id: 'amara', n: 44, avgR: 0.4, verdict: 'EDGE' },
+    lucas: { id: 'lucas', n: 30, avgR: 0.2, verdict: 'promising' },
+    nico: { id: 'nico', n: 35, avgR: 0.3, verdict: 'EDGE' },
+  };
+  live.review = { verdictFor: (id) => recent[id] || null, report, current: () => report };
+  const amara = brain.allow(fund.byId.get('amara'), { symbol: 'XAUUSD', qty: 1 }, {});
+  assert.equal(amara.ok, true);
+  assert.ok(Math.abs(amara.riskMult - full.riskMult * 0.5) < 1e-9);
+  assert.ok(amara.reasons.some((r) => /Amara has an edge on your recent prices \(\+0\.40R a trade over 44 trades in the nightly review\) but lost money over the long run .*: half size until the edge lasts/.test(r)));
+  assert.equal(brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {}).ok, false, 'promising isn\'t enough against 4,016 losing trades');
+  assert.equal(brain.allow(fund.byId.get('nico'), { symbol: 'NAS100', qty: 1 }, {}).riskMult, full.riskMult, 'no edge long-run, a real edge now: full size');
+  // The account's rule list says so, and the FTMO tab gets the record.
+  const rule = live.view().plan.rules.find((r) => /^Long-run record/.test(r.text));
+  assert.match(rule.text, /each desk was replayed on up to 22 months \(Jul 2018 – May 2020\) of real 1-minute prices\. 2 of the 3 desks on the account lost money there with confidence \(Amara, Lucas\)/);
+  const bv = live.view().baseline;
+  assert.equal(bv.desks.find((d) => d.id === 'lucas').span, '22 months (Jul 2018 – May 2020)');
+  // A broken file is no record at all (the floor runs as before).
+  assert.equal(new Baseline({ desks: [{ id: 'lucas', verdict: 'loses', n: 'many' }] }).forDesk('lucas'), null);
+  live.baseline = null;
+  assert.equal(brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {}).ok, true);
+});
+
+test('the shipped long-run record is complete and judged on thousands of real trades', async () => {
+  const { loadBaseline, Baseline } = await import('../server/live/baseline.js');
+  const data = loadBaseline(undefined, { warn: (m) => assert.fail(m) });
+  assert.ok(data, 'server/research/baseline.json is valid');
+  const b = new Baseline(data);
+  const judged = data.desks.filter((d) => b.forDesk(d.id));
+  assert.ok(judged.length >= 8, `${judged.length} desks judged`);
+  for (const d of judged) {
+    assert.ok(d.n >= 100, `${d.id}: ${d.n} trades`);
+    assert.ok(d.to - d.from > 300 * 86_400, `${d.id}: covers most of a year or more`);
+    if (d.verdict === 'loses') assert.ok(d.ci[1] < 0, `${d.id}: the whole 90% range below zero`);
+  }
+});
+
+test('long-run verdicts need confidence', async () => {
+  const { judgeLong } = await import('../scripts/baseline.js');
+  const t0 = Date.UTC(2019, 0, 1);
+  const mk = (rs) => rs.map((r, i) => ({ r, time: t0 + i * 86_400_000, grossR: r + 0.05, costR: 0.05 }));
+  const seq = (n, f) => Array.from({ length: n }, (_, i) => f(i));
+  assert.equal(judgeLong(mk(seq(50, () => -1))).verdict, 'too few trades');
+  assert.equal(judgeLong(mk(seq(400, (i) => (i % 2 ? 1 : -1.4)))).verdict, 'loses');
+  assert.equal(judgeLong(mk(seq(400, (i) => (i % 2 ? 1 : -1.02)))).verdict, 'no edge');
+  assert.equal(judgeLong(mk(seq(400, (i) => (i % 2 ? 1.6 : -1)))).verdict, 'edge');
+  const j = judgeLong(mk(seq(400, (i) => (i % 2 ? 1 : -1.4))));
+  assert.equal(j.n, 400);
+  assert.ok(j.ci[1] < 0);
+  assert.ok(j.quarters.total >= 4);
+  assert.equal(j.costR, 0.05);
+});
+
+test('a research desk\'s new strategy trades paper first, then the account', async () => {
+  const { skipCategory } = await import('../server/live/dailyReport.js');
+  const { fund, live, sync } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  assert.equal(live.arm().ok, true);
+  const elena = fund.byId.get('elena');
+  elena.active = { name: '15m Squeeze breakout', symbol: 'XAUUSD', live: { trades: 3, sumR: 1.2, realTrades: 3, realSumR: 1.2 } };
+  const v = live.brain.allow(elena, { symbol: 'XAUUSD', qty: 1 }, {});
+  assert.equal(v.ok, false, 'even while training');
+  assert.match(v.reason, /^Elena's new strategy \(15m Squeeze breakout\) trades paper first: 3 of 10 live trades on real prices so far, \+1\.20R in total\. Validated on history isn't proven live$/);
+  assert.equal(skipCategory(v.reason), 'New strategy proving itself on paper');
+  assert.equal(live.brain.deskStatus(elena).label, 'Paper · proving live');
+  elena.active.live = { trades: 12, sumR: -0.5, realTrades: 12, realSumR: -0.5 };
+  assert.match(live.brain.allow(elena, { symbol: 'XAUUSD', qty: 1 }, {}).reason, /is down 0\.50R over its 12 live trades: it reaches the account once that's back to 0R or better/);
+  elena.active.live = { trades: 12, sumR: 1.5, realTrades: 12, realSumR: 1.5 };
+  assert.equal(live.brain.allow(elena, { symbol: 'XAUUSD', qty: 1 }, {}).ok, true, 'proven live: the account');
+  assert.ok(live.view().plan.rules.some((r) => /^Proven live first: a research desk's new strategy trades paper on real prices until 10 live trades/.test(r.text)));
+});
+
+test('deep in drawdown the account trades a quarter of its risk', () => {
+  const { live, sync, mt5 } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
+  mt5.balance = mt5.equity = 96_000; // 4% down: 0.4×
+  sync();
+  assert.equal(live.brain.state().mult, 0.4);
+  mt5.balance = mt5.equity = 93_500; // 6.5% down, past 60% of the 10% max loss: a quarter
+  sync();
+  assert.equal(live.brain.state().mult, 0.25);
+  assert.ok(live.brain.state().reasons.some((r) => /risk is ×0\.25 until that's won back/.test(r)));
+});
+
+test('months of history: the floor pages back through MT5 until it has enough, MT5 runs out, or an old EA repeats itself', () => {
+  const { live, bridge, sync, fund } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  const md = fund.env.md;
+  // MT5 prices gold already.
+  const now = Math.floor(Date.now() / 60_000) * 60;
+  md.claim('XAUUSD', 'mt5', Array.from({ length: 60 }, (_, i) => ({ time: now - (60 - i) * 60, open: 3800, high: 3801, low: 3799, close: 3800, volume: 1 })), 'LIVE');
+  const added = [];
+  const store = {
+    ready: true, have: 0,
+    brokerBars: () => store.have,
+    addBrokerHistory(id, bars) {
+      added.push({ id, n: bars.length });
+      store.have += bars.length;
+      return bars.length ? { n: bars.length, oldest: bars.reduce((m, b) => Math.min(m, b.time), Infinity) } : { n: 0, oldest: null };
+    },
+  };
+  live.history = store;
+  // A page of MT5 bars (server time = UTC here), `start` bars back.
+  const page = (start, n = 10_000) => Array.from({ length: n }, (_, i) => {
+    const t = now - (start + n - 1 - i) * 60;
+    return [t, 3800, 3801, 3799, 3800, 1];
+  });
+  sync();
+  assert.deepEqual(pick(bridge.historyWanted.get('XAUUSD')), { count: 10_000, start: 1 });
+  sync({ history: { XAUUSD: page(1) } });
+  assert.deepEqual(pick(bridge.historyWanted.get('XAUUSD')), { count: 10_000, start: 10_001 }, 'the next page, asked in the same sync');
+  sync({ history: { XAUUSD: page(10_001) } });
+  assert.equal(bridge.historyWanted.get('XAUUSD').start, 20_001);
+  // An EA before 1.3 ignores where to start and sends its latest bars again: stop.
+  sync({ history: { XAUUSD: page(1) } });
+  assert.equal(bridge.historyWanted.has('XAUUSD'), false);
+  assert.equal(live.backfill.get('XAUUSD').done, true);
+  assert.match(live.backfill.get('XAUUSD').why, /the EA sent the same bars again/);
+  sync();
+  assert.equal(bridge.historyWanted.has('XAUUSD'), false, 'and doesn\'t ask again');
+  assert.deepEqual(added.map((a) => a.n), [10_000, 10_000, 10_000]);
+
+  // MT5 holds less than asked: what it has is all there is.
+  live.backfill.clear();
+  live.state.backfill = {};
+  store.have = 0;
+  sync();
+  sync({ history: { XAUUSD: page(1, 4000) } });
+  assert.equal(live.backfill.get('XAUUSD').why, 'all the history MT5 holds');
+  // A restart within a week with that history saved: no download again.
+  assert.equal(live.state.backfill.XAUUSD.have, 4000);
+  live.backfill.clear();
+  sync();
+  assert.equal(live.backfill.get('XAUUSD').why, 'already saved');
+  assert.equal(bridge.historyWanted.has('XAUUSD'), false);
+  // Nothing that far back: MT5 never answers the page, and the bridge gives up on it.
+  live.backfill.clear();
+  live.state.backfill = {};
+  sync();
+  sync({ history: { XAUUSD: page(1) } });
+  // MT5 away for ten minutes (asleep): that's no answer, it simply wasn't asked.
+  bridge.historyWanted.get('XAUUSD').since -= 600_000;
+  sync();
+  assert.equal(live.backfill.get('XAUUSD').done, false);
+  // Asked again and again over a minute and a half, never answered: MT5 has nothing older.
+  Object.assign(bridge.historyWanted.get('XAUUSD'), { asks: 3, firstAsked: Date.now() - 120_000 });
+  sync();
+  assert.equal(live.backfill.get('XAUUSD').done, true);
+  assert.equal(live.backfill.get('XAUUSD').why, 'MT5 has nothing older');
+  // Saved from an earlier run: no download at all.
+  live.backfill.clear();
+  live.state.backfill = {};
+  store.have = 99_000;
+  sync();
+  assert.equal(bridge.historyWanted.has('XAUUSD'), false);
+  assert.equal(live.backfill.get('XAUUSD').why, 'already saved');
+});
+
+const pick = (h) => (h ? { count: h.count, start: h.start } : null);
+
+test('the bridge asks for history pages politely: one at a time, never while an order is on its way', () => {
+  const b = new Mt5Bridge();
+  const base = { account: { login: 1 }, positions: [], deals: [], quotes: {}, symbols: ['XAUUSD'], serverDay: '2026.10.02', gmtOffset: 0 };
+  b.requestHistory('XAUUSD', 10_000, 10_001);
+  b.requestHistory('EURUSD', 10_000, 20_001);
+  b.requestHistory('GBPUSD', 6000);
+  let reply = b.handleSync(base);
+  assert.match(reply, /^history\|XAUUSD\|10000\|10001$/m);
+  assert.doesNotMatch(reply, /history\|EURUSD/, 'one page a sync');
+  assert.match(reply, /^history\|GBPUSD\|6000$/m, 'a first request has no start (every EA understands it)');
+  // An order on its way: pages wait.
+  b.open({ symbol: 'XAUUSD', side: 'BUY', volume: 0.1, slDistance: 5, tpDistance: 0, magic: 771001, comment: 'x' });
+  b.historyWanted.get('EURUSD').lastAsked = 0;
+  reply = b.handleSync(base);
+  assert.doesNotMatch(reply, /history\|EURUSD/);
+  // The answer says which page it was.
+  const got = [];
+  b.on('history', (sym, bars, meta) => got.push({ sym, n: bars.length, meta }));
+  b.handleSync({ ...base, history: { XAUUSD: [[1_700_000_000, 1, 2, 0.5, 1.5, 3]] } });
+  assert.deepEqual(got, [{ sym: 'XAUUSD', n: 1, meta: { start: 10_001, count: 10_000 } }]);
+  // A page MT5 never answers is given up (asked 3 times over 90 s); a page waiting while MT5
+  // was away isn't; a first request waits as long as MT5 needs.
+  const missing = [];
+  b.on('history-missing', (sym, meta) => missing.push({ sym, ...meta }));
+  b.requestHistory('USDJPY', 10_000, 30_001);
+  b.historyWanted.get('USDJPY').since -= 600_000;
+  Object.assign(b.historyWanted.get('EURUSD'), { asks: 3, firstAsked: Date.now() - 91_000 });
+  b.historyWanted.get('GBPUSD').since -= 600_000;
+  b.handleSync(base);
+  assert.deepEqual(missing, [{ sym: 'EURUSD', start: 20_001, count: 10_000 }]);
+  assert.equal(b.historyPending('USDJPY'), true, 'never asked yet: not given up');
+  assert.equal(b.historyPending('GBPUSD'), true);
+  // EA 1.3 says how far back MT5 can go.
+  b.handleSync({ ...base, maxBars: 5000 });
+  assert.equal(b.maxBars, 5000);
+});
+
+test('the FTMO tab says when MT5 keeps too few bars to give months of history', () => {
+  const { live, sync } = setup();
+  sync({ maxBars: 5000 });
+  assert.ok(live.view().warnings.some((w) => /MT5 keeps only 5,000 bars per chart, so the research lab and the nightly review get days of your broker's prices instead of months\. In MT5: Tools → Options → Charts → Max bars in chart → 100000/.test(w)));
+  sync({ maxBars: 100_000 });
+  assert.ok(!live.view().warnings.some((w) => /bars per chart/.test(w)));
+});
+
+test('the research history keeps months of the broker\'s own bars, and the broker\'s bars win', async () => {
+  const { HistoryStore, MAX_BROKER_BARS } = await import('../server/research/history.js');
+  const clock = new MarketClock('live');
+  const md = new MarketData(clock);
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hist-'));
+  const now = Math.floor(Date.now() / 60_000) * 60;
+  const bar = (t, close = 3800) => ({ time: t, open: close, high: close + 1, low: close - 1, close, volume: 1 });
+  md.claim('XAUUSD', 'mt5', Array.from({ length: 100 }, (_, i) => bar(now - (100 - i) * 60)), 'LIVE');
+  const store = new HistoryStore({ md, mode: 'live', dataDir, log: { info() {}, warn() {} }, fetchers: { yahoo: async () => [], binance: async () => [] } });
+  assert.equal(store.addBrokerHistory('XAUUSD', [bar(now - 1e6)]), null, 'not before the history has loaded');
+  await store.load();
+  // A page that overlaps the stored minutes: the broker's bars replace them.
+  const pageBars = Array.from({ length: 200 }, (_, i) => bar(now - (250 - i) * 60, 3700));
+  const r = store.addBrokerHistory('XAUUSD', pageBars);
+  assert.deepEqual(r, { n: 200, oldest: now - 250 * 60 });
+  assert.equal(store.bars('XAUUSD').length, 250);
+  assert.equal(store.bars('XAUUSD').find((b) => b.time === now - 100 * 60).close, 3700);
+  assert.equal(store.brokerBars('XAUUSD'), 250);
+  // Capped at MAX_BROKER_BARS (far more than a public feed's 20,000), and saved that way.
+  const many = Array.from({ length: MAX_BROKER_BARS + 5000 }, (_, i) => bar(now - (MAX_BROKER_BARS + 6000 - i) * 60));
+  store.addBrokerHistory('XAUUSD', many);
+  assert.equal(store.bars('XAUUSD').length, MAX_BROKER_BARS);
+  store.save();
+  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'history', 'XAUUSD.json'), 'utf8'));
+  assert.equal(saved.level, 'mt5');
+  assert.equal(saved.bars.length, MAX_BROKER_BARS);
+  // A market MT5 doesn't price takes no broker pages.
+  assert.equal(store.addBrokerHistory('EURUSD', [bar(now - 1e6)]), null);
+  store.stop();
 });

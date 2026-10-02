@@ -1,6 +1,7 @@
 import { fmtUsd } from '../util/format.js';
 import { trainingOn, programRules, COST_LIMIT_R, COST_MAX_R } from './rules.js';
 import { VERDICT_EFFECT } from './review.js';
+import { spanText } from './baseline.js';
 
 // The account brain: the plan a professional prop trader follows to pass a challenge and
 // then keep getting paid. The paper desks can experiment; the account only gets the best
@@ -38,6 +39,7 @@ export const LIMITS = {
   allocWindow: 12, // its most recent account trades
   formMin: 3, // real-price trades before a desk's form counts
   formWindow: 20, // its most recent real-price trades (paper and account alike)
+  labPaperTrades: 10, // a research desk's new strategy: live paper trades before the account
 };
 
 const GRADE_RANK = { A: 3, B: 2, C: 1 };
@@ -87,7 +89,11 @@ export class AccountBrain {
     const rules = programRules(p);
     const ddFrac = m.totalLoss / size;
     if (ddFrac > 0) {
-      const k = clamp(1 - ddFrac / (0.5 * (p.maxLossPct / 100)), 0.4, 1);
+      // Down to 0.4× by halfway to the max loss, and a quarter once it's 60% of the way there:
+      // replayed on 23 months of every desk's real trades, the deeper cut took a quarter off
+      // the losses of a losing run and kept the account further from the line.
+      const floor = ddFrac >= 0.6 * (p.maxLossPct / 100) ? 0.25 : 0.4;
+      const k = clamp(1 - ddFrac / (0.5 * (p.maxLossPct / 100)), floor, 1);
       if (k < 0.995) {
         mult *= k;
         reasons.push(m.trailing && m.maxBase > size + 0.005
@@ -177,7 +183,22 @@ export class AccountBrain {
         if (!fresh) return { text: `Evidence first: the last nightly review is ${ago}, so the reviews have stopped (the Mac asleep after the close, or failing: see the Nightly review card). Its verdicts still apply until a new one runs`, ok: false };
         return { text: `Evidence first: every night each desk is replayed on your own prices (last review ${ago}, ${rv.tradingDays} trading days). No edge: paper only. Unclear: half size`, ok: true };
       })(),
+      (() => {
+        const base = lt.baseline;
+        const judged = (lt.fund?.agents || []).filter((a) => p.desks?.[a.id] && base?.forDesk?.(a.id));
+        if (!judged.length) return null;
+        const recs = judged.map((a) => base.forDesk(a.id));
+        const span = spanText(Math.min(...recs.map((d) => d.from)), Math.max(...recs.map((d) => d.to)));
+        const losers = judged.filter((a) => base.forDesk(a.id).verdict === 'loses').map((a) => a.profile.name.split(' ')[0]);
+        return {
+          text: `Long-run record: each desk was replayed on up to ${span} of real 1-minute prices. ${losers.length
+            ? `${losers.length} of the ${judged.length} desks on the account lost money there with confidence (${losers.join(', ')}): paper only, unless the nightly review finds a real edge on your own prices`
+            : `None of the ${judged.length} desks on the account lost money there with confidence`}`,
+          ok: true,
+        };
+      })(),
       { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R trades paper only until its record recovers`, ok: true },
+      { text: `Proven live first: a research desk's new strategy trades paper on real prices until ${LIMITS.labPaperTrades} live trades haven't lost money in total, then the account`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
     ].filter(Boolean);
     // FTMO's rules for this account, in the plan's list (any program).
@@ -267,7 +288,10 @@ export class AccountBrain {
     if (!boss) {
       const limit = this.deskLimit(agent);
       if (limit) return { ok: false, reason: limit };
-      // The nightly review on your own prices decides first: no edge, no account.
+      // A research desk's new strategy proves itself live on paper before it risks the account.
+      const lab = this.labProving(agent);
+      if (lab) return { ok: false, reason: lab };
+      // The evidence decides next: the nightly review on your own prices, and the long run.
       ev = this.evidence(agent);
       if (ev?.mult === 0) return { ok: false, reason: ev.text };
       const form = this.form(agent);
@@ -331,17 +355,54 @@ export class AccountBrain {
     return `the account just lost on a ${last.side === 'BUY' ? 'long' : 'short'} ${pos.symbol} (${Math.max(1, Math.round((now - last.closedAt) / 60_000))} min ago): no flipping to the other side within ${LIMITS.noFlipMs / 60_000} minutes`;
   }
 
-  // What the nightly review (live/review.js) found for this desk on your own prices: null
-  // when there's no recent review or too few trades to tell.
+  // What the evidence says about this desk: the nightly review (live/review.js) on your own
+  // recent prices, and its long-run record on many months of real prices (live/baseline.js).
+  // null when neither says anything yet.
+  //
+  // Thousands of losing trades outweigh a few good weeks: a desk that lost money with
+  // confidence over the long run trades paper only, unless the nightly review finds a
+  // statistically real edge (its whole 90% range above zero) on your own prices, and then at
+  // half size until that lasts. A desk with no edge over the long run (not significant either
+  // way) trades at half size until the nightly review says more.
   evidence(agent) {
+    const name = agent.profile.name.split(' ')[0];
     const d = this.live.review?.verdictFor?.(agent.id);
     const eff = d ? VERDICT_EFFECT[d.verdict] : null;
-    if (!eff) return null;
-    const name = agent.profile.name.split(' ')[0];
-    const rec = `${d.avgR >= 0 ? '+' : '−'}${Math.abs(d.avgR).toFixed(2)}R a trade over ${d.n} trades`;
+    const rec = d ? `${d.avgR >= 0 ? '+' : '−'}${Math.abs(d.avgR).toFixed(2)}R a trade over ${d.n} trades` : '';
+    const base = this.live.baseline;
+    const long = base?.forDesk?.(agent.id) || null;
+    if (long?.verdict === 'loses') {
+      if (d?.verdict === 'EDGE') return { mult: 0.5, verdict: 'EDGE', long, text: `${name} has an edge on your recent prices (${rec} in the nightly review) but lost money over the long run (${base.recordText(long)}): half size until the edge lasts` };
+      return { mult: 0, verdict: 'loses', long, text: `${name} lost money over the long run: ${base.recordText(long)}. Paper only until the nightly review finds a real edge on your own prices` };
+    }
+    if (!eff) {
+      if (long?.verdict === 'no edge') return { mult: 0.5, verdict: 'no edge', long, text: `${name} has no edge over the long run (${base.recordText(long)}): half size` };
+      if (long?.verdict === 'edge') return { mult: 1, verdict: 'edge', long, text: `${name} made money over the long run (${base.recordText(long)})` };
+      return null;
+    }
     if (eff.mult === 0) return { mult: 0, verdict: d.verdict, text: `the nightly review found no edge on your prices (${rec}): paper only until a review finds one` };
     if (eff.mult < 1) return { mult: eff.mult, verdict: d.verdict, text: `${name} is unproven on your prices (${rec} in the nightly review): half size` };
     return { mult: 1, verdict: d.verdict, text: `${name} has an edge on your prices (${rec} in the nightly review)` };
+  }
+
+  // A research desk's strategy passed its validation on history, but a strategy found by
+  // searching hundreds of ideas can pass by luck: the lab, run week after week on two weeks of
+  // real 1-minute history (as the floor keeps), deployed strategies validated at +0.3R to
+  // +0.4R a trade that then lost in the weeks after. So a new strategy trades paper first, on
+  // real prices, and reaches the account once it has LIMITS.labPaperTrades live trades that
+  // didn't lose money in total. null when it may go to the account.
+  labProving(agent) {
+    if (!agent.profile.lab || !agent.active) return null;
+    const l = agent.active.live || {};
+    const realOnly = agent.env?.clock?.mode === 'live';
+    const n = realOnly ? l.realTrades || 0 : l.trades || 0;
+    const sum = realOnly ? l.realSumR || 0 : l.sumR || 0;
+    if (n >= LIMITS.labPaperTrades && sum >= 0) return null;
+    const name = agent.profile.name.split(' ')[0];
+    const so = n ? `, ${sum >= 0 ? '+' : '−'}${Math.abs(sum).toFixed(2)}R in total` : '';
+    return n >= LIMITS.labPaperTrades
+      ? `${name}'s strategy (${agent.active.name}) trades paper first and is down ${Math.abs(sum).toFixed(2)}R over its ${n} live trades: it reaches the account once that's back to 0R or better`
+      : `${name}'s new strategy (${agent.active.name}) trades paper first: ${n} of ${LIMITS.labPaperTrades} live trades on real prices so far${so}. Validated on history isn't proven live`;
   }
 
   // A desk earns its place on the account with its current form: once it has LIMITS.formMin
@@ -389,8 +450,10 @@ export class AccountBrain {
     if (st?.cooloff && lt.armed) return { state: 'stopped', label: 'Cooling off', text: st.cooloff.text };
     const limit = this.deskLimit(agent);
     if (limit && lt.armed) return { state: 'stopped', label: 'Desk limit', text: limit };
+    const lab = this.labProving(agent);
+    if (lab) return { state: 'proving', label: 'Paper · proving live', text: `${lab}.` };
     const ev = this.evidence(agent);
-    if (ev?.mult === 0) return { state: 'proving', label: 'Paper · no edge', text: `${ev.text.charAt(0).toUpperCase()}${ev.text.slice(1)}.` };
+    if (ev?.mult === 0) return { state: 'proving', label: ev.verdict === 'loses' ? 'Paper · loses long-term' : 'Paper · no edge', text: `${ev.text.charAt(0).toUpperCase()}${ev.text.slice(1)}.` };
     const form = this.form(agent);
     if (!form.ok) return { state: 'proving', label: 'Paper · out of form', text: `${form.text.charAt(0).toUpperCase()}${form.text.slice(1)}.` };
     const alloc = this.allocation(agent);

@@ -26,6 +26,7 @@ import { VoiceEngine, toWav } from './voices/engine.js';
 import { Mt5Bridge } from './live/bridge.js';
 import { LiveTrader } from './live/liveTrader.js';
 import { EdgeReview, reviewText } from './live/review.js';
+import { Baseline, loadBaseline, BASELINE_FILE } from './live/baseline.js';
 import { summarize } from './live/dailyReport.js';
 import { TelegramNotifier } from './notify/telegram.js';
 import { FloorMemory } from './brain/memory.js';
@@ -101,6 +102,11 @@ const review = new EdgeReview({
   settings: () => ({ program: live.profile?.program, size: live.profile?.size, riskPct: live.profile?.riskPerTradePct }),
 });
 live.review = review;
+// Each desk's long-run record on many months of real prices (npm run baseline), shipped with
+// the floor: a desk that lost money with confidence there stays off the account.
+live.baseline = new Baseline(loadBaseline(BASELINE_FILE, log));
+// MT5 pages months of the broker's own bars into the research history (EA 1.3+).
+live.history = history;
 if (config.feed === 'live') {
   setInterval(() => {
     try {

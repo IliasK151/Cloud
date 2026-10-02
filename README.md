@@ -180,6 +180,8 @@ Only a strategy that passes every gate trades. If nothing passes, the researcher
 
 **History.** In live mode the lab loads about two weeks of real 1-minute bars (Binance, Yahoo Finance), keeps them in `data/history/` and extends them with every new bar, so research gets better the longer the floor runs. Once MT5 prices a market, the broker's own bars are used, and older history is shifted onto the broker's price level. Only real data is ever saved there. Caches from older versions are ignored because they could contain generated bars. A feed that doesn't answer within 90 seconds is skipped, so one stalled request (Yahoo can leave an answer hanging halfway) never keeps the research desks waiting: they start on the saved bars and MT5's own (6,000 one-minute bars per market), and the store keeps growing with every new bar. In demo mode the lab generates 30 past sessions with the same simulator and calendar.
 
+**Months of your broker's prices.** Two weeks is too little to tell an edge from luck. Run every week across 22 months of real 1-minute history with two weeks to search on, the lab deployed only a handful of strategies, validated at +0.3R to +0.4R a trade, and on gold and the Nasdaq they lost in the weeks after (−0.37R and −0.18R a trade). With ten weeks to search on, what it deployed roughly broke even instead. So once MT5 prices a market, the floor pages back through MT5's own history, 10,000 minutes at a time, until it holds 100,000 one-minute bars of your broker's prices per market (about ten weeks of a 24-hour market). It stops early when MT5 has nothing older. It keeps them in `data/history/`, so a restart doesn't download them again. Paging needs the MeridianBridge EA 1.3 (the FTMO tab offers the update) and MT5's *Max bars in chart* at 100000 (Tools → Options → Charts; the FTMO tab warns when it's lower). The nightly review and `npm run edge` use the same bars. A research desk's new strategy still trades paper first: it reaches the account after 10 live trades on real prices that haven't lost money in total.
+
 | A researcher's Research tab | Lab and economic calendar on the dashboard |
 | --- | --- |
 | ![Research tab](docs/research.jpg) | ![Research lab and calendar](docs/research-lab.jpg) |
@@ -253,7 +255,7 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
   - the dashboard;
   - the desk's own briefing, which gives the reason when a trade wasn't sent.
 - **Starting fresh.** The real-only record began with this version. Your desks' earlier paper records can't be split into real and simulated trades, so every desk earns its 10 real trades again before it risks the account. Crypto desks on Binance get there fastest.
-- **Drawdown shrinks risk.** Below the starting balance, risk scales down (for example −$100 on a $10,000 trial: 0.25% → 0.20% per trade) until the loss is won back. It never grows past the base risk you set.
+- **Drawdown shrinks risk.** Below the starting balance, risk scales down (for example −$100 on a $10,000 trial: 0.25% → 0.20% per trade) until the loss is won back: to 0.4× by halfway to the max loss, and to a quarter once the account is 60% of the way there (6% down on a 10% max loss). Replayed on 22 months of every desk's real trades, the quarter-size step took about a quarter off the losses of a losing run. Risk never grows past the base risk you set.
 - **Daily stop at −1.5%**, far before FTMO's 5%. At half of that, risk halves for the rest of the day.
 - **Losing streaks:** two in a row halve the risk until the next winner; three in a row end the day.
 - **At most 6 trades a day.** Overtrading is how accounts die. Only trades MT5 actually confirmed count; an order it never confirmed doesn't.
@@ -262,7 +264,8 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
   - a stop-loss on every order;
   - no new trades in a news blackout;
   - FTMO's loss guard: it closes everything at 80% of a limit, and no trade goes in whose stop, together with every open and in-flight stop, could breach it;
-  - the risk limits (below): a 2-hour cool-off after 3 losses in a row instead of the rest of the day, each desk's loss limit, no flipping, the cost check and capital following results.
+  - the risk limits (below): a 2-hour cool-off after 3 losses in a row instead of the rest of the day, each desk's loss limit, no flipping, the cost check and capital following results;
+  - the evidence: a desk that lost money over the long run (22 months of real prices, see *The long run* below) or in the nightly review on your own prices trades paper only, and a research desk's new strategy trades paper until 10 live trades haven't lost money in total.
 
   Sizes still follow the committee's grade: A full, B 60%, C 25% of the risk per trade. Below the broker's minimum lot, the minimum is used if it still risks no more than your risk per trade. They still halve after a −0.75% day or two losses in a row, and shrink in drawdown. Up to 8 positions can be open at once (the EA's own cap; raise *Max floor positions* in the EA's inputs for more). Kenji's pairs trades and Isabella's market making can't be copied onto one account, so those two stay paper. Switching training on puts every other desk on the account. It's for the Free Trial only: on a paid challenge or a funded account the switch isn't there and the full plan applies. Switch it off on the FTMO or Brain tab to go back to the plan below.
 - **Every rule that can hold trades back has its own switch** on the Brain and FTMO tabs, for when you want to let the desks run and watch the performance:
@@ -462,6 +465,54 @@ What the floor does on 1-Step:
 
 **Always check FTMO's own Trading Objectives page and FAQ** for your program: their rules change, and they are what counts.
 
+### The long run: every desk on 22 months of real prices
+
+A few weeks of your own prices can't tell an edge from luck, so every trading desk was also replayed minute by minute through the floor's own code on Oanda's real 1-minute bars: July 2018 to mid-May 2020 (EURUSD and GBPUSD from January 2018), 11,738 trades in all. The replay includes the committee, FTMO's costs and the desk's learning.
+
+| Desk | Market | Trades | Per trade (90% range) | Quarters up | Verdict |
+|---|---|---|---|---|---|
+| Marcus | NAS100 | 571 | −0.10R (−0.18 to −0.01) | 2 of 8 | loses |
+| Amara | XAUUSD | 2,078 | −0.16R (−0.20 to −0.12) | 0 of 8 | loses |
+| James | SPX500 | 1,125 | −0.13R (−0.18 to −0.07) | 0 of 8 | loses |
+| Priya | EURUSD | 1,151 | −0.29R (−0.34 to −0.23) | 0 of 10 | loses |
+| Lucas | USOIL | 4,016 | −0.17R (−0.19 to −0.14) | 0 of 8 | loses |
+| Jake | GBPUSD | 637 | −0.18R (−0.26 to −0.10) | 1 of 10 | loses |
+| Layla | EURUSD | 709 | −0.20R (−0.26 to −0.13) | 0 of 10 | loses |
+| Ryan | XAUUSD | 397 | −0.20R (−0.29 to −0.10) | 1 of 8 | loses |
+| Mia | XAUUSD | 406 | −0.21R (−0.30 to −0.12) | 0 of 8 | loses |
+| Nico | NAS100 | 648 | −0.01R (−0.09 to +0.06) | 2 of 8 | no edge |
+
+The record ships with the floor (`server/research/baseline.json`), and the account brain uses it with the nightly review:
+
+- **loses** (the whole 90% range below zero): paper only, in training too. The exception is a nightly review that finds a real edge on your own prices (its whole 90% range above zero); then the desk trades half size until that edge lasts. A few promising weeks aren't enough against thousands of losing trades.
+- **no edge** (not significant either way): half size, until the nightly review says more.
+- **No long-run record** (Sofia on USDJPY, Viktor and Chen on crypto, and the research desks): the nightly review decides, as before.
+- Your own TradingView alerts are your call.
+
+The desk table, the Today card (*Loses over the long run*), the account's rule list and the Nightly review card's **Long run** column show it.
+
+**What it does to the account.** The account was replayed with every desk's trades in time order, 0.5% risk a trade, FTMO 1-Step $10,000:
+- **Training as it ran:** −20.6% over the 22 months, with a 20.7% drawdown, past FTMO's 10% max loss. It wasn't stacked risk: the worst day was −0.6%. It was a steady bleed from desks that lose a little on every trade.
+- **Rules that change almost nothing here:** one position per correlated group, a 1.5% open-risk cap, a −1.5% daily stop and 5 positions at most.
+- **The committee's grade:** it didn't separate winners from losers (A −0.26R, B −0.18R, C −0.17R a trade).
+- **With the long-run record and the quarter size deep in drawdown:** −0.7%, with a 1.5% drawdown.
+
+To check that this isn't hindsight, the desks were judged on the first half only (to May 2019, where the same nine come out as losers). The account was then replayed on the second half, which the judging never saw: −9.1% with a 9.8% drawdown as it ran, −0.2% with a 0.8% drawdown with the record.
+
+**What it doesn't do: make the desks profitable.** None of them has an edge on these markets. The research lab didn't find one either:
+- **Its searches on the same 22 months:** 18,000 strategy ideas across the six markets. One passed every gate and lost money in the months after.
+- **The published index intraday momentum effect:** not significant after costs here.
+
+The protection stops the account paying for desks that lose. The desks keep trading on paper, and a desk that finds an edge on your own prices gets back on the account through the nightly review. Until a desk shows a real edge, don't pay for a challenge.
+
+To rebuild the record from your own long history (a folder of `<SYMBOL>.json` 1-minute bars):
+
+```bash
+npm run baseline -- --dir path/to/history --source "where the bars came from"
+```
+
+It replays the desks in parallel (`--jobs 4`), about 12 minutes for 22 months, and writes `server/research/baseline.json`.
+
 ### Ready for a paid challenge? `npm run edge`
 
 ```bash
@@ -523,7 +574,7 @@ A stop (uninstall, logging out, shutting down) closes the floor's FTMO positions
 **Battery and heat.** The trading itself is light: the floor's server uses about 1% of one CPU core most of the time. What drains a MacBook is drawing the 3D floor and MetaTrader 5.
 - **Battery saver** (Settings → Graphics, on by default): the floor draws at most 30 frames a second while you use it and 15 when nobody touches it, instead of the display's 60 to 120. Nothing is drawn while another tab is open. The blinking lights stop, because each one kept the browser redrawing 60 times a second on every tab. On battery it drops to 24 and 6 frames a second and turns the shadows and glow off until the charger is back. The desks trade exactly the same.
 - **Close the browser tab when you're not watching.** The floor trades without it. Only the floor (`npm start` or the service) and MT5 have to run, and Telegram tells you what happens.
-- **MT5 on a Mac runs through a Windows layer and is heavy** (macOS lists it under *Using Significant Energy*). The MeridianBridge EA 1.2 does its part: MT5 syncs with the floor every 2 seconds when nothing is happening instead of twice a second, once a second while positions are open or a desk is about to trade, and twice a second only while orders go through. It re-reads the account history only after a trade, and redraws its chart comment only when something changes, not twice a second. Update it from the FTMO tab (*Put the update into MT5*, then *Compile* in MetaEditor). Also keep one chart open (the one with the EA) and minimise the window. Set *Max bars in chart* to 5000 (Tools → Options → Charts). Untick *Enable news* (Tools → Options → Server).
+- **MT5 on a Mac runs through a Windows layer and is heavy** (macOS lists it under *Using Significant Energy*). The MeridianBridge EA 1.2 does its part: MT5 syncs with the floor every 2 seconds when nothing is happening instead of twice a second, once a second while positions are open or a desk is about to trade, and twice a second only while orders go through. It re-reads the account history only after a trade, and redraws its chart comment only when something changes, not twice a second. Update it from the FTMO tab (*Put the update into MT5*, then *Compile* in MetaEditor). Also keep one chart open (the one with the EA) and minimise the window. Leave *Max bars in chart* at 100000 (Tools → Options → Charts): it's how far back MT5 can hand the floor your broker's history, and with one chart open it costs little. Untick *Enable news* (Tools → Options → Server).
 - **macOS:** let the display sleep: the floor keeps the Mac awake but not the screen, and it trades on with the display off. Use Low Power Mode on battery (System Settings → Battery). For running all day, keep the MacBook on its charger, on a hard surface.
 
 **Truly 24/7: a VPS.** A Mac at home still depends on your power, internet and macOS updates. For zero downtime, run MT5 and the floor on a Windows VPS near the broker's servers (from about $15–30 a month; FTMO allows it). Install Node.js and MT5 there, copy this folder, run `npm start` from a Task Scheduler task set to start at boot and restart on failure, and open the dashboard over Remote Desktop.
@@ -725,6 +776,7 @@ npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
 npm run backtest -- 5  # fast-forward 5 simulated sessions (news + research lab included) and print each desk's results
 npm run scalp-test     # replay the Scalping Desk on the real 1-minute bars saved in data/history
 npm run edge           # every desk on your saved history: who has an edge, and the odds of passing a challenge
+npm run baseline -- --dir path/to/history   # every desk on months of real 1-minute bars: the long-run record the floor ships with
 npm run reset          # wipe the saved track record (keeps your webhook secret)
 ```
 

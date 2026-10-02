@@ -17,7 +17,11 @@ import { yahoo as yahooClient, toBars as yahooBars } from '../market/yahooClient
 // prices (Yahoo answers again, or MT5 takes it over) its generated history is thrown away
 // and replaced by the real bars, and research desks re-test on them.
 
+// Public feeds give about two weeks; your broker's MT5 gives months (the floor pages back
+// through it, live/liveTrader.js). Two weeks is too little to tell an edge from luck: on 23
+// months of real prices, strategies the lab validated on two weeks lost in the weeks after.
 const MAX_BARS = 20_000;
+export const MAX_BROKER_BARS = 100_000;
 // No market may hold up the research lab longer than this: a public feed that doesn't answer
 // is skipped, and the saved and live bars (MT5's own once it prices the market) are used.
 const LOAD_DEADLINE_MS = 90_000;
@@ -32,11 +36,11 @@ const BINANCE_HOSTS = ['https://api.binance.com', 'https://data-api.binance.visi
 const REAL_SOURCES = new Set(['binance', 'yahoo', 'saved', 'broker']);
 
 // b wins where both have a bar for the same minute.
-function mergeBars(a, b) {
+function mergeBars(a, b, limit = MAX_BARS) {
   const map = new Map();
   for (const x of a) map.set(x.time, x);
   for (const x of b) map.set(x.time, x);
-  return [...map.values()].sort((x, y) => x.time - y.time).slice(-MAX_BARS);
+  return [...map.values()].sort((x, y) => x.time - y.time).slice(-limit);
 }
 
 // Shift `bars` onto the price level of `ref` (e.g. Yahoo's futures prices onto the broker's
@@ -180,13 +184,38 @@ export class HistoryStore {
     return this.md.ownerOf(id) === 'mt5' ? 'mt5' : SYMBOLS[id].source.type;
   }
 
+  // How many bars this market keeps: months of the broker's own bars, two weeks of a public feed's.
+  #max(id) {
+    return this.#level(id) === 'mt5' ? MAX_BROKER_BARS : MAX_BARS;
+  }
+
   #append(id, bar) {
     const arr = this.store.get(id);
     if (!arr) return;
     const lastBar = arr[arr.length - 1];
     if (lastBar && bar.time <= lastBar.time) return;
     arr.push({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume });
-    if (arr.length > MAX_BARS + 500) arr.splice(0, arr.length - MAX_BARS);
+    const max = this.#max(id);
+    if (arr.length > max + 500) arr.splice(0, arr.length - max);
+  }
+
+  // A page of your broker's own bars from MT5, paged in while it prices this market. The
+  // broker's bars win over anything stored for the same minute (a public feed's bars shifted
+  // onto its prices). Returns { n, oldest } for the page, or null if it can't be used now.
+  addBrokerHistory(id, bars) {
+    if (this.mode === 'sim' || !this.ready || this.#level(id) !== 'mt5' || !this.store.has(id)) return null;
+    const clean = bars
+      .filter((b) => [b.time, b.open, b.high, b.low, b.close].every(Number.isFinite) && b.close > 0 && b.high >= b.low)
+      .map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume }));
+    if (!clean.length) return { n: 0, oldest: null };
+    this.store.set(id, mergeBars(this.store.get(id), clean, MAX_BROKER_BARS));
+    this.info.set(id, { source: 'broker', status: 'ready' });
+    return { n: clean.length, oldest: clean.reduce((m, b) => Math.min(m, b.time), Infinity) };
+  }
+
+  // The broker's own bars stored for this market (0 while MT5 doesn't price it).
+  brokerBars(id) {
+    return this.#level(id) === 'mt5' ? (this.store.get(id) || []).length : 0;
   }
 
   // All stored bars with the feed's latest closed bars merged in (oldest first).
@@ -280,7 +309,7 @@ export class HistoryStore {
       if (fetched.length && level === 'mt5') fetched = alignTo(fetched, mergeBars(bars, this.md.bars(id))) || [];
       if (fetched.length) {
         // The broker's own saved bars beat shifted public ones; otherwise the fresh fetch wins.
-        bars = level === 'mt5' ? mergeBars(fetched, bars) : mergeBars(bars, fetched);
+        bars = level === 'mt5' ? mergeBars(fetched, bars, MAX_BROKER_BARS) : mergeBars(bars, fetched);
         source = sym.source.type;
       }
     } catch (err) {
@@ -289,7 +318,7 @@ export class HistoryStore {
     // MT5 took the market over while we were fetching: line the history up with its prices.
     const live = this.md.bars(id);
     if (this.#level(id) !== level && bars.length) bars = alignTo(bars, live) || [];
-    this.store.set(id, mergeBars(bars, live));
+    this.store.set(id, mergeBars(bars, live, this.#max(id)));
     // Nothing loaded: the store still fills from this market's real feed, bar by bar.
     if (source === 'none') source = this.#level(id) === 'mt5' ? 'broker' : sym.source.type;
     this.info.set(id, { source, status: 'ready' });
@@ -308,11 +337,12 @@ export class HistoryStore {
   #adopt(id, source, claimed) {
     if (!claimed.length) return;
     const level = source === 'mt5' ? 'mt5' : SYMBOLS[id].source.type;
+    const max = level === 'mt5' ? MAX_BROKER_BARS : MAX_BARS;
     const wasReal = this.isReal(id);
     let base = wasReal ? alignTo(this.store.get(id), claimed) ?? this.store.get(id) : [];
     const cache = this.#readCache(id);
-    if (cache?.level === level) base = mergeBars(base, cache.bars);
-    this.store.set(id, mergeBars(base, claimed));
+    if (cache?.level === level) base = mergeBars(base, cache.bars, max);
+    this.store.set(id, mergeBars(base, claimed, max));
     this.info.set(id, { source: level === 'mt5' ? 'broker' : level, status: 'ready' });
     if (!wasReal) this.log.info?.(`[research] ${id}: research history is now real ${level === 'mt5' ? 'broker' : 'market'} data (${this.store.get(id).length.toLocaleString('en-US')} bars)`);
     // A market back on Yahoo: fetch its longer history too (once, politely).
@@ -336,7 +366,7 @@ export class HistoryStore {
       fs.mkdirSync(this.dir, { recursive: true });
       for (const [id] of this.store) {
         if (!this.isReal(id)) continue;
-        const rows = this.bars(id).slice(-MAX_BARS).map((b) => [b.time, b.open, b.high, b.low, b.close, Math.round(b.volume * 100) / 100]);
+        const rows = this.bars(id).slice(-this.#max(id)).map((b) => [b.time, b.open, b.high, b.low, b.close, Math.round(b.volume * 100) / 100]);
         if (!rows.length) continue;
         fs.writeFileSync(`${this.#cacheFile(id)}.tmp`, JSON.stringify({ v: CACHE_VERSION, level: this.#level(id), bars: rows }));
         fs.renameSync(`${this.#cacheFile(id)}.tmp`, this.#cacheFile(id));

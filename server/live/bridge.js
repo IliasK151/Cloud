@@ -4,7 +4,9 @@ import { EventEmitter } from 'node:events';
 // account, positions, deals, quotes and acknowledgements. The reply is plain text,
 // one command per line, which the EA executes:
 //   watch|SYM1,SYM2          prices + bars to include in every sync
-//   history|SYM|600          one-off 1-minute history request
+//   history|SYM|600[|START]  one-off 1-minute history request: COUNT closed bars, the newest
+//                            START bars back (EA 1.3+; older EAs ignore START and send the
+//                            latest bars, which the floor notices and stops paging)
 //   symbols                  send the full symbol list
 //   open|id|SYM|BUY|vol|slDist|tpDist|magic|comment
 //   close|id|ticket|fraction
@@ -24,6 +26,7 @@ export const ACTION_LIMITS = { ftmo: 2000, newTrades: 1000, stopMoves: 1500 };
 const STALE_MS = 5000;
 export const PACE = { busy: 500, active: 1000, idle: 2000 };
 const RESEND_MS = 8000;
+const HISTORY_PAGE_GIVEUP_MS = 90_000;
 const COMMAND_TTL_MS = 60_000;
 
 let seq = 0;
@@ -34,6 +37,7 @@ export class Mt5Bridge extends EventEmitter {
     this.lastSync = 0;
     this.version = null;
     this.caps = null;
+    this.maxBars = null;
     this.account = null;
     this.positions = [];
     this.deals = [];
@@ -66,6 +70,8 @@ export class Mt5Bridge extends EventEmitter {
     this.version = msg.version ?? this.version;
     // The EA's own safety caps (EA 1.1+): max risk per order and max floor positions.
     if (msg.caps && typeof msg.caps === 'object') this.caps = { maxRiskPct: Number(msg.caps.maxRiskPct) || 0, maxPositions: Number(msg.caps.maxPositions) || 0 };
+    // MT5's "Max bars in chart" (EA 1.3+): how far back it can hand over history.
+    if (Number.isFinite(msg.maxBars) && msg.maxBars > 0) this.maxBars = msg.maxBars;
     const prevLogin = this.account?.login;
     this.account = msg.account ?? this.account;
     this.positions = Array.isArray(msg.positions) ? msg.positions : [];
@@ -90,8 +96,19 @@ export class Mt5Bridge extends EventEmitter {
     }
     if (msg.history && typeof msg.history === 'object') {
       for (const [sym, rows] of Object.entries(msg.history)) {
+        const asked = this.historyWanted.get(sym);
         this.historyWanted.delete(sym);
-        this.emit('history', sym, this.toBars(rows));
+        this.emit('history', sym, this.toBars(rows), { start: asked?.start ?? 1, count: asked?.count ?? null });
+      }
+    }
+    // A page further back that MT5 never answers has nothing to give (beyond the history it
+    // holds): stop asking once it has been asked a few times over a while without an answer.
+    // Time MT5 was away (asleep, restarting) doesn't count: it wasn't asked then. The first
+    // request for a market waits for MT5 to download its history, however long that takes.
+    for (const [sym, h] of this.historyWanted) {
+      if (h.start > 1 && h.asks >= 3 && now - h.firstAsked > HISTORY_PAGE_GIVEUP_MS) {
+        this.historyWanted.delete(sym);
+        this.emit('history-missing', sym, { start: h.start, count: h.count });
       }
     }
     this.emit('sync', this);
@@ -111,11 +128,18 @@ export class Mt5Bridge extends EventEmitter {
     if (this.watchList.length) lines.push(`watch|${this.watchList.join(',')}`);
     if (this.wantSymbols || !this.symbols.length) lines.push('symbols');
     let asked = 0;
+    let pages = 0;
     for (const [sym, h] of this.historyWanted) {
       if (asked >= 2) break;
       if (now - h.lastAsked < 10_000) continue;
+      // Paging back through history is background work: one page a sync, and never while an
+      // order is on its way (MT5 builds the reply before it does anything else).
+      if (h.start > 1 && (pages >= 1 || this.pending.size)) continue;
+      if (h.start > 1) pages++;
       h.lastAsked = now;
-      lines.push(`history|${sym}|${h.count}`);
+      h.firstAsked ??= now;
+      h.asks = (h.asks || 0) + 1;
+      lines.push(`history|${sym}|${h.count}${h.start > 1 ? `|${h.start}` : ''}`);
       asked++;
     }
     for (const [id, cmd] of this.pending) {
@@ -145,8 +169,14 @@ export class Mt5Bridge extends EventEmitter {
     this.watchList = [...new Set(symbols.filter(Boolean))];
   }
 
-  requestHistory(symbol, count = 600) {
-    if (!this.historyWanted.has(symbol)) this.historyWanted.set(symbol, { count, lastAsked: 0, since: Date.now() });
+  // COUNT closed 1-minute bars, the newest START bars back from now (1: the latest closed bar).
+  requestHistory(symbol, count = 600, start = 1) {
+    if (!this.historyWanted.has(symbol)) this.historyWanted.set(symbol, { count, start: Math.max(1, Math.round(start) || 1), lastAsked: 0, since: Date.now() });
+  }
+
+  // Is a history request for this symbol on its way?
+  historyPending(symbol) {
+    return this.historyWanted.has(symbol);
   }
 
   requestSymbols() {

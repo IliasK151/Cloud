@@ -11,7 +11,49 @@ const EFFECT = {
   'no edge': { cls: 'v-none', label: 'No edge', account: 'Paper only' },
 };
 
+const LONG_LABEL = { loses: 'loses', 'no edge': 'no edge', unclear: 'unclear', edge: 'edge' };
+
+// The long-run record by desk (from the server's baseline view), numbers only.
+function longRun(baseline) {
+  const out = new Map();
+  for (const d of baseline?.desks || []) {
+    if (!LONG_LABEL[d.verdict] || !Number.isFinite(d.avgR) || !Number.isFinite(d.n)) continue;
+    out.set(d.id, { verdict: d.verdict, avgR: d.avgR, n: d.n, span: typeof d.span === 'string' ? d.span : null });
+  }
+  return out;
+}
+
+// What the two records mean on the account together (the same rules as the account brain).
+function accountEffect(recent, long) {
+  if (long === 'loses') return recent === 'EDGE' ? 'Half size' : 'Paper only';
+  const eff = EFFECT[recent];
+  if (eff) return eff.account;
+  if (long === 'no edge') return 'Half size';
+  return '<span class="muted">Unchanged</span>';
+}
+
 const fr = (x) => (x == null ? '—' : `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}R`);
+
+// Before the first nightly review: the long-run record on its own.
+function longOnly(baseline) {
+  const rows = (baseline?.desks || []).filter((d) => LONG_LABEL[d.verdict] && Number.isFinite(d.avgR) && Number.isFinite(d.n));
+  if (!rows.length) return '';
+  const span = rows.find((d) => typeof d.span === 'string')?.span;
+  return `
+    <h3 class="review-h">Long run${span ? `: ${escapeHtml(span)}` : ''} of real 1-minute prices</h3>
+    <div class="table-wrap" style="max-height:none"><table class="table compact review-desks">
+      <thead><tr><th>Desk</th><th>Market</th><th class="r">Trades</th><th class="r">Per trade</th><th>Verdict</th><th>On the account</th></tr></thead>
+      <tbody>${rows.map((d) => `<tr>
+        <td><b>${escapeHtml(String(d.name || d.id).split(' ')[0])}</b></td>
+        <td>${escapeHtml(d.symbol || '')}</td>
+        <td class="r num">${d.n.toLocaleString('en-US')}</td>
+        <td class="r num ${d.avgR > 0 ? 'pos' : d.avgR < 0 ? 'neg' : ''}">${fr(d.avgR)}${Array.isArray(d.ci) ? `<small>90%: ${fr(d.ci[0])} to ${fr(d.ci[1])}</small>` : ''}</td>
+        <td>${escapeHtml(LONG_LABEL[d.verdict])}</td>
+        <td>${accountEffect(null, d.verdict)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <p class="fine">A desk that lost money there with confidence trades paper only, unless the nightly review finds a real edge on your own prices.</p>`;
+}
 const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
 
 function ago(ms, now) {
@@ -46,12 +88,15 @@ export function renderReview(v, { now = Date.now() } = {}) {
   const when = retry == null ? '' : ` The floor tries again by itself in ${retry < 90 ? `${retry} min` : `${Math.round(retry / 60)} h`}.`;
   const err = r.lastError ? `<p class="tg-msg bad">The last review didn't finish: ${escapeHtml(String(r.lastError.text).replace(/\.+$/, ''))}.${when}</p>` : '';
   if (!rep) {
-    return `${head}${progress}${err}<p class="fine">No review yet. It runs by itself after the New York close (and once, about 10 minutes after the floor first starts), as soon as the floor has saved some real prices. Or press Run now.</p>`;
+    return `${head}${progress}${err}<p class="fine">No review yet. It runs by itself after the New York close (and once, about 10 minutes after the floor first starts), as soon as the floor has saved some real prices. Or press Run now.</p>${longOnly(v.baseline)}`;
   }
   const stale = !r.fresh ? ' <b class="warn-text">(over 4 days old: the nightly reviews have stopped. Its verdicts still decide who trades until a new one runs; press Run now)</b>' : '';
+  const long = longRun(v.baseline);
   const rows = rep.desks.map((d) => {
     const eff = EFFECT[d.verdict];
     const range = d.ci ? `${fr(d.ci[0])} to ${fr(d.ci[1])}` : '';
+    const lr = long.get(d.id);
+    const onAccount = accountEffect(d.verdict, lr?.verdict);
     return `<tr>
       <td><b>${escapeHtml(d.name.split(' ')[0])}</b><small>${escapeHtml(d.desk)}</small></td>
       <td>${escapeHtml(d.symbol)}</td>
@@ -59,9 +104,11 @@ export function renderReview(v, { now = Date.now() } = {}) {
       <td class="r num">${d.n ? pct(d.winRate) : '—'}</td>
       <td class="r num ${d.avgR > 0 ? 'pos' : d.avgR < 0 ? 'neg' : ''}">${d.n ? fr(d.avgR) : '—'}${range ? `<small>90%: ${range}</small>` : ''}</td>
       <td>${eff ? `<span class="verdict-chip ${eff.cls}">${eff.label}</span>` : `<span class="muted">${escapeHtml(d.verdict)}</span>`}</td>
-      <td>${eff ? eff.account : '<span class="muted">Unchanged</span>'}</td>
+      ${long.size ? `<td class="r num ${lr && lr.avgR > 0 ? 'pos' : lr && lr.avgR < 0 ? 'neg' : ''}">${lr ? `${fr(lr.avgR)}<small>${lr.n.toLocaleString('en-US')} trades${LONG_LABEL[lr.verdict] ? ` · ${LONG_LABEL[lr.verdict]}` : ''}</small>` : '<span class="muted">—</span>'}</td>` : ''}
+      <td>${onAccount}</td>
     </tr>`;
   }).join('');
+  const longSpan = [...long.values()].find((x) => x.span)?.span;
   const sim = rep.withEdge || rep.everyone;
   let odds = '';
   if (sim) {
@@ -99,9 +146,10 @@ export function renderReview(v, { now = Date.now() } = {}) {
     <p class="sub">Last review ${ago(rep.at, now)}${rep.tookMs ? ` (took ${Math.max(1, Math.round(rep.tookMs / 60_000))} min)` : ''} · ${rep.tradingDays} trading days of your prices${stale}</p>
     <p class="review-verdict ${best && best.passed >= 0.6 ? 'good' : 'warn'}">${escapeHtml(verdict)}</p>
     <div class="table-wrap" style="max-height:none"><table class="table compact review-desks">
-      <thead><tr><th>Desk</th><th>Market</th><th class="r">Trades</th><th class="r">Won</th><th class="r">Per trade</th><th>Verdict</th><th>On the account</th></tr></thead>
+      <thead><tr><th>Desk</th><th>Market</th><th class="r">Trades</th><th class="r">Won</th><th class="r">Per trade</th><th>Verdict</th>${long.size ? `<th class="r" title="Each desk replayed on many months of real 1-minute prices (npm run baseline)">Long run${longSpan ? `<small>${escapeHtml(longSpan)}</small>` : ''}</th>` : ''}<th>On the account</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
+    ${long.size ? '<p class="fine">Long run: each desk replayed on many months of real 1-minute prices, thousands of trades. A desk that lost money there with confidence trades paper only, unless the nightly review finds a real edge (its whole 90% range above zero) on your own prices, and then at half size.</p>' : ''}
     ${odds}
     <p class="fine">History, not a promise: the market changes, and a few weeks of minutes is a small sample. The more the floor has saved, the sharper it gets. Same report in Terminal: <code>npm run edge</code>.</p>`;
 }

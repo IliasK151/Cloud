@@ -1,0 +1,309 @@
+{
+ "v": 1,
+ "at": 1790966012585,
+ "source": "Oanda 1-minute bars (FutureSharks/financial-data)",
+ "seed": 1,
+ "desks": [
+  {
+   "id": "marcus",
+   "name": "Marcus Reid",
+   "symbol": "NAS100",
+   "bars": 644154,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 5.9,
+   "n": 571,
+   "avgR": -0.096,
+   "totalR": -54.9,
+   "winRate": 0.489,
+   "ci": [
+    -0.178,
+    -0.012
+   ],
+   "halves": [
+    -0.146,
+    -0.046
+   ],
+   "quarters": {
+    "positive": 2,
+    "total": 8
+   },
+   "grossR": -0.096,
+   "costR": 0,
+   "verdict": "loses"
+  },
+  {
+   "id": "sofia",
+   "name": "Sofia Laurent",
+   "symbol": "USDJPY",
+   "verdict": "no history",
+   "n": 0
+  },
+  {
+   "id": "amara",
+   "name": "Amara Okafor",
+   "symbol": "XAUUSD",
+   "bars": 640681,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 21.3,
+   "n": 2078,
+   "avgR": -0.162,
+   "totalR": -337.2,
+   "winRate": 0.472,
+   "ci": [
+    -0.204,
+    -0.118
+   ],
+   "halves": [
+    -0.192,
+    -0.133
+   ],
+   "quarters": {
+    "positive": 0,
+    "total": 8
+   },
+   "grossR": -0.132,
+   "costR": 0.03,
+   "verdict": "loses"
+  },
+  {
+   "id": "viktor",
+   "name": "Viktor Petrov",
+   "symbol": "BTCUSD",
+   "verdict": "no history",
+   "n": 0
+  },
+  {
+   "id": "james",
+   "name": "James Whitfield",
+   "symbol": "SPX500",
+   "bars": 552524,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 11.5,
+   "n": 1125,
+   "avgR": -0.127,
+   "totalR": -142.9,
+   "winRate": 0.53,
+   "ci": [
+    -0.181,
+    -0.069
+   ],
+   "halves": [
+    -0.129,
+    -0.125
+   ],
+   "quarters": {
+    "positive": 0,
+    "total": 8
+   },
+   "grossR": -0.128,
+   "costR": 0,
+   "verdict": "loses"
+  },
+  {
+   "id": "priya",
+   "name": "Priya Sharma",
+   "symbol": "EURUSD",
+   "bars": 826801,
+   "from": 1514844000,
+   "to": 1589443140,
+   "tradesPerWeek": 9.3,
+   "n": 1151,
+   "avgR": -0.288,
+   "totalR": -331.8,
+   "winRate": 0.439,
+   "ci": [
+    -0.342,
+    -0.234
+   ],
+   "halves": [
+    -0.342,
+    -0.235
+   ],
+   "quarters": {
+    "positive": 0,
+    "total": 10
+   },
+   "grossR": -0.174,
+   "costR": 0.114,
+   "verdict": "loses"
+  },
+  {
+   "id": "lucas",
+   "name": "Lucas Meyer",
+   "symbol": "USOIL",
+   "bars": 623198,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 41.2,
+   "n": 4016,
+   "avgR": -0.166,
+   "totalR": -666.7,
+   "winRate": 0.467,
+   "ci": [
+    -0.193,
+    -0.136
+   ],
+   "halves": [
+    -0.187,
+    -0.145
+   ],
+   "quarters": {
+    "positive": 0,
+    "total": 8
+   },
+   "grossR": -0.124,
+   "costR": 0.042,
+   "verdict": "loses"
+  },
+  {
+   "id": "chen",
+   "name": "Chen Wei",
+   "symbol": "ETHUSD",
+   "verdict": "no history",
+   "n": 0
+  },
+  {
+   "id": "jake",
+   "name": "Jake Morrison",
+   "symbol": "GBPUSD",
+   "bars": 817359,
+   "from": 1514844000,
+   "to": 1589443140,
+   "tradesPerWeek": 5.2,
+   "n": 637,
+   "avgR": -0.176,
+   "totalR": -111.9,
+   "winRate": 0.458,
+   "ci": [
+    -0.255,
+    -0.102
+   ],
+   "halves": [
+    -0.18,
+    -0.171
+   ],
+   "quarters": {
+    "positive": 1,
+    "total": 10
+   },
+   "grossR": -0.083,
+   "costR": 0.093,
+   "verdict": "loses"
+  },
+  {
+   "id": "layla",
+   "name": "Layla Nasser",
+   "symbol": "EURUSD",
+   "bars": 826801,
+   "from": 1514844000,
+   "to": 1589443140,
+   "tradesPerWeek": 5.8,
+   "n": 709,
+   "avgR": -0.197,
+   "totalR": -139.6,
+   "winRate": 0.465,
+   "ci": [
+    -0.258,
+    -0.133
+   ],
+   "halves": [
+    -0.181,
+    -0.213
+   ],
+   "quarters": {
+    "positive": 0,
+    "total": 10
+   },
+   "grossR": -0.077,
+   "costR": 0.12,
+   "verdict": "loses"
+  },
+  {
+   "id": "ryan",
+   "name": "Ryan Cole",
+   "symbol": "XAUUSD",
+   "bars": 640681,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 4.1,
+   "n": 397,
+   "avgR": -0.197,
+   "totalR": -78,
+   "winRate": 0.451,
+   "ci": [
+    -0.287,
+    -0.104
+   ],
+   "halves": [
+    -0.234,
+    -0.159
+   ],
+   "quarters": {
+    "positive": 1,
+    "total": 8
+   },
+   "grossR": -0.163,
+   "costR": 0.034,
+   "verdict": "loses"
+  },
+  {
+   "id": "mia",
+   "name": "Mia Torres",
+   "symbol": "XAUUSD",
+   "bars": 640681,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 4.2,
+   "n": 406,
+   "avgR": -0.215,
+   "totalR": -87.1,
+   "winRate": 0.436,
+   "ci": [
+    -0.301,
+    -0.118
+   ],
+   "halves": [
+    -0.195,
+    -0.234
+   ],
+   "quarters": {
+    "positive": 0,
+    "total": 8
+   },
+   "grossR": -0.191,
+   "costR": 0.024,
+   "verdict": "loses"
+  },
+  {
+   "id": "nico",
+   "name": "Nico Rossi",
+   "symbol": "NAS100",
+   "bars": 644154,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 6.7,
+   "n": 648,
+   "avgR": -0.014,
+   "totalR": -8.8,
+   "winRate": 0.528,
+   "ci": [
+    -0.086,
+    0.06
+   ],
+   "halves": [
+    -0.067,
+    0.04
+   ],
+   "quarters": {
+    "positive": 2,
+    "total": 8
+   },
+   "grossR": -0.014,
+   "costR": 0,
+   "verdict": "no edge"
+  }
+ ]
+}

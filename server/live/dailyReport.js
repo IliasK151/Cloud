@@ -17,6 +17,8 @@ const CATEGORIES = [
   [/Best Day rule/i, 'FTMO Best Day rule'],
   [/cool-off/i, 'Cool-off after a losing streak'],
   [/out of form/i, 'Desk out of form'],
+  [/over the long run/i, 'Loses over the long run'],
+  [/trades paper first/i, 'New strategy proving itself on paper'],
   [/nightly review found no edge/i, 'No edge on your prices'],
   [/desk loss limit/i, 'Desk loss limit'],
   [/no flipping/i, 'No flipping right after a loss'],

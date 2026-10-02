@@ -763,6 +763,7 @@ html.eco .review-progress .spinner { animation: none; }
 .review-verdict.warn { color: var(--warn); }
 .warn-text { color: var(--warn); }
 .review-desks td small { display: block; font-size: 11px; color: var(--text-3); }
+.review-desks th small { display: block; font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-3); }
 .verdict-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; }
 .verdict-chip.v-edge { background: rgba(46, 160, 67, 0.22); color: var(--pos-text); }
 .verdict-chip.v-prom { background: rgba(46, 160, 67, 0.12); color: var(--pos-text); }

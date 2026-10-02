@@ -33,15 +33,17 @@ const EXTRA_SYMBOLS = ['AUDUSD', 'USDCHF', 'GER40.cash', 'UK100.cash', 'JP225.ca
 const gauss = () => Math.sqrt(-2 * Math.log(Math.random() || 1e-9)) * Math.cos(2 * Math.PI * Math.random());
 const minuteOf = (sec) => Math.floor(sec / 60) * 60;
 
-// Random-walk prices with 1-minute bars in broker server time.
+// Random-walk prices with 1-minute bars in broker server time. MOCK_HISTORY sets how many
+// minutes of history the terminal holds (MT5 holds months; the floor pages back through it).
+const HISTORY_BARS = Math.max(600, Math.min(200_000, Number(process.env.MOCK_HISTORY) || 6000));
 const market = {};
 const nowSec = () => Math.floor(Date.now() / 1000) + GMT_OFFSET;
 for (const [sym, s] of Object.entries(SPECS)) {
   const sigmaMin = s.vol / Math.sqrt(252 * 390);
   const bars = [];
   let p = s.price;
-  const t0 = minuteOf(nowSec()) - 6000 * 60;
-  for (let i = 0; i < 6000; i++) {
+  const t0 = minuteOf(nowSec()) - HISTORY_BARS * 60;
+  for (let i = 0; i < HISTORY_BARS; i++) {
     const o = p;
     let h = o;
     let l = o;
@@ -143,7 +145,7 @@ function handle(text) {
     const f = line.split('|');
     const cmd = f[0];
     if (cmd === 'watch') watch = (f[1] || '').split(',').filter(Boolean);
-    else if (cmd === 'history') history.push([f[1], Number(f[2])]);
+    else if (cmd === 'history') history.push([f[1], Number(f[2]), Math.max(1, Number(f[3]) || 1)]);
     else if (cmd === 'symbols') sendSymbols = true;
     else if (cmd === 'pace') pace = Math.max(500, Math.min(5000, Number(f[1]) || 500));
     else if (['open', 'close', 'modify', 'closeall'].includes(cmd)) {
@@ -208,6 +210,8 @@ async function sync() {
     // MOCK_EA_VERSION=1.0.0 pretends to be an old EA (no safety caps) to try the update flow.
     version: process.env.MOCK_EA_VERSION || 'mock-1.2',
     caps: process.env.MOCK_EA_VERSION && process.env.MOCK_EA_VERSION < '1.1' ? undefined : { maxRiskPct: 1, maxPositions: 8 },
+    // MT5's Max bars in chart (MOCK_MAXBARS=5000 rehearses the warning).
+    maxBars: Number(process.env.MOCK_MAXBARS) || 100_000,
     account: {
       login: LOGIN, server: SERVER, company: 'FTMO S.R.O. (mock)', name: 'Demo Trader', currency: 'USD',
       balance: +balance.toFixed(2), equity: +(balance + floating).toFixed(2), margin: 0, freeMargin: +(balance + floating).toFixed(2),
@@ -227,7 +231,14 @@ async function sync() {
   };
   if (sendSymbols) body.symbols = [...Object.keys(SPECS), ...EXTRA_SYMBOLS];
   const hist = history;
-  if (hist.length) body.history = Object.fromEntries(hist.filter(([s]) => market[s]).map(([s, n]) => [s, rows(market[s].bars.slice(-n - 1, -1))]));
+  // Like CopyRates(sym, M1, start, count): count closed bars, the newest `start` bars back
+  // (0 is the bar forming now). Nothing that far back: no answer for it, as in MT5.
+  const page = ([s, n, start]) => {
+    const all = market[s].bars;
+    const to = all.length - start;
+    return to > 0 ? rows(all.slice(Math.max(0, to - Math.min(n, 20000)), to)) : null;
+  };
+  if (hist.length) body.history = Object.fromEntries(hist.filter(([s]) => market[s]).map((h) => [h[0], page(h)]).filter(([, r]) => r && r.length));
   try {
     const res = await fetch(URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bridge-Token': TOKEN }, body: JSON.stringify(body) });
     const text = await res.text();

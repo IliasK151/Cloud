@@ -73,7 +73,13 @@ export function replay({ profile, bars, committee = 'on', warmup = 600, brainOpt
   }
   const debates = [];
   env.committee?.on('debate', (d) => { if (d.proposer === agent.id) debates.push(d); });
-  broker.on('trade', (t) => agent.onTradeClosed(t));
+  // Every closed trade, as it closes: the broker's own book only keeps the latest 400, and a
+  // long history has more.
+  const closed = [];
+  broker.on('trade', (t) => {
+    if (t.agentId === agent.id) closed.push(t);
+    agent.onTradeClosed(t);
+  });
   // Every entry with its plan (stop, target), for the analysis.
   const entries = [];
   const open = agent.openTrade.bind(agent);
@@ -128,7 +134,7 @@ export function replay({ profile, bars, committee = 'on', warmup = 600, brainOpt
   md.applyTick(symbol, bars.at(-1).close, 0, clock.t); // close the last bar
   if (agent.book.positions.size) agent.flatten('End of the data');
 
-  const trades = broker.book(agent.id).trades.filter((t) => t.r != null);
+  const trades = closed.filter((t) => t.r != null);
   return { agent, trades, entries, debates, funnel: { ...funnel, sessions: zones.size }, notes: agent.allNotes };
 }
 

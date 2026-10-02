@@ -17,7 +17,7 @@
 //|  FTMO tab into the inputs, and switch on "Algo Trading".         |
 //+------------------------------------------------------------------+
 #property copyright   "Meridian Trading Floor"
-#property version     "1.20"
+#property version     "1.30"
 #property description "Bridge between this MT5 account and the Meridian Trading Floor (http://127.0.0.1:3000)."
 
 #include <Trade\Trade.mqh>
@@ -29,14 +29,14 @@ input int    InpSyncMs = 500;                                     // Fastest syn
 input double InpMaxRiskPct   = 1.0;                                 // Max risk per order, % of balance (stop-loss distance x volume)
 input int    InpMaxPositions = 8;                                   // Max floor positions open at the same time
 
-#define EA_VERSION  "1.2.0"
+#define EA_VERSION  "1.3.0"
 #define MAGIC_MIN   771000
 #define MAGIC_MAX   771099
 #define DONE_SLOTS  256
 
 CTrade   g_trade;
 string   g_watch[];               // broker symbols the floor wants prices for
-string   g_historyReq[];          // "SYMBOL|COUNT" history requests to answer
+string   g_historyReq[];          // "SYMBOL|COUNT|START" history requests to answer
 bool     g_sendSymbols = true;    // send the full symbol list on the next sync
 string   g_acks        = "";      // JSON acknowledgements waiting to be delivered
 string   g_done[];                // ids of commands already executed (dedupe)
@@ -325,10 +325,17 @@ string HistoryJson()
          continue;
       string s = parts[0];
       int count = (int)StringToInteger(parts[1]);
+      // Where the page starts, counted back from the bar forming now: 1 is the latest closed
+      // bar. The floor pages back through months of history this way (EA 1.3+).
+      int start = ArraySize(parts) >= 3 ? (int)StringToInteger(parts[2]) : 1;
+      if(start < 1)
+         start = 1;
+      if(count < 1 || count > 20000)
+         count = 20000;
       if(!SymbolSelect(s, true))
          continue;
       MqlRates r[];
-      int got = CopyRates(s, PERIOD_M1, 1, count, r);   // closed bars only
+      int got = CopyRates(s, PERIOD_M1, start, count, r);   // closed bars only
       if(got <= 0)
          continue;                                        // not downloaded yet; the floor asks again
       if(written > 0)
@@ -379,6 +386,7 @@ void Sync()
    string body = "{\"token\":" + Q(InpToken)
                  + ",\"version\":" + Q(EA_VERSION)
                  + ",\"caps\":{\"maxRiskPct\":" + D(InpMaxRiskPct, 2) + ",\"maxPositions\":" + IntegerToString(InpMaxPositions) + "}"
+                 + ",\"maxBars\":" + IntegerToString(TerminalInfoInteger(TERMINAL_MAXBARS))   // how far back history can go
                  + ",\"account\":" + AccountJson(closedToday)
                  + ",\"positions\":" + PositionsJson()
                  + ",\"deals\":" + deals
@@ -473,7 +481,7 @@ void Handle(const string text)
         {
          int sz = ArraySize(g_historyReq);
          ArrayResize(g_historyReq, sz + 1);
-         g_historyReq[sz] = f[1] + "|" + f[2];
+         g_historyReq[sz] = f[1] + "|" + f[2] + "|" + (k >= 4 ? f[3] : "1");
         }
       else if(cmd == "symbols")
          g_sendSymbols = true;

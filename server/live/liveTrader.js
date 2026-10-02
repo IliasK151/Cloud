@@ -9,6 +9,7 @@ import { SYMBOL_IDS, SYMBOLS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
 import { DailyReports, closedTrades } from './dailyReport.js';
 import { ACTION_LIMITS } from './bridge.js';
+import { MAX_BROKER_BARS } from '../research/history.js';
 import { locateExpertsFolders } from '../../scripts/install-ea.js';
 import { fmtUsd } from '../util/format.js';
 
@@ -36,6 +37,7 @@ export function eaOutdated(version, latest = LATEST_EA) {
   return false;
 }
 const ENTRY_WINDOW_MS = 90_000; // never chase a desk's paper entry older than this
+const HISTORY_PAGE = 10_000; // 1-minute bars per history page from MT5 (about 600 KB)
 const DISCONNECT_ALERT_MS = 60_000; // MT5 silent this long → tell the boss
 const MISSING_SYNCS_TO_CLOSE = 3;
 const PLAN_KEYS = ['minGrade', 'dailyStopPct', 'maxTradesPerDay', 'streakStop', 'stayArmed', ...PLAN_SWITCHES];
@@ -95,7 +97,12 @@ export class LiveTrader extends EventEmitter {
     };
     bridge.on('account', safe('account', (acc) => this.#onAccount(acc)));
     bridge.on('ack', safe('ack', (ack) => this.#onAck(ack)));
-    bridge.on('history', safe('history', (sym, bars) => this.#onHistory(sym, bars)));
+    bridge.on('history', safe('history', (sym, bars, meta) => this.#onHistory(sym, bars, meta)));
+    bridge.on('history-missing', safe('history-missing', (sym, meta) => this.#onHistoryPage(sym, [], meta)));
+    // The research history (research/history.js), for paging months of the broker's own
+    // bars into it; set by the server.
+    this.history = null;
+    this.backfill = new Map(); // brokerSymbol → { next, lastOldest, pages, done, why }
     bridge.on('sync', safe('sync', () => this.#onSync()));
     fund.broker.on('fill', () => setImmediate(() => this.reconcile()));
     fund.env.liveDescribe = (id) => this.describeFor(id);
@@ -127,7 +134,7 @@ export class LiveTrader extends EventEmitter {
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       const links = [...this.links.values()].slice(-200).map(({ previousSession, ...l }) => l);
-      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, peaks: this.state.peaks || {}, costs: this.state.costs || {}, actions: this.bridge.actions, links };
+      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, peaks: this.state.peaks || {}, costs: this.state.costs || {}, backfill: this.state.backfill || {}, actions: this.bridge.actions, links };
       try {
         fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(data, null, 1));
         fs.renameSync(`${this.file}.tmp`, this.file);
@@ -498,13 +505,74 @@ export class LiveTrader extends EventEmitter {
     return Object.keys(map).filter((id) => map[id] === brokerSymbol);
   }
 
-  // The broker's own 1-minute history replaces the public feed for that instrument.
-  #onHistory(brokerSymbol, bars) {
-    if (this.mode !== 'live' || bars.length < 30) return;
+  // The broker's own 1-minute history replaces the public feed for that instrument; once MT5
+  // prices it, the answers are pages of older history (#backfill).
+  #onHistory(brokerSymbol, bars, meta = {}) {
+    if (this.mode !== 'live') return;
+    const b = this.backfill.get(brokerSymbol);
+    if (b?.inFlight === (meta.start ?? 1)) return this.#onHistoryPage(brokerSymbol, bars, meta);
+    if (bars.length < 30) return;
     for (const id of this.#mappedFloorIds(brokerSymbol)) {
+      if (this.md.ownerOf(id) === 'mt5') continue;
       this.md.claim(id, 'mt5', bars, 'LIVE');
       this.#note(`${id} is now priced from your broker feed (${brokerSymbol})`);
     }
+  }
+
+  // Months of the broker's own 1-minute bars for the research lab and the nightly review: two
+  // weeks (what the public feeds give) is too little to tell an edge from luck. Page back
+  // through MT5's history, HISTORY_PAGE bars at a time, until the store holds MAX_BROKER_BARS,
+  // MT5 has nothing older, or the EA can't page (before 1.3 it sends its latest bars again).
+  // A restart doesn't download it again: the store saves what it has.
+  #backfill(id, brokerSymbol) {
+    const h = this.history;
+    if (!h?.ready || typeof h.addBrokerHistory !== 'function' || this.md.ownerOf(id) !== 'mt5') return;
+    let b = this.backfill.get(brokerSymbol);
+    if (!b) {
+      b = { next: 1, lastOldest: Infinity, pages: 0, done: false, why: null, inFlight: null };
+      this.backfill.set(brokerSymbol, b);
+      // Already in data/history from an earlier run: full, or all MT5 held when it last paged
+      // (within a week; the store has kept growing bar by bar since).
+      const rec = this.state.backfill?.[brokerSymbol];
+      const have = h.brokerBars(id);
+      if (have >= 0.95 * MAX_BROKER_BARS || (rec && Date.now() - rec.at < 7 * 86_400_000 && have >= 0.9 * rec.have)) Object.assign(b, { done: true, why: 'already saved' });
+    }
+    if (b.done || b.inFlight != null || this.bridge.historyPending(brokerSymbol)) return;
+    b.inFlight = b.next;
+    this.bridge.requestHistory(brokerSymbol, HISTORY_PAGE, b.next);
+  }
+
+  #onHistoryPage(brokerSymbol, bars, meta = {}) {
+    const b = this.backfill.get(brokerSymbol);
+    if (!b || b.done || b.inFlight !== (meta.start ?? 1)) return;
+    b.inFlight = null;
+    b.pages++;
+    const ids = this.#mappedFloorIds(brokerSymbol);
+    let oldest = Infinity;
+    let n = 0;
+    for (const id of ids) {
+      const r = this.history?.addBrokerHistory(id, bars);
+      if (r?.n) {
+        n = Math.max(n, r.n);
+        oldest = Math.min(oldest, r.oldest);
+      }
+    }
+    if (!n) b.why = b.pages === 1 ? 'MT5 sent no history' : 'MT5 has nothing older';
+    else if (!(oldest < b.lastOldest)) b.why = 'the EA sent the same bars again (EA 1.3 or later pages back through months of history)';
+    else {
+      b.lastOldest = oldest;
+      b.next += HISTORY_PAGE;
+      if (bars.length < HISTORY_PAGE) b.why = 'all the history MT5 holds';
+      else if (b.next > MAX_BROKER_BARS) b.why = 'full';
+    }
+    if (!b.why) return;
+    b.done = true;
+    const have = Math.max(0, ...ids.map((id) => this.history?.brokerBars(id) || 0));
+    this.state.backfill = { ...(this.state.backfill || {}), [brokerSymbol]: { at: Date.now(), have, why: b.why } };
+    this.save();
+    const days = have ? Math.round((have / 1440) * 10) / 10 : 0;
+    this.log.info?.(`[research] ${brokerSymbol}: ${have.toLocaleString('en-US')} bars of your broker's history (${b.why})`);
+    if (have) this.#note(`${ids.join(', ')}: the research lab and the nightly review now have ${have.toLocaleString('en-US')} minutes (about ${days} days of trading) of your broker's own prices`, 'info');
   }
 
   // Markets added to the floor after the account was set up (GBPUSD, say) are mapped to the
@@ -547,6 +615,7 @@ export class LiveTrader extends EventEmitter {
           this.bridge.requestHistory(brokerSym, 6000);
           continue;
         }
+        this.#backfill(id, brokerSym);
         const q = this.bridge.quotes[brokerSym];
         if (!q?.bars) continue;
         for (const bar of this.bridge.toBars(q.bars)) this.md.applyBar(id, bar, { source: 'mt5' });
@@ -1187,6 +1256,10 @@ export class LiveTrader extends EventEmitter {
     // MT5 is knocking but being turned away (wrong token, …): say exactly why.
     const issue = this.bridgeIssue && Date.now() - this.bridgeIssue.at < 2 * 60_000 ? this.bridgeIssue : null;
     if (issue) warnings.unshift(issue.text);
+    // MT5 hands over no more history than "Max bars in chart" allows.
+    if (acc && this.bridge.maxBars && this.bridge.maxBars < MAX_BROKER_BARS) {
+      warnings.push(`MT5 keeps only ${this.bridge.maxBars.toLocaleString('en-US')} bars per chart, so the research lab and the nightly review get days of your broker's prices instead of months. In MT5: Tools → Options → Charts → Max bars in chart → 100000, then restart MT5.`);
+    }
     const caps = this.bridge.caps;
     if (caps && p) {
       if (caps.maxRiskPct > 0 && p.riskPerTradePct > caps.maxRiskPct) warnings.push(`The EA refuses orders risking more than ${caps.maxRiskPct}% but the account is set to ${p.riskPerTradePct}% per trade. Lower the risk in Edit setup, or raise "Max risk per order" in the EA's inputs.`);
@@ -1226,6 +1299,7 @@ export class LiveTrader extends EventEmitter {
       openRisk: this.openRisk(),
       plan,
       review: this.review?.view?.() ?? null,
+      baseline: this.baseline?.view?.() ?? null,
       types: ACCOUNT_TYPES,
       programs: PROGRAMS,
       defaults: DEFAULTS,
