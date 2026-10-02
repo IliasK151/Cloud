@@ -60,12 +60,20 @@ export class YahooClient {
     return run;
   }
 
+  // The whole request, the answer's body included, within timeoutMs: an answer that stalls
+  // halfway would otherwise hold up every Yahoo request after it (they go one at a time).
   async #request(url, headers, timeoutMs, redirect = 'follow') {
     const ctrl = new AbortController();
+    const timedOut = new Promise((_, reject) => {
+      ctrl.signal.addEventListener('abort', () => reject(Object.assign(new Error('timed out'), { name: 'AbortError' })), { once: true });
+    });
+    timedOut.catch(() => {});
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       this.stats.requests++;
-      return await this.fetch(url, { headers, signal: ctrl.signal, redirect });
+      const res = await Promise.race([this.fetch(url, { headers, signal: ctrl.signal, redirect }), timedOut]);
+      const body = await Promise.race([res.text(), timedOut]);
+      return { status: res.status, ok: res.ok, headers: res.headers, body };
     } finally {
       clearTimeout(timer);
     }
@@ -90,7 +98,6 @@ export class YahooClient {
       const res = await this.#request('https://fc.yahoo.com/', BASE_HEADERS, 8000, 'manual');
       const raw = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [res.headers.get('set-cookie')].filter(Boolean);
       cookie = raw.map((c) => String(c).split(';')[0]).filter(Boolean).join('; ');
-      await res.arrayBuffer().catch(() => {});
     } catch {
       /* no cookie: carry on without */
     }
@@ -98,7 +105,7 @@ export class YahooClient {
       try {
         const res = await this.#request(`${HOSTS[0]}/v1/test/getcrumb`, { ...BASE_HEADERS, Cookie: cookie }, 8000);
         if (res.status === 429) throw this.#limited();
-        const text = res.ok ? (await res.text()).trim() : '';
+        const text = res.ok ? res.body.trim() : '';
         if (text && text.length < 64 && !/[<{\s]/.test(text)) crumb = text;
       } catch (err) {
         if (err.rateLimited) throw err;
@@ -122,7 +129,7 @@ export class YahooClient {
           throw new Error(`HTTP ${res.status}`);
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
+        const json = JSON.parse(res.body);
         const result = json?.chart?.result?.[0];
         if (!result) throw new Error(json?.chart?.error?.description || 'empty result');
         this.strikes = 0;

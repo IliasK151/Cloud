@@ -209,3 +209,35 @@ test('the research lab records whether a strategy was validated on real data', a
   }
   assert.deepEqual(results.map((r) => r.real), [false, true]);
 });
+
+test('a Yahoo answer that stalls halfway times out instead of holding up every request after it', async () => {
+  let stall = true;
+  const fetchImpl = async (url) => {
+    if (url.startsWith('https://fc.yahoo.com') || url.includes('/getcrumb')) return response(404, '');
+    if (stall) return { ...response(200, ''), text: () => new Promise(() => {}) }; // headers came, the body never does
+    return response(200, JSON.stringify({ chart: { result: [chartResult(5)] } }));
+  };
+  const client = new YahooClient({ fetchImpl, gapMs: 0 });
+  await assert.rejects(client.chart('GC=F', 'interval=1m', 50), /timed out/);
+  stall = false;
+  const result = await client.chart('GC=F', 'interval=1m', 50);
+  assert.equal(result.timestamp.length, 5, 'the next request went through');
+});
+
+test('research history never waits forever: a feed that doesn\'t answer is skipped, and MT5\'s bars are used', async () => {
+  const clock = new MarketClock('live');
+  const md = new MarketData(clock);
+  const now = Math.floor(Date.now() / 60_000) * 60;
+  const mk = (n, price) => Array.from({ length: n }, (_, i) => ({ time: now - (n - i) * 60, open: price, high: price + 1, low: price - 1, close: price + 0.5, volume: 5 }));
+  const fetchers = { binance: async () => [], yahoo: () => new Promise(() => {}) }; // Yahoo never answers
+  const history = new HistoryStore({ md, mode: 'live', log: quiet, fetchers, loadDeadlineMs: 100 });
+  const loading = history.load();
+  // MT5 takes gold over while the history is loading, with 6,000 of the broker's bars.
+  md.claim('XAUUSD', 'mt5', mk(6000, 3800), 'LIVE');
+  const started = Date.now();
+  await loading;
+  assert.ok(Date.now() - started < 5000, 'done within the deadline');
+  assert.equal(history.ready, true);
+  assert.equal(history.status().XAUUSD.source, 'broker');
+  assert.ok(history.bars('XAUUSD').length >= 6000, 'the research desks get the broker\'s bars');
+});

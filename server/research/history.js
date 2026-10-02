@@ -18,6 +18,14 @@ import { yahoo as yahooClient, toBars as yahooBars } from '../market/yahooClient
 // and replaced by the real bars, and research desks re-test on them.
 
 const MAX_BARS = 20_000;
+// No market may hold up the research lab longer than this: a public feed that doesn't answer
+// is skipped, and the saved and live bars (MT5's own once it prices the market) are used.
+const LOAD_DEADLINE_MS = 90_000;
+
+const deadline = (promise, ms) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(`no answer within ${Math.round(ms / 1000)}s`)), ms);
+  promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); });
+});
 const CACHE_VERSION = 2;
 const BINANCE_HOSTS = ['https://api.binance.com', 'https://data-api.binance.vision'];
 // History sources that are real market data (as opposed to 'simulated' or 'none').
@@ -140,7 +148,8 @@ async function yahooHistory(ticker, chunks = 2) {
 }
 
 export class HistoryStore {
-  constructor({ md, mode, dataDir = null, calendar = null, log = console, fetchers = null }) {
+  constructor({ md, mode, dataDir = null, calendar = null, log = console, fetchers = null, loadDeadlineMs = LOAD_DEADLINE_MS }) {
+    this.loadDeadlineMs = loadDeadlineMs;
     this.md = md;
     this.mode = mode;
     this.calendar = calendar;
@@ -264,7 +273,8 @@ export class HistoryStore {
     let bars = cache?.level === level ? cache.bars : [];
     let source = bars.length ? 'saved' : 'none';
     try {
-      let fetched = sym.source.type === 'binance' ? await this.fetchers.binance(sym.source.ticker) : await this.fetchers.yahoo(sym.source.ticker);
+      const fetch = sym.source.type === 'binance' ? this.fetchers.binance(sym.source.ticker) : this.fetchers.yahoo(sym.source.ticker);
+      let fetched = await deadline(fetch, this.loadDeadlineMs);
       // The broker (MT5) already prices this market: move the public feed's history onto
       // its price level, or leave it out if the two can't be lined up.
       if (fetched.length && level === 'mt5') fetched = alignTo(fetched, mergeBars(bars, this.md.bars(id))) || [];
