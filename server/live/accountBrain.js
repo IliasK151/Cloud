@@ -1,5 +1,5 @@
 import { fmtUsd } from '../util/format.js';
-import { trainingOn, programRules, COST_LIMIT_R } from './rules.js';
+import { trainingOn, programRules, COST_LIMIT_R, COST_MAX_R } from './rules.js';
 
 // The account brain: the plan a professional prop trader follows to pass a challenge and
 // then keep getting paid. The paper desks can experiment; the account only gets the best
@@ -36,7 +36,7 @@ export const LIMITS = {
   allocMin: 8, // account trades before a desk's own record sizes it
   allocWindow: 12, // its most recent account trades
   formMin: 3, // real-price trades before a desk's form counts
-  formWindow: 12, // its most recent real-price trades (paper and account alike)
+  formWindow: 20, // its most recent real-price trades (paper and account alike)
 };
 
 const GRADE_RANK = { A: 3, B: 2, C: 1 };
@@ -166,7 +166,7 @@ export class AccountBrain {
         : { text: `Cool-off after ${p.streakStop} losses in a row is OFF (the losing-streak switch)`, ok: false }),
       { text: `Desk loss limit: a desk that loses ${LIMITS.deskLossR}× its full risk (${fmtUsd(LIMITS.deskLossR * full)}) on the account in a day is off it until tomorrow`, ok: true },
       { text: `No flipping: after a losing trade on a market, nothing the other way on it for ${LIMITS.noFlipMs / 60_000} minutes`, ok: true },
-      { text: `Costs: no trade whose spread and commission would eat more than ${COST_LIMIT_R}R of its risk`, ok: true },
+      { text: `Costs: a stop too tight for the market's costs is widened (smaller size, same risk) until they're ${COST_LIMIT_R}R of it; a trade that would cost over ${COST_MAX_R}R doesn't go`, ok: true },
       { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R trades paper only until its record recovers`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
     ].filter(Boolean);

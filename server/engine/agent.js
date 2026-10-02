@@ -1,4 +1,4 @@
-import { SYMBOLS, usdPerQuote, roundToLot, tradeCostR, COST_LIMIT_R } from '../market/symbols.js';
+import { SYMBOLS, usdPerQuote, roundToLot, tradeCostR, COST_LIMIT_R, COST_MAX_R } from '../market/symbols.js';
 import { atr, last } from '../market/indicators.js';
 import { fmtPrice, fmtQty, fmtUsd, spokenPnl, round } from '../util/format.js';
 import { DeskLearner } from './learning.js';
@@ -106,10 +106,14 @@ export class TraderAgent {
     if (!Number.isFinite(entry) || !Number.isFinite(stop) || (long ? stop >= entry : stop <= entry)) return false;
     if (target != null && (long ? target <= entry : target >= entry)) target = null;
 
-    // Costs first, as on a professional desk: a trade whose spread, slippage and commission
-    // would eat more than a quarter of its risk starts too far behind to be worth taking.
-    // (Your own TradingView alerts are your call.)
-    if (tag !== 'TV' && this.#costTooHigh(symbol, side, entry, stop)) return false;
+    // Costs first, as on a professional desk: a stop too tight for the market's spread,
+    // slippage and commission is widened (smaller size, same money at risk), or the trade is
+    // refused if it would have to move too far. (Your own TradingView alerts are your call.)
+    if (tag !== 'TV') {
+      const fit = this.#fitToCosts(symbol, side, entry, stop, target);
+      if (!fit) return false;
+      ({ stop, target } = fit);
+    }
 
     // No trade on the desk's say-so alone: the department committee reviews the idea.
     const review = this.env.committee?.review({ agent: this, symbol, side, entry, stop, target, reason, external: tag === 'TV' }) ?? null;
@@ -139,7 +143,12 @@ export class TraderAgent {
     }
     ({ stop, target, partialAt, trail } = learn);
     riskMultiplier *= learn.sizeMult;
-    if (tag !== 'TV' && this.#costTooHigh(symbol, side, entry, stop)) return false; // the learner moved the stop
+    if (tag !== 'TV') {
+      // The learner may have moved the stop: the same check on where it ended up.
+      const fit = this.#fitToCosts(symbol, side, entry, stop, target);
+      if (!fit) return false;
+      ({ stop, target } = fit);
+    }
 
     const qty = this.risk.size(this, symbol, entry, stop, { riskMultiplier });
     if (!qty) {
@@ -183,18 +192,31 @@ export class TraderAgent {
     this.day.whyNot = { text, at: this.env.clock.now() };
   }
 
-  // Too expensive for its stop? Said once per idea: the same signal on the next bars is
-  // turned down quietly for 10 minutes.
-  #costTooHigh(symbol, side, entry, stop) {
+  // The stop and target that fit the market's costs, or null if none sensibly does.
+  #fitToCosts(symbol, side, entry, stop, target) {
     const costR = tradeCostR(symbol, entry, stop);
-    if (costR == null || costR <= COST_LIMIT_R) return false;
+    if (costR == null || costR <= COST_LIMIT_R) return { stop, target };
+    if (this.#costTooHigh(symbol, side, entry, stop, costR)) return null;
+    const risk = Math.abs(entry - stop);
+    const k = costR / COST_LIMIT_R; // how much wider the stop has to be
+    const dir = side === 'LONG' ? 1 : -1;
+    return {
+      stop: entry - dir * risk * k,
+      target: target != null ? entry + (target - entry) * k : null,
+    };
+  }
+
+  // Too expensive even for a wider stop? Said once per idea: the same signal on the next bars
+  // is turned down quietly for 10 minutes.
+  #costTooHigh(symbol, side, entry, stop, costR = tradeCostR(symbol, entry, stop)) {
+    if (costR == null || costR <= COST_MAX_R) return false;
     const key = `${symbol}|${side}`;
     const now = this.env.clock.now();
     this.costRejects ||= new Map();
     const last = this.costRejects.get(key);
     this.costRejects.set(key, now);
     if (last != null && now - last < 10 * 60_000) return true;
-    const minStop = (Math.abs(entry - stop) * costR) / COST_LIMIT_R;
+    const minStop = (Math.abs(entry - stop) * costR) / COST_MAX_R;
     const why = `costs would eat ${costR.toFixed(2)}R (spread, slippage and commission): the stop is too tight for ${symbol}, it needs at least ${fmtPrice(minStop, SYMBOLS[symbol]?.decimals ?? 2)}`;
     this.lastReject = why;
     this.day.ideas++;

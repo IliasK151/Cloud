@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
-import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, PROGRAMS, COST_LIMIT_R, normalizeProfile, guardMetrics, lotsForRisk, positionRisk, tradeCost, trainingOn, programRules, strictUntilKnown, bestDayCheck } from './rules.js';
+import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, PROGRAMS, COST_MAX_R, normalizeProfile, guardMetrics, lotsForRisk, positionRisk, tradeCost, trainingOn, programRules, strictUntilKnown, bestDayCheck } from './rules.js';
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS, SYMBOLS } from '../market/symbols.js';
 import { AccountBrain } from './accountBrain.js';
@@ -973,8 +973,8 @@ export class LiveTrader extends EventEmitter {
     // Transaction costs: a trade that gives most of its edge to the spread and commission
     // before it starts doesn't go (your own TradingView alerts are your call).
     const cost = this.costOf(brokerSymbol, plan.risk);
-    if (cost && cost.totalR > COST_LIMIT_R && plan.tag !== 'TV') {
-      return this.#skip(agent, pos, key, `costs would eat ${cost.totalR.toFixed(2)}R before it starts (spread ${cost.spreadR.toFixed(2)}R + commission ${cost.commissionR.toFixed(2)}R), over the ${COST_LIMIT_R}R limit: the stop is too tight for ${brokerSymbol}'s costs`);
+    if (cost && cost.totalR > COST_MAX_R && plan.tag !== 'TV') {
+      return this.#skip(agent, pos, key, `costs would eat ${cost.totalR.toFixed(2)}R before it starts (spread ${cost.spreadR.toFixed(2)}R + commission ${cost.commissionR.toFixed(2)}R), over the ${COST_MAX_R}R limit: the stop is too tight for ${brokerSymbol}'s costs right now`);
     }
     if (!acc.algoAllowed || !acc.tradeAllowed) return this.#skip(agent, pos, key, 'Algo Trading is switched off in MT5');
     const actions = this.bridge.actionsToday();

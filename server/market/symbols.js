@@ -87,10 +87,16 @@ export const SYMBOLS = {
 
 export const SYMBOL_IDS = Object.keys(SYMBOLS);
 
-// A trade that gives more than this share of its risk to costs before it starts is refused,
-// on paper and on the account: a desk risking 1R to make 1.5R that pays 0.4R in costs has
-// given its edge away.
+// Costs as a share of a trade's risk. Up to COST_LIMIT_R a trade goes as the desk planned it.
+// Above that the desk widens its stop until the costs are COST_LIMIT_R of it (the target moves
+// out by the same factor and the size shrinks, so the money at risk stays the same), as a
+// professional does when a market is too expensive for a tight stop. Above COST_MAX_R the
+// stop would have to move too far from the setup, and the trade is refused: a desk risking 1R
+// to make 1.5R that pays 0.5R in costs has given its edge away.
+// (On real 1-minute history this kept about half again as many trades as refusing everything
+// over 0.25R, at the same quality.)
 export const COST_LIMIT_R = 0.25;
+export const COST_MAX_R = 0.4;
 
 // What a round trip costs, in basis points of the price: the spread once, the slippage the
 // paper broker adds (about half a spread), and the commission both ways.

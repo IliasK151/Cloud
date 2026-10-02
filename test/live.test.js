@@ -1174,7 +1174,7 @@ test('the account learns the commission from its own fills and refuses trades th
   live.reconcile();
   const v = live.view();
   assert.deepEqual(v.today.reasons, [['Costs too high for the stop', 1]]);
-  assert.match(v.today.recent[0].reason, /costs would eat 0\.\d\dR before it starts \(spread 0\.\d\dR \+ commission 0\.\d\dR\), over the 0\.25R limit/);
+  assert.match(v.today.recent[0].reason, /costs would eat 0\.\d\dR before it starts \(spread 0\.\d\dR \+ commission 0\.\d\dR\), over the 0\.4R limit/);
   assert.equal(sync().filter((c) => c[0] === 'open').length, 0);
 
   // A normal stop goes, and the entry alert says what it costs.
@@ -1258,8 +1258,21 @@ test('every desk refuses a trade its costs would eat, on paper too, and says wha
   // The same signal on the next bar isn't a new idea.
   assert.equal(amara.openTrade({ side: 'LONG', stop: 3799.6, target: 3801.6, reason: 'tight', symbol: 'XAUUSD' }), false);
   assert.equal(amara.day.ideas, 1);
-  // A stop with room is taken.
+  // A stop with room is taken as planned.
   assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'room', symbol: 'XAUUSD' }), true);
+  assert.equal(amara.plans.get('XAUUSD').stop, 3790);
+  amara.closeTrade('XAUUSD', 'test');
+  amara.cooldownBars = 0;
+  // A $1.20 stop costs about 0.35R: the desk widens it until costs are 0.25R, the target moves
+  // out by the same factor (same reward-to-risk), and the size shrinks with it.
+  const entry = amara.price('XAUUSD');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: entry - 1.2, target: entry + 2.4, reason: 'a bit tight', symbol: 'XAUUSD' }), true);
+  const plan = amara.plans.get('XAUUSD');
+  const k = tradeCostR('XAUUSD', entry, entry - 1.2) / 0.25;
+  assert.ok(k > 1.2 && k < 1.6, `${k}`);
+  assert.ok(Math.abs(plan.initialStop - (entry - 1.2 * k)) < 0.01, `stop ${plan.initialStop}`);
+  assert.ok(Math.abs(plan.target - (entry + 2.4 * k)) < 0.01, `target ${plan.target}`);
+  amara.closeTrade('XAUUSD', 'test');
   // Your own TradingView alerts are your call.
   const chen = fund.byId.get('chen');
   chen.symbols.push('XAUUSD');
@@ -1297,8 +1310,8 @@ test('a desk earns its place on the account with its form: out of form, it trade
   // A good paper trade lifts the average back over 0R: on the account again.
   ryan.lifetime.recentR.push(1.5);
   assert.equal(live.brain.allow(ryan, gold, {}).ok, true);
-  // Only the last 12 count.
-  ryan.lifetime.recentR = [-5, ...Array(12).fill(0.1)];
+  // Only the last 20 count.
+  ryan.lifetime.recentR = [-5, ...Array(20).fill(0.1)];
   assert.equal(live.brain.form(ryan).ok, true);
   assert.ok(live.view().plan.rules.some((r) => /Desks earn their place/.test(r.text)));
 });
