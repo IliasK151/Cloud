@@ -14,6 +14,7 @@ const EVENTS = 60;
 
 // Why a trade stayed on paper, grouped the way the boss thinks about it.
 const CATEGORIES = [
+  [/neural brain passed/i, 'Neural brain\'s paper experiment'],
   [/Best Day rule/i, 'FTMO Best Day rule'],
   [/cool-off/i, 'Cool-off after a losing streak'],
   [/out of form/i, 'Desk out of form'],

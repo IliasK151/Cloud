@@ -53,7 +53,9 @@ function pathOf(b) {
 
 // Replay one scalper over `bars` (real 1-minute bars, oldest first). `warmup` bars go in
 // as history before the desk starts deciding.
-export function replay({ profile, bars, committee = 'on', warmup = 600, brainOptions = {} }) {
+// neural: optional (agent, env) => { judge, observe }, the floor's neural brain or a recorder
+// that collects what it sensed at each entry and how the trade turned out (npm run brain).
+export function replay({ profile, bars, committee = 'on', warmup = 600, brainOptions = {}, neural = null }) {
   const symbol = profile.symbols[0];
   const clock = { mode: 'live', speed: 1, t: bars[0].time * 1000, now() { return this.t; } };
   const md = new MarketData(clock);
@@ -68,9 +70,15 @@ export function replay({ profile, bars, committee = 'on', warmup = 600, brainOpt
     const p = ROSTER.find((r) => r.id === id);
     if (p && id !== agent.id) agents.set(id, { id, profile: p, symbols: p.symbols, lifetime: {}, setup: {} });
   }
+  // On the floor the market brain reads days of history (the research store), not just the 15
+  // hours the live feed keeps; the replay gives it the same, up to the bar being played.
+  let cursor = 0;
+  const history = { ready: true, recent: (sym, n) => (sym === symbol ? bars.slice(Math.max(0, cursor - n), cursor) : []) };
+  env.marketBrain = new MarketBrain({ md, session, clock, history, ...brainOptions });
   if (committee !== 'off') {
-    env.committee = new Committee({ brain: new MarketBrain({ md, session, clock, ...brainOptions }), agents, clock, shadow: committee === 'shadow' });
+    env.committee = new Committee({ brain: env.marketBrain, agents, clock, shadow: committee === 'shadow' });
   }
+  if (neural) env.neural = neural(agent, env);
   const debates = [];
   env.committee?.on('debate', (d) => { if (d.proposer === agent.id) debates.push(d); });
   // Every closed trade, as it closes: the broker's own book only keeps the latest 400, and a
@@ -115,6 +123,7 @@ export function replay({ profile, bars, committee = 'on', warmup = 600, brainOpt
   });
 
   for (let i = n0; i < bars.length; i++) {
+    cursor = i; // bars before this one are closed
     const b = bars[i];
     const t0 = b.time * 1000;
     const d = session.tradingDay(t0);

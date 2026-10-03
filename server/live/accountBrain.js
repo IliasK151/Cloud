@@ -21,7 +21,10 @@ import { spanText } from './baseline.js';
 //     funded account risk is lighter to protect the payouts;
 //   - risk limits that hold even while training (LIMITS below): a cool-off after a losing
 //     streak, each desk's own daily loss limit, no flipping a market right after a loss, and
-//     capital that follows each desk's record on the account after costs.
+//     capital that follows each desk's record on the account after costs;
+//   - the neural brain (neural/brain.js) can only hold trades back, never add one: an idea it
+//     passed on that trades small on paper so it keeps learning (an exploration) never goes
+//     to the account.
 
 export const GROUPS = {
   NAS100: 'US indices', SPX500: 'US indices',
@@ -43,6 +46,7 @@ export const LIMITS = {
 };
 
 const GRADE_RANK = { A: 3, B: 2, C: 1 };
+const fmtR = (x) => (Number.isFinite(x) ? `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}R` : '—');
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
 export class AccountBrain {
@@ -197,6 +201,14 @@ export class AccountBrain {
           ok: true,
         };
       })(),
+      (() => {
+        const nb = lt.fund?.env?.neural;
+        const sk = nb?.ready ? nb.skill() : null;
+        if (!sk) return null;
+        return sk.trusted
+          ? { text: `Neural brain has a say: on trades it hadn't seen it ranks winners above losers (skill ${sk.auc}). Ideas it expects to lose stay off the account, a few trade small on paper so it keeps learning. It never sends a trade these rules hold back`, ok: true }
+          : { text: `Neural brain is learning: it judges every idea and learns from every trade, but decides nothing for the account until it tells winners from losers on trades it hasn't seen (skill ${sk.auc ?? '—'} now, it needs ${nb.trust.minAuc})`, ok: true };
+      })(),
       { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R trades paper only until its record recovers`, ok: true },
       { text: `Proven live first: a research desk's new strategy trades paper on real prices until ${LIMITS.labPaperTrades} live trades haven't lost money in total, then the account`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
@@ -277,6 +289,9 @@ export class AccountBrain {
     if (!st) return { ok: true, riskMult: 1 };
     // The boss's own TradingView alert: not held back by the desk's paper record or grade.
     const boss = plan.tag === 'TV';
+    // An idea the neural brain passed on, taken small on paper so it learns whether it was
+    // right: an experiment, never for the account (training or not).
+    if (plan.neural?.explore) return { ok: false, reason: `the neural brain passed on this idea (${Math.round((plan.neural.p ?? 0) * 100)}% chance, ${fmtR(plan.neural.expR)} expected): it trades small on paper only, so the brain learns whether it was right` };
     // FTMO's own rules and the risk limits hold even while training.
     if (st.ruleStop) return { ok: false, reason: st.ruleStop };
     if (st.cooloff) return { ok: false, reason: st.cooloff.text };
@@ -363,7 +378,7 @@ export class AccountBrain {
   // confidence over the long run trades paper only, unless the nightly review finds a
   // statistically real edge (its whole 90% range above zero) on your own prices, and then at
   // half size until that lasts. A desk with no edge over the long run (not significant either
-  // way) trades at half size until the nightly review says more.
+  // way, a little below or above zero) trades at half size until the nightly review says more.
   evidence(agent) {
     const name = agent.profile.name.split(' ')[0];
     const d = this.live.review?.verdictFor?.(agent.id);
@@ -377,6 +392,8 @@ export class AccountBrain {
     }
     if (!eff) {
       if (long?.verdict === 'no edge') return { mult: 0.5, verdict: 'no edge', long, text: `${name} has no edge over the long run (${base.recordText(long)}): half size` };
+      // A hair above zero with a range either side of it isn't an edge either.
+      if (long?.verdict === 'unclear') return { mult: 0.5, verdict: 'unclear', long, text: `${name} has no proven edge over the long run (${base.recordText(long)}): half size` };
       if (long?.verdict === 'edge') return { mult: 1, verdict: 'edge', long, text: `${name} made money over the long run (${base.recordText(long)})` };
       return null;
     }

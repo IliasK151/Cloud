@@ -28,7 +28,7 @@ function accountEffect(recent, long) {
   if (long === 'loses') return recent === 'EDGE' ? 'Half size' : 'Paper only';
   const eff = EFFECT[recent];
   if (eff) return eff.account;
-  if (long === 'no edge') return 'Half size';
+  if (long === 'no edge' || long === 'unclear') return 'Half size';
   return '<span class="muted">Unchanged</span>';
 }
 

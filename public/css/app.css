@@ -723,6 +723,39 @@ details.how p { color: var(--text-3); }
 .mg-feed { max-height: 300px; overflow: auto; }
 .mg-feed li { padding-bottom: 6px; border-bottom: 1px solid var(--hairline); }
 
+/* ---- neural brain (Brain tab) ------------------------------------------------------------- */
+.nb-mode { font-size: 10px; }
+.nb-say { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5; color: var(--text-2); border: 1px solid var(--hairline); background: rgba(255, 255, 255, 0.03); }
+.nb-say b { color: var(--text-1); }
+.nb-say.learning { border-color: rgba(242, 176, 30, 0.35); background: rgba(242, 176, 30, 0.06); }
+.nb-say.ok { border-color: rgba(47, 191, 113, 0.35); background: rgba(47, 191, 113, 0.06); }
+.nb-banner { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); max-width: min(560px, 90%); padding: 8px 14px; border-radius: 10px; font-size: 12.5px; line-height: 1.45; text-align: center; color: #1a1406; background: #ffd166; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); z-index: 2; }
+.nb-banner.grey { color: var(--text-1); background: rgba(40, 42, 48, 0.95); }
+.nb-label.nb-group, .mg-label.nb-group { font-size: 10.5px; color: var(--text-2); }
+.mg-label.nb-out { color: #fff; font-size: 12px; }
+.nb-now { margin-bottom: 16px; }
+.nb-think { padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); font-size: 13px; color: var(--text-2); }
+.nb-think b { color: var(--text-1); }
+.nb-p { margin: 6px 0 8px; }
+.nb-big { font-size: 22px; font-weight: 700; color: var(--text-1); margin-right: 2px; }
+.nb-verdict { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #0b0c0e; }
+.nb-learning { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-1); }
+.nb-hist { list-style: none; margin: 6px 0 10px; padding: 0; display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
+.nb-cards { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+@media (max-width: 1000px) { .nb-cards { grid-template-columns: 1fr; } }
+.nb-card h3 { margin: 0 0 6px; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nb-headline { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 8px 0 10px; }
+.nb-headline > div { padding: 8px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.04); display: grid; gap: 2px; }
+.nb-headline span { font-size: 11px; color: var(--text-3); }
+.nb-headline b { font-size: 17px; }
+.nb-headline small { font-size: 11px; color: var(--text-3); }
+@media (max-width: 640px) { .nb-headline { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.nb-learned { display: grid; gap: 8px; max-height: 420px; overflow: auto; }
+.nb-desk { padding: 8px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.03); cursor: pointer; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
+.nb-desk:hover { background: rgba(255, 255, 255, 0.07); }
+.nb-desk p { margin: 3px 0 0; }
+.nb-card tr[data-desk] { cursor: pointer; }
+
 /* ---- battery saver: no endless animations (each one keeps the browser redrawing) ---------- */
 html.eco .mode-badge.live::before, html.eco .speech-text .caret, html.eco .live-pill.armed i,
 html.eco .news-pill i, html.eco .lab-busy i, html.eco .brain-graph .talk, html.eco .brain-graph .dnode.fresh circle { animation: none; }

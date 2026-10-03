@@ -44,6 +44,7 @@ export function connect() {
       case 'news': store.setNews(msg.news); break;
       case 'brain': store.setBrain(msg.brain); break;
       case 'memory': store.emit('memory', msg.event); break;
+      case 'neural': store.emit('neural', msg.event); break;
       case 'voices': store.emit('voices', msg.voices); break;
       case 'tunnel': store.setTunnel(msg.tunnel); break;
       case 'live': store.setLive(msg.live); break;

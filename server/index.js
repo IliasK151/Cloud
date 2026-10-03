@@ -30,6 +30,7 @@ import { Baseline, loadBaseline, BASELINE_FILE } from './live/baseline.js';
 import { summarize } from './live/dailyReport.js';
 import { TelegramNotifier } from './notify/telegram.js';
 import { FloorMemory } from './brain/memory.js';
+import { NeuralBrain } from './neural/brain.js';
 import { entryChart } from './notify/chartShot.js';
 
 // As a background service (npm run service) the log files grow forever: start each run
@@ -64,6 +65,10 @@ const lab = new ResearchLab({ history, calendar: news, mode: config.feed, log })
 // reviews), kept apart for demo mode so made-up prices never mix with real ones.
 const memory = new FloorMemory({ file: path.join(config.dataDir, config.feed === 'sim' ? 'memory-demo.json' : 'memory.json'), mode: config.feed, log });
 const fund = new Fund({ config, md, clock, session, broker, risk, news, lab, memory });
+// The neural brain every desk asks before a trade (neural/brain.js). It learns only from real
+// prices; in demo mode it judges but never learns.
+const neural = new NeuralBrain({ dataDir: config.dataDir, mode: config.feed, log });
+fund.env.neural = neural;
 const store = new Store(config.dataDir, config.feed);
 const feeds = new FeedManager({ md, clock, mode: config.feed, log, calendar: news });
 
@@ -206,6 +211,11 @@ app.post('/api/command', localOnly, express.json(), (req, res) => {
 app.get('/api/news', localOnly, (req, res) => res.json(news.view()));
 app.get('/api/brain', localOnly, (req, res) => res.json(brainView()));
 app.get('/api/memory', localOnly, (req, res) => res.json(memory.graph(fund.agents)));
+app.get('/api/neural', localOnly, (req, res) => res.json(neural.view()));
+app.post('/api/neural/learn', localOnly, (req, res) => {
+  if (config.feed === 'sim') return res.json({ ok: false, error: 'The brain learns only from real prices: it learns in live mode (npm start), not in demo mode.' });
+  res.json(neural.retrain('asked'));
+});
 app.get('/api/charts/:day/:file', localOnly, (req, res) => {
   const { day, file } = req.params;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^[A-Za-z0-9-]+\.png$/.test(file)) return res.status(404).end();
@@ -569,6 +579,21 @@ setInterval(() => { if (wss.clients.size) broadcast({ type: 'brain', brain: brai
 fund.committee?.on('debate', () => setImmediate(() => broadcast({ type: 'brain', brain: brainView() })));
 // The memory graph lights up live in the Brain tab: a trade, a lesson, a committee debate.
 memory.on('event', (event) => broadcast({ type: 'memory', event }));
+// The neural brain too: each idea it judges flows through its network, each result flows
+// back, and a lesson flashes the connections it changed.
+for (const kind of ['thought', 'outcome', 'learning', 'learned']) neural.on(kind, (ev) => broadcast({ type: 'neural', event: { kind, ...ev } }));
+neural.on('learned', (ev) => {
+  if (ev.failed) return;
+  fund.pushEvent({ kind: ev.adopted ? 'learn' : 'info', text: `NEURAL BRAIN · ${ev.text}` });
+  if (ev.adopted) notifier.notify({ kind: 'daily', text: `🧠 ${ev.text}`, at: Date.now() });
+});
+setInterval(() => {
+  try {
+    neural.tick();
+  } catch (err) {
+    log.warn(`[neural] ${err.message}`);
+  }
+}, 60_000).unref?.();
 news.on('change', pushNews);
 news.on('announce', () => setImmediate(pushNews));
 setInterval(pushNews, config.feed === 'sim' ? 5000 : 30_000);
@@ -697,6 +722,7 @@ async function shutdown() {
     fund.flattenAll('Server shutdown');
     store.save(fund.serialize());
     memory.flush();
+    neural.stop();
   } catch (err) {
     log.warn('  Save failed:', err.message);
   }

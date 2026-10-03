@@ -85,6 +85,7 @@ const MEANING = {
   'Desk loss limit': 'A desk that has lost twice its full risk on the account today is off it until tomorrow, like a trader\'s loss limit at a bank.',
   'No flipping right after a loss': 'After a losing trade on a market, nothing the other way on it for 30 minutes: buying right after a losing sell is how a choppy market takes both sides.',
   'Costs too high for the stop': 'The spread and commission would eat more than a quarter of the trade\'s risk before it starts. The stop is too tight for that market\'s costs.',
+  'Neural brain\'s paper experiment': 'The neural brain expected this idea to lose, so it never goes to the account. A few such ideas still trade small on paper, so the brain learns whether it was right to pass on them.',
   'FTMO order-action limit': 'FTMO allows 2,000 order actions a day; the floor stops new trades at 1,000, far below it.',
 };
 

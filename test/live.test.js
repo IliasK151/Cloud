@@ -1515,6 +1515,12 @@ test('long run: a desk that lost money over months of real prices stays off the 
   assert.equal(full.ok && nico.ok, true);
   assert.ok(Math.abs(nico.riskMult - full.riskMult * 0.5) < 1e-9);
   assert.ok(nico.reasons.some((r) => /Nico has no edge over the long run \(−0\.01R a trade over 648 trades/.test(r)));
+  // A hair above zero, the range either side of it: not proven either.
+  live.baseline = new Baseline({ ...LONG, desks: LONG.desks.map((d) => (d.id === 'nico' ? { ...d, avgR: 0.002, ci: [-0.08, 0.09], verdict: 'unclear' } : d)) });
+  const unclear = brain.allow(fund.byId.get('nico'), { symbol: 'NAS100', qty: 1 }, {});
+  assert.ok(Math.abs(unclear.riskMult - full.riskMult * 0.5) < 1e-9);
+  assert.ok(unclear.reasons.some((r) => /Nico has no proven edge over the long run \(\+0\.00R a trade over 648 trades/.test(r)));
+  live.baseline = new Baseline(LONG);
   // The nightly review on your own prices: only a statistically real edge outweighs the long
   // run, and then at half size; a promising few weeks don't.
   const report = { at: Date.now() - 3_600_000, tradingDays: 20 };

@@ -50,6 +50,7 @@ export class Fund extends EventEmitter {
     this.byId = new Map(this.agents.map((a) => [a.id, a]));
     env.labDesks = () => this.agents.filter((a) => a.profile.lab);
     this.brain = new MarketBrain({ md, session, clock, news, history: lab?.history ?? null });
+    env.marketBrain = this.brain; // what the neural brain senses each trade idea from
     this.committee = committee === 'off' ? null : new Committee({ brain: this.brain, agents: this.byId, clock, shadow: committee === 'shadow', memory });
     env.committee = this.committee;
     this.committee?.on('debate', (d) => {

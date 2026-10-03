@@ -258,7 +258,8 @@ export class QuantResearch extends TraderAgent {
   onTradeClosed(trade) {
     super.onTradeClosed(trade);
     const act = this.active;
-    if (!act || trade.symbol !== act.symbol || trade.r == null) return;
+    // The neural brain's explorations don't count towards the strategy's live record.
+    if (!act || trade.symbol !== act.symbol || trade.r == null || trade.neural?.explore) return;
     const l = act.live;
     l.trades++;
     if (trade.r > 0) l.wins++;

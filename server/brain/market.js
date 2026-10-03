@@ -141,13 +141,20 @@ export class MarketBrain {
     const prevStartSec = dayStartSec - 86_400;
     const prev = bars.filter((b) => b.time >= prevStartSec && b.time < dayStartSec);
     const levels = [];
+    // The day's range and the prior day's, kept whole for the neural brain's senses (the level
+    // lists below keep only the nearest few).
+    const day = { hi: null, lo: null, prevHi: null, prevLo: null };
     if (today.length > 5) {
-      levels.push({ label: 'session high', price: Math.max(...today.map((b) => b.high)) });
-      levels.push({ label: 'session low', price: Math.min(...today.map((b) => b.low)) });
+      day.hi = Math.max(...today.map((b) => b.high));
+      day.lo = Math.min(...today.map((b) => b.low));
+      levels.push({ label: 'session high', price: day.hi });
+      levels.push({ label: 'session low', price: day.lo });
     }
     if (prev.length > 30) {
-      levels.push({ label: 'prior day high', price: Math.max(...prev.map((b) => b.high)) });
-      levels.push({ label: 'prior day low', price: Math.min(...prev.map((b) => b.low)) });
+      day.prevHi = Math.max(...prev.map((b) => b.high));
+      day.prevLo = Math.min(...prev.map((b) => b.low));
+      levels.push({ label: 'prior day high', price: day.prevHi });
+      levels.push({ label: 'prior day low', price: day.prevLo });
     }
     const sw15 = swings(b15, 2, 120);
     for (const s of sw15.highs.slice(-4)) levels.push({ label: '15m swing high', price: s.price });
@@ -167,7 +174,7 @@ export class MarketBrain {
 
     const out = {
       symbol, time: lastT, feedTime: liveT, price, atr1, atr5: cur5, z, vwap: vw, volPct, volBasis: vol.basis, regime,
-      htf, mid, structure, momentum, support: support.slice(0, 4), resistance: resistance.slice(0, 4),
+      htf, mid, structure, momentum, support: support.slice(0, 4), resistance: resistance.slice(0, 4), day,
       news: next ? { label: eventLabel(next.event), impact: next.impact, minutes: Math.round((next.event.time - now) / 60_000) } : null,
       bias,
     };

@@ -154,6 +154,13 @@ export class Broker extends EventEmitter {
       ...(t.simFeed ? { simFeed: true } : {}),
       ...(t.meta ? { thesis: t.meta.thesis, grade: t.meta.grade, score: t.meta.score, verdict: t.meta.verdict, f: t.meta.f } : {}),
     };
+    // The neural brain's call at entry. What it sensed (x) is there for it to learn from, but
+    // isn't saved or sent to the browser with every trade (not enumerable).
+    if (t.meta?.neural) {
+      const { x, ...call } = t.meta.neural;
+      trade.neural = call;
+      if (x) Object.defineProperty(call, 'x', { value: x, enumerable: false });
+    }
     book.trades.push(trade);
     if (book.trades.length > MAX_TRADES_KEPT) book.trades.shift();
     return trade;

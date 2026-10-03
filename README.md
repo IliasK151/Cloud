@@ -243,6 +243,46 @@ The graph draws only while something moves, so a still graph costs no battery.
 
 (The idea comes from [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp), which keeps a knowledge graph of a codebase for AI coding assistants and shows it in 3D. The floor's memory is the same idea for trading: a graph of situations and outcomes instead of functions and calls.)
 
+### The neural brain: a network that learns from every trade
+
+Every desk asks one neural network before it trades. It's a real network, written out in full in `server/neural/` (no outside library):
+
+- **What it senses:** about 50 facts about the idea, each between −1 and +1 and signed in the trade's favour. They cover the hourly and 15-minute trend, structure, momentum, the moves of the last 5, 15, 60 and 240 minutes, distance from VWAP, levels behind and ahead, where price sits in today's and yesterday's range, volatility for the time of day, the regime, the stop, target and costs, the time of day and week, the desk's form, losing streak and trades so far today, the market and the desk's style.
+- **How it thinks:** two hidden layers of 24 and 12 neurons, then the chance the trade ends in profit. It turns that chance into the R it expects after costs, from the desk's own average win and loss.
+- **How it learned:** every trading desk was replayed through the floor's own code on 22 months of real 1-minute prices, 11,582 trades. The senses at each entry and how each trade ended are what it learned from.
+
+**The honest test, on months it never saw.** Every month from the tenth on, the brain was retrained on the months before and then judged that month's trades, as the floor will do every night:
+
+| | Trades | Every trade | Brain's picks | It passed on | Ranking skill |
+|---|---|---|---|---|---|
+| All desks | 9,960 | −0.13R | −0.11R (13%) | −0.13R | 0.506 |
+| 1st half | 4,980 | −0.14R | −0.13R | −0.14R | 0.508 |
+| 2nd half | 4,980 | −0.12R | −0.09R | −0.13R | 0.503 |
+
+Ranking skill is the AUC: the chance that a random winner gets a higher score than a random loser, where 0.5 is a coin. At 0.506, **the brain can't tell these desks' winners from their losers.** No single sense can either: the best of them scores 0.513. What is real is small. Trades whose costs are high do worse (−0.20R against −0.07R), and trades with the hourly trend do a little better (−0.11R against −0.17R). The desks' entries carry almost no information about how their trades will end, so no filter on them can make them profitable. (The final network's best epoch was its first: there was nothing more to learn that held up.)
+
+**So the brain earns its say.**
+- **Learning (now):** it judges every idea, lights up in the Brain tab and learns from every trade on real prices, but decides nothing. Every idea still trades on paper as the desk wants, so the desks trade all the time and every trade is a lesson.
+- **Has a say:** only once its record on trades it hadn't learned from shows real skill. That needs 300 or more trades, each judged at entry before anyone knew how it would end; a ranking skill of 0.55 or better; and picks at least 0.05R better than taking every trade. Its own record on your prices decides once it has 300 trades; until then the long-history test above does. With a say, ideas it expects to lose are passed, except a quarter of them that still trade at a quarter size on paper. Those *explorations* let it learn whether passing was right, and its skill is measured with them standing in for all the ideas it passed on. If its record slips below the bar, it loses the say again.
+- **Never on FTMO by itself.** The brain can only hold trades back, never send one the account's rules hold back. An exploration never goes to the account, training or not (the Today card counts them as *Neural brain's paper experiment*).
+
+**It learns every night.** After the New York close (or with **Learn now**), once it has 30 new trades on real prices, a challenger brain learns in the background. It uses the long history plus the floor's own trades, which count three times as much because they're your broker and today's market, and leaves out the newest half of the trades the current brain hasn't learned from. Both brains then judge those held-back trades, which neither has seen. The challenger becomes the next version only if its chances fit what happened better and its picks did at least as well. If it doesn't win, the next try has more new trades to work with. Demo mode never teaches it. Everything it learns stays in `data/neural/`, and a new version sends a message to your phone.
+
+**The Brain tab** shows the network in 3D: the senses on the left (coloured by group), the two hidden layers, and one output neuron. Every line is one learned connection: green pushes up, red pushes down, brighter is stronger.
+- **A desk asks:** the idea flows left to right along the connections that carried most of it. The neurons light with what they computed, and the answer appears at the end ("LEARNING · would take", or TAKE, PASS or EXPLORE once it has a say).
+- **A trade closes:** its result flows back right to left, green for a win and red for a loss.
+- **It learns:** the connections it changed flash gold and settle into their new colours, a banner says what it learned, and the version history shows when.
+- **Beside it:** the latest thoughts, how it did on months it never saw, desk by desk, and **what each desk's brain learned**: the situations that raise or lower its chance most, and its best and worst hours. Until the brain has a say, these are marked as hunches, and nothing trades on them.
+
+To retrain it from your own long history (a folder of `<SYMBOL>.json` 1-minute bars), about 12 minutes:
+
+```bash
+npm run brain -- --dir path/to/history --source "where the bars came from"
+npm run brain -- --examples server/research/brain-examples.json.gz   # retrain on the saved trades, no replays
+```
+
+It writes `server/research/brain.json`, the brain that ships with the floor, with its test on unseen months, and `brain-examples.json.gz`, the trades it learned from.
+
 ## Protecting the prop account (the account brain)
 
 The paper desks can experiment; the account only gets the best ideas, sized by where the account stands. This is the plan a professional prop trader follows to pass a challenge and keep getting paid:
@@ -467,25 +507,25 @@ What the floor does on 1-Step:
 
 ### The long run: every desk on 22 months of real prices
 
-A few weeks of your own prices can't tell an edge from luck, so every trading desk was also replayed minute by minute through the floor's own code on Oanda's real 1-minute bars: July 2018 to mid-May 2020 (EURUSD and GBPUSD from January 2018), 11,738 trades in all. The replay includes the committee, FTMO's costs and the desk's learning.
+A few weeks of your own prices can't tell an edge from luck, so every trading desk was also replayed minute by minute through the floor's own code on Oanda's real 1-minute bars: July 2018 to mid-May 2020 (EURUSD and GBPUSD from January 2018), 11,582 trades in all. The replay includes the committee (whose market brain reads days of history, as on the floor), FTMO's costs and the desk's learning.
 
 | Desk | Market | Trades | Per trade (90% range) | Quarters up | Verdict |
 |---|---|---|---|---|---|
-| Marcus | NAS100 | 571 | −0.10R (−0.18 to −0.01) | 2 of 8 | loses |
-| Amara | XAUUSD | 2,078 | −0.16R (−0.20 to −0.12) | 0 of 8 | loses |
-| James | SPX500 | 1,125 | −0.13R (−0.18 to −0.07) | 0 of 8 | loses |
-| Priya | EURUSD | 1,151 | −0.29R (−0.34 to −0.23) | 0 of 10 | loses |
-| Lucas | USOIL | 4,016 | −0.17R (−0.19 to −0.14) | 0 of 8 | loses |
-| Jake | GBPUSD | 637 | −0.18R (−0.26 to −0.10) | 1 of 10 | loses |
-| Layla | EURUSD | 709 | −0.20R (−0.26 to −0.13) | 0 of 10 | loses |
-| Ryan | XAUUSD | 397 | −0.20R (−0.29 to −0.10) | 1 of 8 | loses |
-| Mia | XAUUSD | 406 | −0.21R (−0.30 to −0.12) | 0 of 8 | loses |
-| Nico | NAS100 | 648 | −0.01R (−0.09 to +0.06) | 2 of 8 | no edge |
+| Marcus | NAS100 | 775 | −0.08R (−0.15 to −0.02) | 2 of 8 | loses |
+| Amara | XAUUSD | 1,999 | −0.14R (−0.18 to −0.10) | 0 of 8 | loses |
+| James | SPX500 | 1,154 | −0.12R (−0.17 to −0.06) | 0 of 8 | loses |
+| Priya | EURUSD | 918 | −0.21R (−0.27 to −0.15) | 2 of 10 | loses |
+| Lucas | USOIL | 4,207 | −0.15R (−0.17 to −0.12) | 0 of 8 | loses |
+| Jake | GBPUSD | 580 | −0.18R (−0.26 to −0.10) | 0 of 10 | loses |
+| Layla | EURUSD | 687 | −0.15R (−0.21 to −0.08) | 1 of 10 | loses |
+| Ryan | XAUUSD | 393 | −0.17R (−0.26 to −0.09) | 1 of 8 | loses |
+| Mia | XAUUSD | 364 | −0.19R (−0.28 to −0.09) | 1 of 8 | loses |
+| Nico | NAS100 | 505 | +0.00R (−0.08 to +0.09) | 4 of 8 | unclear |
 
 The record ships with the floor (`server/research/baseline.json`), and the account brain uses it with the nightly review:
 
 - **loses** (the whole 90% range below zero): paper only, in training too. The exception is a nightly review that finds a real edge on your own prices (its whole 90% range above zero); then the desk trades half size until that edge lasts. A few promising weeks aren't enough against thousands of losing trades.
-- **no edge** (not significant either way): half size, until the nightly review says more.
+- **no edge** or **unclear** (not significant either way, a hair below or above zero, like Nico): half size, until the nightly review says more.
 - **No long-run record** (Sofia on USDJPY, Viktor and Chen on crypto, and the research desks): the nightly review decides, as before.
 - Your own TradingView alerts are your call.
 

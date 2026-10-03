@@ -150,13 +150,29 @@ export class TraderAgent {
       ({ stop, target } = fit);
     }
 
+    // The neural brain (neural/brain.js): what it senses about this idea and the chance it
+    // gives it. While it is learning it only watches. Once it has earned a say, below its bar
+    // the desk passes, except now and then on paper at small size (an exploration), so the
+    // brain also learns how the ideas it passed on turn out. Your own TradingView alerts are
+    // always taken.
+    const nb = this.env.neural?.judge?.(this, { symbol, side, entry, stop, target, reason, external: tag === 'TV' }) ?? null;
+    if (nb && !nb.take) {
+      this.lastReject = nb.reason;
+      this.day.skipped++;
+      this.#whyNot(`the neural brain passed: ${nb.reason}`);
+      this.setStage(`Brain passed: ${nb.reason}`);
+      return false;
+    }
+    if (nb?.sizeMult != null) riskMultiplier *= nb.sizeMult;
+
     const qty = this.risk.size(this, symbol, entry, stop, { riskMultiplier });
     if (!qty) {
       this.#whyNot('the position size came out at zero');
       return false;
     }
     const initialRisk = qty * Math.abs(entry - stop) * usdPerQuote(symbol, entry);
-    const meta = review ? { thesis: review.thesis, grade: review.grade, score: Math.round(review.score * 100) / 100, verdict: review.shadowVerdict ?? null, debate: review.debate?.id ?? null, f: review.debate ? Object.fromEntries(Object.entries(review.debate.factors).map(([k, v]) => [k, v ? Math.round(v.value * 100) / 100 : null])) : null } : null;
+    let meta = review ? { thesis: review.thesis, grade: review.grade, score: Math.round(review.score * 100) / 100, verdict: review.shadowVerdict ?? null, debate: review.debate?.id ?? null, f: review.debate ? Object.fromEntries(Object.entries(review.debate.factors).map(([k, v]) => [k, v ? Math.round(v.value * 100) / 100 : null])) : null } : null;
+    if (nb?.x) meta = { ...(meta || {}), neural: { x: nb.x, p: nb.p ?? null, expR: nb.expR ?? null, explore: !!nb.explore, version: nb.version ?? null } };
     const res = this.broker.execute(this.id, symbol, long ? qty : -qty, { reason, tag, stop, target, initialRisk, meta });
     if (!res) return false;
     const fillPx = res.fill.price;
@@ -167,6 +183,8 @@ export class TraderAgent {
       learnMult: learn.sizeMult, riskMult: riskMultiplier, probe: learn.probe,
       thesis: review?.thesis ?? null, grade: review?.grade ?? null, score: review?.score ?? null,
       debate: review?.debate?.id ?? null,
+      // The neural brain's call on this trade (the account brain reads it).
+      neural: nb?.x ? { p: nb.p, expR: nb.expR, explore: !!nb.explore, verdict: nb.verdict ?? null, version: nb.version ?? null } : null,
       // The setup as the desk saw it when it pulled the trigger (for the entry chart).
       setupLevels: (this.setup.levels || []).filter((l) => Number.isFinite(l?.price)).slice(0, 8).map((l) => ({ label: l.label, price: l.price })),
       checklist: (this.setup.checklist || []).filter((c) => c?.ok).map((c) => c.label).slice(0, 6),
@@ -300,8 +318,12 @@ export class TraderAgent {
       this.day.losses++; this.lifetime.losses++;
       this.day.grossLoss += -trade.pnl; this.lifetime.grossLoss += -trade.pnl;
     }
-    if (trade.r != null) { this.lifetime.sumR += trade.r; this.lifetime.countR++; }
-    if (trade.r != null && !trade.simFeed) {
+    // The neural brain's explorations (ideas it passed on, tried small on paper) are its
+    // experiments, not the desk's record: the desk's measured edge and form are what the
+    // account goes by, and the account never takes those.
+    const experiment = !!trade.neural?.explore;
+    if (trade.r != null && !experiment) { this.lifetime.sumR += trade.r; this.lifetime.countR++; }
+    if (trade.r != null && !trade.simFeed && !experiment) {
       this.lifetime.realN++;
       this.lifetime.realSumR += trade.r;
       this.lifetime.recentR = [...(this.lifetime.recentR || []), Math.round(trade.r * 1000) / 1000].slice(-20);
@@ -319,6 +341,8 @@ export class TraderAgent {
       this.env.memory?.onLesson(this, lesson);
     }
     this.env.memory?.onTrade(this, trade, ctx);
+    // The neural brain learns from what it sensed at entry and how the trade turned out.
+    this.env.neural?.observe?.(this, trade);
   }
 
   // External signal (TradingView webhook).

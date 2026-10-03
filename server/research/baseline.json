@@ -1,6 +1,6 @@
 {
  "v": 1,
- "at": 1790966012585,
+ "at": 1790998671514,
  "source": "Oanda 1-minute bars (FutureSharks/financial-data)",
  "seed": 1,
  "desks": [
@@ -11,24 +11,24 @@
    "bars": 644154,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 5.9,
-   "n": 571,
-   "avgR": -0.096,
-   "totalR": -54.9,
-   "winRate": 0.489,
+   "tradesPerWeek": 8,
+   "n": 775,
+   "avgR": -0.082,
+   "totalR": -63.3,
+   "winRate": 0.477,
    "ci": [
-    -0.178,
-    -0.012
+    -0.148,
+    -0.02
    ],
    "halves": [
-    -0.146,
-    -0.046
+    -0.107,
+    -0.056
    ],
    "quarters": {
     "positive": 2,
     "total": 8
    },
-   "grossR": -0.096,
+   "grossR": -0.082,
    "costR": 0,
    "verdict": "loses"
   },
@@ -46,25 +46,25 @@
    "bars": 640681,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 21.3,
-   "n": 2078,
-   "avgR": -0.162,
-   "totalR": -337.2,
-   "winRate": 0.472,
+   "tradesPerWeek": 20.5,
+   "n": 1999,
+   "avgR": -0.138,
+   "totalR": -276.2,
+   "winRate": 0.482,
    "ci": [
-    -0.204,
-    -0.118
+    -0.18,
+    -0.098
    ],
    "halves": [
-    -0.192,
-    -0.133
+    -0.126,
+    -0.15
    ],
    "quarters": {
     "positive": 0,
     "total": 8
    },
-   "grossR": -0.132,
-   "costR": 0.03,
+   "grossR": -0.111,
+   "costR": 0.027,
    "verdict": "loses"
   },
   {
@@ -81,24 +81,24 @@
    "bars": 552524,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 11.5,
-   "n": 1125,
-   "avgR": -0.127,
-   "totalR": -142.9,
-   "winRate": 0.53,
+   "tradesPerWeek": 11.8,
+   "n": 1154,
+   "avgR": -0.115,
+   "totalR": -132.3,
+   "winRate": 0.527,
    "ci": [
-    -0.181,
-    -0.069
+    -0.167,
+    -0.059
    ],
    "halves": [
-    -0.129,
-    -0.125
+    -0.106,
+    -0.123
    ],
    "quarters": {
     "positive": 0,
     "total": 8
    },
-   "grossR": -0.128,
+   "grossR": -0.115,
    "costR": 0,
    "verdict": "loses"
   },
@@ -109,25 +109,25 @@
    "bars": 826801,
    "from": 1514844000,
    "to": 1589443140,
-   "tradesPerWeek": 9.3,
-   "n": 1151,
-   "avgR": -0.288,
-   "totalR": -331.8,
-   "winRate": 0.439,
+   "tradesPerWeek": 7.4,
+   "n": 918,
+   "avgR": -0.214,
+   "totalR": -196.4,
+   "winRate": 0.451,
    "ci": [
-    -0.342,
-    -0.234
+    -0.273,
+    -0.155
    ],
    "halves": [
-    -0.342,
-    -0.235
+    -0.284,
+    -0.144
    ],
    "quarters": {
-    "positive": 0,
+    "positive": 2,
     "total": 10
    },
-   "grossR": -0.174,
-   "costR": 0.114,
+   "grossR": -0.128,
+   "costR": 0.086,
    "verdict": "loses"
   },
   {
@@ -137,25 +137,25 @@
    "bars": 623198,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 41.2,
-   "n": 4016,
-   "avgR": -0.166,
-   "totalR": -666.7,
-   "winRate": 0.467,
+   "tradesPerWeek": 43.2,
+   "n": 4207,
+   "avgR": -0.146,
+   "totalR": -613.3,
+   "winRate": 0.478,
    "ci": [
-    -0.193,
-    -0.136
+    -0.174,
+    -0.115
    ],
    "halves": [
-    -0.187,
-    -0.145
+    -0.144,
+    -0.147
    ],
    "quarters": {
     "positive": 0,
     "total": 8
    },
-   "grossR": -0.124,
-   "costR": 0.042,
+   "grossR": -0.102,
+   "costR": 0.044,
    "verdict": "loses"
   },
   {
@@ -172,25 +172,25 @@
    "bars": 817359,
    "from": 1514844000,
    "to": 1589443140,
-   "tradesPerWeek": 5.2,
-   "n": 637,
-   "avgR": -0.176,
-   "totalR": -111.9,
-   "winRate": 0.458,
+   "tradesPerWeek": 4.7,
+   "n": 580,
+   "avgR": -0.179,
+   "totalR": -104.1,
+   "winRate": 0.453,
    "ci": [
-    -0.255,
+    -0.256,
     -0.102
    ],
    "halves": [
-    -0.18,
-    -0.171
+    -0.17,
+    -0.189
    ],
    "quarters": {
-    "positive": 1,
+    "positive": 0,
     "total": 10
    },
-   "grossR": -0.083,
-   "costR": 0.093,
+   "grossR": -0.09,
+   "costR": 0.089,
    "verdict": "loses"
   },
   {
@@ -200,25 +200,25 @@
    "bars": 826801,
    "from": 1514844000,
    "to": 1589443140,
-   "tradesPerWeek": 5.8,
-   "n": 709,
-   "avgR": -0.197,
-   "totalR": -139.6,
-   "winRate": 0.465,
+   "tradesPerWeek": 5.6,
+   "n": 687,
+   "avgR": -0.146,
+   "totalR": -100.6,
+   "winRate": 0.483,
    "ci": [
-    -0.258,
-    -0.133
+    -0.211,
+    -0.084
    ],
    "halves": [
-    -0.181,
-    -0.213
+    -0.11,
+    -0.183
    ],
    "quarters": {
-    "positive": 0,
+    "positive": 1,
     "total": 10
    },
-   "grossR": -0.077,
-   "costR": 0.12,
+   "grossR": -0.032,
+   "costR": 0.115,
    "verdict": "loses"
   },
   {
@@ -228,25 +228,25 @@
    "bars": 640681,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 4.1,
-   "n": 397,
-   "avgR": -0.197,
-   "totalR": -78,
-   "winRate": 0.451,
+   "tradesPerWeek": 4,
+   "n": 393,
+   "avgR": -0.174,
+   "totalR": -68.4,
+   "winRate": 0.466,
    "ci": [
-    -0.287,
-    -0.104
+    -0.261,
+    -0.09
    ],
    "halves": [
-    -0.234,
-    -0.159
+    -0.251,
+    -0.098
    ],
    "quarters": {
     "positive": 1,
     "total": 8
    },
-   "grossR": -0.163,
-   "costR": 0.034,
+   "grossR": -0.144,
+   "costR": 0.03,
    "verdict": "loses"
   },
   {
@@ -256,24 +256,24 @@
    "bars": 640681,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 4.2,
-   "n": 406,
-   "avgR": -0.215,
-   "totalR": -87.1,
-   "winRate": 0.436,
+   "tradesPerWeek": 3.7,
+   "n": 364,
+   "avgR": -0.19,
+   "totalR": -69,
+   "winRate": 0.44,
    "ci": [
-    -0.301,
-    -0.118
+    -0.284,
+    -0.09
    ],
    "halves": [
-    -0.195,
-    -0.234
+    -0.18,
+    -0.199
    ],
    "quarters": {
-    "positive": 0,
+    "positive": 1,
     "total": 8
    },
-   "grossR": -0.191,
+   "grossR": -0.166,
    "costR": 0.024,
    "verdict": "loses"
   },
@@ -284,26 +284,26 @@
    "bars": 644154,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 6.7,
-   "n": 648,
-   "avgR": -0.014,
-   "totalR": -8.8,
-   "winRate": 0.528,
+   "tradesPerWeek": 5.2,
+   "n": 505,
+   "avgR": 0.004,
+   "totalR": 1.9,
+   "winRate": 0.539,
    "ci": [
-    -0.086,
-    0.06
+    -0.079,
+    0.09
    ],
    "halves": [
-    -0.067,
-    0.04
+    -0.043,
+    0.05
    ],
    "quarters": {
-    "positive": 2,
+    "positive": 4,
     "total": 8
    },
-   "grossR": -0.014,
+   "grossR": 0.004,
    "costR": 0,
-   "verdict": "no edge"
+   "verdict": "unclear"
   }
  ]
 }

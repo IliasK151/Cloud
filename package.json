@@ -19,6 +19,7 @@
     "scalp-test": "node scripts/scalp-test.js",
     "edge": "node scripts/edge-report.js",
     "baseline": "node scripts/baseline.js",
+    "brain": "node scripts/brain.js",
     "doctor": "node scripts/doctor.js",
     "service": "node scripts/service.js",
     "mock-mt5": "node scripts/mock-mt5.js",
