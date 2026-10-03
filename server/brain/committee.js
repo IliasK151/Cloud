@@ -158,6 +158,7 @@ export class Committee extends EventEmitter {
 
   // Put a trade idea to the committee. Returns { ok, sizeMult, grade, score, thesis, reason, debate }.
   review({ agent, symbol, side, entry, stop, target = null, reason = '', external = false }) {
+    const noPaper = !!agent.env?.ftmoOnly?.();
     const now = this.clock.now();
     const memKey = `${agent.id}|${symbol}|${side}`;
     const mem = this.rejected.get(memKey);
@@ -217,17 +218,19 @@ export class Committee extends EventEmitter {
       grade = 'B';
       why = 'mixed evidence, so smaller size';
     } else {
-      verdict = 'PAPER ONLY';
+      // FTMO only (live/liveTrader.js): there's no paper. A C-grade goes to the Free Trial at the
+      // smallest size while training, and isn't taken on a paid account.
+      verdict = noPaper ? 'NOT CONVINCED' : 'PAPER ONLY';
       grade = 'C';
       const worst = FACTORS.map((k) => ({ k, v: a.f[k]?.value ?? 0, t: a.f[k]?.text })).sort((x, y) => x.v - y.v)[0];
-      why = `not convinced (${worst?.t || 'weak evidence'}): tiny size on paper to keep measuring`;
+      why = `not convinced (${worst?.t || 'weak evidence'}): ${noPaper ? 'the smallest size, and only while training on the Free Trial' : 'tiny size on paper to keep measuring'}`;
     }
     const rest = cap(say(chairOp, seed, said).replace(/^[^:]+: /, ''));
     const chairText = vetoes.length
       ? `Vetoed: ${vetoes.join('; ')}.`
       : grade === 'C'
-        ? `Not good enough for real money (score ${score.toFixed(2)}). Paper only, quarter size, so we keep measuring. ${rest}`
-        : `${grade === 'A' ? 'Approved, full size' : 'Approved at reduced size, paper only'} (score ${score.toFixed(2)}). ${rest}`;
+        ? `Not good enough for real money (score ${score.toFixed(2)}). ${noPaper ? 'Quarter size, and only while training on the Free Trial' : 'Paper only, quarter size, so we keep measuring'}. ${rest}`
+        : `${grade === 'A' ? 'Approved, full size' : 'Approved at reduced size'} (score ${score.toFixed(2)}). ${rest}`;
     messages.push({ from: CHAIR, role: 'decides', stance: vetoes.length || grade === 'C' ? 'disagree' : grade === 'A' ? 'agree' : 'cautious', score: chairOp.score, text: chairText });
 
     const ok = this.shadow || verdict !== 'REJECTED';

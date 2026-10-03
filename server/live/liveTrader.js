@@ -78,6 +78,7 @@ export class LiveTrader extends EventEmitter {
     // switched it off; the desks ask before every trade.
     this.ftmoOnly = typeof this.state.ftmoOnly === 'boolean' ? this.state.ftmoOnly : !!ftmoOnly;
     fund.env.tradeGate = (agent, intent) => this.gate(agent, intent);
+    fund.env.ftmoOnly = () => this.ftmoOnly && this.mode === 'live';
     this.events = [];
     // Orders from an earlier run that MT5 never confirmed didn't happen.
     this.links = new Map((this.state.links || []).map((l) => [l.key, { ...l, previousSession: true, ...(l.state === 'pending' ? { state: 'failed', reason: 'never confirmed by MT5 before the floor restarted' } : {}) }]));
@@ -888,7 +889,7 @@ export class LiveTrader extends EventEmitter {
   #accountReady(agent) {
     const block = this.#accountBlock();
     if (block) return block;
-    if (!this.eligible(agent.id)) return INELIGIBLE[agent.id];
+    if (!this.eligible(agent.id)) return INELIGIBLE[agent.id].replace(/ — paper only\.?$/, '');
     if (!this.profile.desks?.[agent.id]) return 'this desk is switched off for the FTMO account (FTMO tab)';
     return null;
   }

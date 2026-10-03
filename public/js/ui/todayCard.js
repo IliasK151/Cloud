@@ -108,6 +108,18 @@ const clip = (s, n = 110) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const lc = (s) => s.charAt(0).toLowerCase() + s.slice(1);
 
 // The day so far on the account, in numbers and in one sentence.
+// With FTMO only on there's no paper: what the reasons mean then.
+const MEANING_FTMO_ONLY = {
+  'Committee grade too low': 'The committee grades every idea A, B or C. Only A and B-grade trades go to the account; a C ("not convinced") isn\'t taken at all.',
+  'Cool-off after a losing streak': 'After 3 losses in a row the account pauses for 2 hours, and with FTMO only on the desks don\'t trade during it.',
+  'No edge on your prices': 'Every night each desk is replayed on your own MT5 prices with FTMO\'s costs. This desk lost money there, so it stays off the account until a review finds an edge (on the Free Trial, practice still lets it trade small).',
+  'New strategy proving itself on paper': 'A research desk\'s new strategy passed its tests on history, but a strategy picked out of hundreds can pass by luck. On a paid account it waits until it has proven itself; on the Free Trial, practice lets it trade small.',
+  'Loses over the long run': 'Replayed on many months of real 1-minute prices, thousands of trades, this desk lost money with confidence. It stays off the account (on the Free Trial, practice still lets it trade small).',
+  'Desk out of form': 'The desk\'s last 12 trades on real prices lost on average, so it stays off the account until that average is 0R or better (on the Free Trial, practice still lets it trade small).',
+  'Neural brain\'s paper experiment': 'The neural brain expected this idea to lose, so it never goes to the account, and with FTMO only on it isn\'t taken at all.',
+};
+const meaningOf = (k, ftmoOnly) => (ftmoOnly && MEANING_FTMO_ONLY[k]) || MEANING[k] || '';
+
 export function todaySummary(store, now = Date.now()) {
   const v = store.live;
   if (!v?.profile) return null;
@@ -142,6 +154,8 @@ export function todaySummary(store, now = Date.now()) {
 
   const top = t.reasons?.[0]?.[0] || null;
   const training = !!v.plan?.training;
+  // FTMO only: a trade FTMO can't take isn't taken at all, so nothing "stays on paper".
+  const ftmoOnly = !!v.ftmoOnly && v.mode === 'live';
   const working = training
     ? 'Everything is connected and armed, and the desks are training on FTMO: every trade they take goes to the account'
     : 'Everything is connected and armed, and the desks are working';
@@ -149,11 +163,11 @@ export function todaySummary(store, now = Date.now()) {
   let tone = 'info';
   if (!v.connected) { headline = 'MT5 isn\'t connected, so nothing can reach the account. See Connection below.'; tone = 'bad'; }
   else if (v.halt) { headline = `Trading is halted: ${v.halt.reason}.`; tone = 'bad'; }
-  else if (!v.armed) { headline = 'Live trading isn\'t armed, so the desks trade on paper only. Arm it in Connection below.'; tone = 'warn'; }
+  else if (!v.armed) { headline = ftmoOnly ? 'Live trading isn\'t armed, so the desks aren\'t trading at all (FTMO only is on). Arm it in Connection below.' : 'Live trading isn\'t armed, so the desks trade on paper only. Arm it in Connection below.'; tone = 'warn'; }
   else if (!desks.length) { headline = 'No desk is switched on for the account (Desks on the account, below).'; tone = 'warn'; }
   else if (v.plan?.blocked) { headline = `The account plan stopped for today: ${v.plan.blocked}.`; tone = 'warn'; }
   else if (t.sent) {
-    headline = `${plural(t.sent, 'trade')} went to FTMO today.${t.held ? ` ${plural(t.held, 'more', 'more')} stayed on paper, mostly: ${lc(top)}.` : ''}`;
+    headline = `${plural(t.sent, 'trade')} went to FTMO today.${t.held ? ` ${plural(t.held, 'more', 'more')} ${ftmoOnly ? (t.held === 1 ? 'wasn\'t taken' : 'weren\'t taken') : 'stayed on paper'}, mostly: ${lc(top)}.` : ''}`;
     tone = 'good';
   } else if (t.held) headline = `No trades on FTMO yet today. ${working}: ${plural(t.held, 'trade')} ${t.held === 1 ? 'was' : 'were'} held back from the account, mostly: ${lc(top)}.`;
   else if (paper && !training) headline = `No trades on FTMO yet today. ${working}: ${plural(paper, 'paper trade')} so far, none of ${paper === 1 ? 'it' : 'them'} qualified for the account.`;
@@ -161,7 +175,7 @@ export function todaySummary(store, now = Date.now()) {
   else headline = `No trades yet today. ${working}, but the market hasn't given them a setup that meets their rules yet.`;
 
   return {
-    headline, tone, top, meaning: top ? MEANING[top] || '' : '',
+    headline, tone, top, meaning: top ? meaningOf(top, ftmoOnly) : '', ftmoOnly,
     funnel: { ideas, turnedDown: vetoed + skipped, vetoed, skipped, paper, held: t.held || 0, sent: t.sent || 0, failed: t.failed || 0 },
     reasons: t.reasons || [], rows, now,
   };
@@ -176,7 +190,7 @@ export function renderToday(store, { now = Date.now(), timeZone } = {}) {
   const f = s.funnel;
   const tile = (label, n, sub = '', cls = '') => `<div class="ft ${cls}"><span>${label}</span><b class="num">${n}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
   const reasons = s.reasons.length
-    ? `<div class="today-reasons"><h3>Why trades stayed on paper today</h3><ul>${s.reasons.map(([k, n]) => `<li><b>${escapeHtml(k)}</b> <span class="num">${n}</span>${MEANING[k] ? `<small>${escapeHtml(MEANING[k])}</small>` : ''}</li>`).join('')}</ul></div>`
+    ? `<div class="today-reasons"><h3>${s.ftmoOnly ? 'Why the desks didn\'t trade more today' : 'Why trades stayed on paper today'}</h3><ul>${s.reasons.map(([k, n]) => `<li><b>${escapeHtml(k)}</b> <span class="num">${n}</span>${meaningOf(k, s.ftmoOnly) ? `<small>${escapeHtml(meaningOf(k, s.ftmoOnly))}</small>` : ''}</li>`).join('')}</ul></div>`
     : '';
   const rows = s.rows.map((r) => `<tr>
       <td><b>${escapeHtml(r.name.split(' ')[0])}</b><small>${escapeHtml(r.desk)}</small></td>
@@ -194,14 +208,14 @@ export function renderToday(store, { now = Date.now(), timeZone } = {}) {
     <div class="acct-funnel">
       ${tile('Trade ideas', f.ideas, 'setups the desks found')}
       ${tile('Turned down', f.turnedDown, `committee ${f.vetoed}${f.skipped ? ` · experience ${f.skipped}` : ''}`)}
-      ${tile('Paper trades', f.paper, 'taken by the desks')}
-      ${tile('Held back', f.held, 'stayed on paper', f.held ? 'warn' : '')}
+      ${s.ftmoOnly ? tile('Trades taken', f.paper, 'by the desks, all on FTMO') : tile('Paper trades', f.paper, 'taken by the desks')}
+      ${tile(s.ftmoOnly ? 'Not taken' : 'Held back', f.held, s.ftmoOnly ? 'FTMO couldn\'t take them' : 'stayed on paper', f.held ? 'warn' : '')}
       ${tile('Sent to FTMO', f.sent, f.failed ? `${f.failed} refused by MT5` : 'orders on your account', f.sent ? 'good' : '')}
     </div>
     ${ftmoLine(store.live)}
     ${reasons}
     <div class="table-wrap" style="max-height:none"><table class="table compact today-desks">
-      <thead><tr><th>Desk</th><th>Doing now</th><th class="r">Ideas</th><th class="r">Paper</th><th class="r">FTMO</th><th>Latest on the account</th></tr></thead>
+      <thead><tr><th>Desk</th><th>Doing now</th><th class="r">Ideas</th><th class="r">${s.ftmoOnly ? 'Taken' : 'Paper'}</th><th class="r">FTMO</th><th>Latest on the account</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="6" class="muted">No desk is switched on for the account.</td></tr>'}</tbody>
     </table></div>
     <p class="fine">Counts start at the beginning of the trading day (18:00 New York). Ideas the committee turned down minutes earlier aren't counted twice.</p>`;

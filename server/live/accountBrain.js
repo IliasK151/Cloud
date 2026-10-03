@@ -190,7 +190,7 @@ export class AccountBrain {
         const ago = hours == null ? '' : hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
         if (!rv) return { text: 'Evidence first: the nightly review replays each desk on your own prices after the New York close. No review yet, so no desk is held back by it', ok: false };
         if (!fresh) return { text: `Evidence first: the last nightly review is ${ago}, so the reviews have stopped (the Mac asleep after the close, or failing: see the Nightly review card). Its verdicts still apply until a new one runs`, ok: false };
-        return { text: `Evidence first: every night each desk is replayed on your own prices (last review ${ago}, ${rv.tradingDays} trading days). No edge: paper only. Unclear: half size`, ok: true };
+        return { text: `Evidence first: every night each desk is replayed on your own prices (last review ${ago}, ${rv.tradingDays} trading days). No edge: ${noPaper(this.live) ? 'off the account' : 'paper only'}. Unclear: half size`, ok: true };
       })(),
       (() => {
         const base = lt.baseline;
@@ -201,7 +201,7 @@ export class AccountBrain {
         const losers = judged.filter((a) => base.forDesk(a.id).verdict === 'loses').map((a) => a.profile.name.split(' ')[0]);
         return {
           text: `Long-run record: each desk was replayed on up to ${span} of real 1-minute prices. ${losers.length
-            ? `${losers.length} of the ${judged.length} desks on the account lost money there with confidence (${losers.join(', ')}): ${training && p.practiceAll !== false ? `they practise on the Free Trial at ${Math.min(LIMITS.practiceRiskPct, p.riskPerTradePct)}% a trade; on a paid challenge, paper only` : 'paper only'}, unless the nightly review finds a real edge on your own prices`
+            ? `${losers.length} of the ${judged.length} desks on the account lost money there with confidence (${losers.join(', ')}): ${training && p.practiceAll !== false ? `they practise on the Free Trial at ${Math.min(LIMITS.practiceRiskPct, p.riskPerTradePct)}% a trade; on a paid challenge, ${noPaper(this.live) ? 'off the account' : 'paper only'}` : noPaper(this.live) ? 'off the account' : 'paper only'}, unless the nightly review finds a real edge on your own prices`
             : `None of the ${judged.length} desks on the account lost money there with confidence`}`,
           ok: true,
         };
@@ -215,7 +215,7 @@ export class AccountBrain {
           : { text: `Neural brain is learning: it judges every idea and learns from every trade, but decides nothing for the account until it tells winners from losers on trades it hasn't seen (skill ${sk.auc ?? '—'} now, it needs ${nb.trust.minAuc})`, ok: true };
       })(),
       lt.fund?.weekendOn && { text: `Weekend: the desks day-trade crypto (Bitcoin and Ether) until Sunday 18:00 New York, flat by 16:50 each day. At most ${LIMITS.weekendCrypto} crypto positions on the account at once, because crypto moves together, and each desk's weekend crypto record counts as its long-run record`, ok: true },
-      { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R trades paper only until its record recovers`, ok: true },
+      { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R ${noPaper(this.live) ? 'stays off the account' : 'trades paper only'} until its record recovers`, ok: true },
       { text: `Proven live first: a research desk's new strategy trades paper on real prices until ${LIMITS.labPaperTrades} live trades haven't lost money in total, then the account`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
     ].filter(Boolean);
@@ -423,11 +423,12 @@ export class AccountBrain {
     const base = weekend ? this.live.weekendRecord : this.live.baseline;
     const long = base?.forDesk?.(agent.id) || null;
     const where = weekend ? ' at the weekend' : '';
+    const off = noPaper(this.live) ? 'Off the account' : 'Paper only';
     if (long?.verdict === 'loses') {
       if (d?.verdict === 'EDGE' && !weekend) return { mult: 0.5, verdict: 'EDGE', long, text: `${name} has an edge on your recent prices (${rec} in the nightly review) but lost money over the long run (${base.recordText(long)}): half size until the edge lasts` };
       return { mult: 0, verdict: 'loses', long, text: weekend
-        ? `${name} lost money day-trading crypto at the weekend over the long run: ${base.recordText(long)}. Paper only at the weekend`
-        : `${name} lost money over the long run: ${base.recordText(long)}. Paper only until the nightly review finds a real edge on your own prices` };
+        ? `${name} lost money day-trading crypto at the weekend over the long run: ${base.recordText(long)}. ${off} at the weekend`
+        : `${name} lost money over the long run: ${base.recordText(long)}. ${off} until the nightly review finds a real edge on your own prices` };
     }
     if (!eff || weekend) {
       if (long?.verdict === 'no edge') return { mult: 0.5, verdict: 'no edge', long, text: `${name} has no edge${where} over the long run (${base.recordText(long)}): half size` };
@@ -438,7 +439,7 @@ export class AccountBrain {
       if (weekend) return { mult: 0.5, verdict: 'unclear', long: null, text: `${name} has too short a record day-trading crypto at the weekend to judge: half size` };
       return null;
     }
-    if (eff.mult === 0) return { mult: 0, verdict: d.verdict, text: `the nightly review found no edge on your prices (${rec}): paper only until a review finds one` };
+    if (eff.mult === 0) return { mult: 0, verdict: d.verdict, text: `the nightly review found no edge on your prices (${rec}): ${off.toLowerCase()} until a review finds one` };
     if (eff.mult < 1) return { mult: eff.mult, verdict: d.verdict, text: `${name} is unproven on your prices (${rec} in the nightly review): half size` };
     return { mult: 1, verdict: d.verdict, text: `${name} has an edge on your prices (${rec} in the nightly review)` };
   }
@@ -511,10 +512,12 @@ export class AccountBrain {
     // Held back by the evidence: paper only, or with practice on the Free Trial, small on it.
     const held = (what, text) => {
       const say = `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
-      if (!st?.practice) return { state: 'proving', label: `Paper · ${what}`, text: say };
+      if (!st?.practice) return { state: 'proving', label: `${noPaper(lt) ? 'Off' : 'Paper'} · ${what}`, text: say };
+      // Practice sends it to the trial anyway: drop the "paper only / off the account" part.
+      const verdict = say.replace(/(:|\.)\s*(paper only|off the account)[\s\S]*$/i, '.');
       const pct = Math.min(LIMITS.practiceRiskPct, p.riskPerTradePct);
-      if (!lt.armed) return { state: 'ready', label: `Practice · ${what} · not armed`, text: `Practises on the Free Trial at ${pct}% a trade once you arm live trading. ${say}` };
-      return { state: 'training', label: `Practice · ${what}`, text: `Practises on the Free Trial at ${pct}% a trade (practice is on). ${say}` };
+      if (!lt.armed) return { state: 'ready', label: `Practice · ${what} · not armed`, text: `Practises on the Free Trial at ${pct}% a trade once you arm live trading. ${verdict}` };
+      return { state: 'training', label: `Practice · ${what}`, text: `Practises on the Free Trial at ${pct}% a trade (practice is on). ${verdict}` };
     };
     const lab = this.labProving(agent);
     if (lab) return held('proving live', lab);

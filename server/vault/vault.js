@@ -406,8 +406,9 @@ ${t.grade ? `- Committee grade: **${t.grade}**\n` : ''}${Number.isFinite(n?.p) ?
     this.watch ||= new Map();
     for (const a of this.fund.agents) {
       const stage = cell(a.setup?.stage || '').trim();
-      // Starting up isn't worth a line (it would be one after every restart).
-      if (!stage || /^(warming up|waiting for market history)/i.test(stage) || a.position?.()) continue;
+      // Starting up isn't worth a line (it would be one after every restart), and a trade FTMO
+      // couldn't take is already in the journal as turned down.
+      if (!stage || /^(warming up|waiting for market history|not taken \(ftmo only\))/i.test(stage) || a.position?.()) continue;
       const last = this.watch.get(a.id);
       if (last && (last.text === stage || now - last.at < VAULT.watchEveryMs)) continue;
       this.watch.set(a.id, { text: stage, at: now });

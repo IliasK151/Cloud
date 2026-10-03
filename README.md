@@ -780,10 +780,12 @@ Setup takes about 2 minutes: in Telegram open **@BotFather**, send `/newbot` and
 
 **Troubleshooting**
 
-**Something won't connect? Run `npm run doctor`** in a second Terminal window while the floor runs. It checks:
-- the floor itself;
+**Something not working? Run `npm run doctor`** in a second Terminal window while the floor runs. It checks:
+- the floor itself, and whether it's still running the code from before your last `git pull`;
 - the dashboard's live feed;
 - MT5 (including the exact reason it's being refused, such as a wrong bridge token);
+- whether it's doing its job: armed, FTMO only, the trades sent to FTMO today and what held the others back, any desk whose market right now (crypto at the weekend) isn't on your broker, and "Stay armed after a restart";
+- the Obsidian vault and phone alerts;
 - the TradingView address.
 
 It then prints what to fix. It only reads; it never trades. The FTMO tab shows the same MT5 reason at the top, and the dashboard shows what to do when it loses the floor. After the floor restarts, open dashboard tabs reload themselves.
@@ -906,7 +908,7 @@ Other commands:
 npm test               # tests: indicators, broker, risk, webhooks, FTMO, news calendar, backtester (no look-ahead),
                        # research validation (rejects pure noise), research desks, committee + account brain,
                        # a full floor session
-npm run doctor         # checks every connection (floor, dashboard, MT5, TradingView) and says what to fix
+npm run doctor         # checks every connection and whether the desks are trading FTMO, and says what to fix
 npm run service -- install  # run the floor non-stop as a background service (status / restart / logs / uninstall)
 npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow (MOCK_PNL=-100 rehearses a drawdown)
 npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac

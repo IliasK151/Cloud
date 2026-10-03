@@ -230,8 +230,10 @@ export class TraderAgent {
     this.day.entries++;
     this.setup.armed = false;
     const rr = target != null ? Math.abs(target - fillPx) / Math.abs(fillPx - stop) : null;
+    // FTMO only: the floor's own size isn't the trade; the lots on the account follow ("FTMO · sending …").
+    const ftmoOnly = !!this.env.ftmoOnly?.();
     this.note(
-      `${long ? 'Bought' : 'Sold'} ${fmtQty(qty)} ${symbol} @ ${this.px(fillPx, symbol)} · stop ${this.px(stop, symbol)}` +
+      `${long ? 'Bought' : 'Sold'}${ftmoOnly ? '' : ` ${fmtQty(qty)}`} ${symbol} @ ${this.px(fillPx, symbol)} · stop ${this.px(stop, symbol)}` +
         (target != null ? ` · target ${this.px(target, symbol)} (${rr.toFixed(1)}R)` : '') +
         (review ? ` · committee grade ${review.grade}` : '') +
         (learn.probe ? ' · small test trade' : learn.sizeMult !== 1 ? ` · size ×${learn.sizeMult} from experience` : ''),
@@ -397,8 +399,10 @@ export class TraderAgent {
     if (!win && !this.profile.noCooldown) this.cooldownBars = this.learner.cooldownBars(this.profile.cooldownBars ?? 3);
     if (!this.profile.quietTrades || Math.abs(trade.pnl) > this.allocation * 0.0015) {
       this.moodEvent = { mood: win ? 'celebrating' : 'frustrated', until: Date.now() + 7000 };
-      const rText = trade.r != null ? ` (${trade.r >= 0 ? '+' : ''}${trade.r.toFixed(2)}R)` : '';
-      this.note(`${win ? 'Closed for a win' : 'Took a loss'} on ${trade.symbol}: ${fmtUsd(trade.pnl, { sign: true })}${rText} — ${trade.exitReason || 'exit'}`, 'exit', { symbol: trade.symbol, pnl: trade.pnl });
+      const rNum = trade.r != null ? `${trade.r >= 0 ? '+' : ''}${trade.r.toFixed(2)}R` : '';
+      // FTMO only: in R, the same on the account; the money on FTMO follows ("FTMO · … closed").
+      const result = this.env.ftmoOnly?.() && rNum ? rNum : `${fmtUsd(trade.pnl, { sign: true })}${rNum ? ` (${rNum})` : ''}`;
+      this.note(`${win ? 'Closed for a win' : 'Took a loss'} on ${trade.symbol}: ${result} — ${trade.exitReason || 'exit'}`, 'exit', { symbol: trade.symbol, pnl: trade.pnl });
     }
     for (const lesson of this.learner.onClosed(trade) || []) {
       this.note(`Lesson learned — ${lesson.title}. ${lesson.text.split(/(?<=\.)\s/)[0]}`, 'learn');

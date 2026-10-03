@@ -1858,6 +1858,11 @@ test('FTMO only: a desk takes a trade only when it goes to FTMO, and its trade l
   assert.match(trades().at(-1).exitReason, /Closed on FTMO/);
   assert.equal(trades().at(-1).cancelled, undefined);
   assert.equal(chen.lifetime.trades, 1);
+  // The desk's own notes don't quote the floor's paper size or dollars: the trade is the FTMO one.
+  const last = (kind) => chen.log.filter((l) => l.kind === kind).at(-1)?.text || '';
+  assert.match(last('entry'), /^Bought XAUUSD @ /);
+  assert.match(last('exit'), /on XAUUSD: [+-]\d+\.\d\dR — Closed on FTMO/);
+  assert.doesNotMatch(last('exit'), /\$/);
 
   // Pairs and market making can't go to one prop account: they add nothing.
   const kenji = fund.byId.get('kenji');

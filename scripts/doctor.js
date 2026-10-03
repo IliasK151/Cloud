@@ -156,7 +156,9 @@ async function main() {
         + '        6. The chart comment of the EA (top-left of the chart) says what went wrong, e.g. "WebRequest is blocked"',
       );
     }
-    for (const w of (live.warnings || []).filter((x) => !/demo mode/.test(x)).slice(0, 4)) {
+    // Old code and "not trading at all" are said below, with the rest of what the floor is doing.
+    const said = (x) => /demo mode|still running the code from before your last git pull|aren't trading at all/.test(x);
+    for (const w of (live.warnings || []).filter((x) => !said(x)).slice(0, 4)) {
       if (live.bridgeIssue && w === live.bridgeIssue.text) continue;
       // The waiting markets are listed above; only the advice on fixing them is new here.
       if (/^No real prices/.test(w)) {
@@ -168,7 +170,51 @@ async function main() {
     }
   }
 
-  // 5. TradingView.
+  // 5. Is it doing its job: trades reaching FTMO, and whatever stops them.
+  console.log('');
+  if (h.stale) {
+    bad('The floor is still running the code from before your last git pull (the page is already the new one), so new buttons answer "404".');
+    fixes.push('Load the new code: npm run service -- restart   (without the service: Ctrl+C in the floor window, then npm start)');
+  }
+  if (live?.mode === 'live' && live.connected && live.profile) {
+    if (live.ftmoOnly) good('FTMO only is on: every trade the desks take goes to the FTMO account, nothing trades on paper.');
+    else if (live.ftmoOnly === false) warn('FTMO only is off: the desks trade on paper too, and only some of their trades go to FTMO (FTMO tab → FTMO only).');
+    if (live.ftmoOnlyBlock) {
+      bad(`The desks aren't trading at all: ${live.ftmoOnlyBlock}.`);
+      fixes.push(/armed/.test(live.ftmoOnlyBlock) ? 'FTMO tab → Arm live trading, and switch on "Stay armed after a restart" so restarts don\'t disarm it again.' : `FTMO tab: ${live.ftmoOnlyBlock}.`);
+    }
+    if (!live.profile.stayArmed) {
+      warn('"Stay armed after a restart" is off: every restart (a git pull, the Mac restarting) leaves trading disarmed until you arm it again.');
+      fixes.push('FTMO tab → switch on "Stay armed after a restart".');
+    }
+    const open = (live.positions || []).filter((x) => x.floor);
+    if (open.length) good(`${open.length} floor position${open.length === 1 ? '' : 's'} open on MT5 now: ${open.map((x) => `${x.side} ${x.volume} ${x.symbol}`).join(', ')}.`);
+    const t = live.today;
+    if (t) {
+      if (t.sent) good(`${t.sent} trade${t.sent === 1 ? '' : 's'} sent to FTMO today${t.failed ? `, ${t.failed} rejected by MT5` : ''}.`);
+      else warn(`No trades sent to FTMO yet today${t.failed ? ` (${t.failed} rejected by MT5)` : ''}. A desk trades when its setup appears; the busy hours are the London and New York opens.`);
+      if (t.held) {
+        console.log(`      Held back today (${t.held}), most often:`);
+        for (const [why, n] of (t.reasons || []).slice(0, 4)) console.log(`        ${String(n).padStart(4)} × ${why}`);
+      }
+    }
+    // Each desk's market right now (crypto at the weekend) has to exist on the broker.
+    for (const d of (live.desks || []).filter((x) => x.enabled && x.eligible && !x.brokerSymbol)) {
+      warn(`${d.name} trades ${d.symbols?.[0] ?? 'a market'} right now, but it isn't mapped to a symbol on your broker, so it can't trade (FTMO tab → Edit setup → markets).`);
+    }
+  }
+  const vault = json(await get('/api/vault', auth));
+  if (vault?.enabled) {
+    if (vault.lastError) {
+      bad(`The Obsidian vault isn't being written: ${vault.lastError.text}`);
+    } else if (vault.live) good(`The Obsidian vault is live: ${vault.notes.toLocaleString('en-US')} notes, last written ${vault.lastWrite ? ago(vault.lastWrite) : 'not yet'} (${vault.dir}).`);
+  }
+  const alerts = json(await get('/api/alerts', auth));
+  if (alerts && !alerts.hasToken) warn('Phone alerts aren\'t set up (optional): FTMO tab → Alerts on your phone.');
+  else if (alerts && !alerts.enabled) warn('Phone alerts are set up but switched off (FTMO tab → Alerts on your phone).');
+  else if (alerts) good(`Phone alerts are on${alerts.chatName ? ` (to ${alerts.chatName})` : ''}.`);
+
+  // 6. TradingView.
   const tv = guard;
   if (tv) {
     const t = tv.tunnel || {};

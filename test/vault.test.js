@@ -295,6 +295,21 @@ test('the account at the weekend: each desk\'s weekend crypto record decides, an
   assert.equal(skipCategory(no.reason), 'Loses over the long run');
   // Practice on the Free Trial: it trades anyway, small.
   assert.equal(account({ weekendRecord: rec, practice: true }).brain.allow(marcus, pos, {}).practice, true);
+  // What the desk list says matches what happens: practice trades the trial (no "paper only"),
+  // and with FTMO only on there's no paper at all.
+  const status = (practice) => {
+    const a = account({ weekendRecord: rec, practice });
+    Object.assign(a.live, { eligible: () => true, armed: true, ftmoOnly: true, mode: 'live' });
+    a.live.profile.desks = { marcus: true };
+    return a.brain.deskStatus(marcus);
+  };
+  const practising = status(true);
+  assert.match(practising.text, /^Practises on the Free Trial at 0\.25% a trade \(practice is on\)\. Marcus lost money day-trading crypto at the weekend over the long run: −0\.30R a trade over 190 trades on 90 Bitcoin weekends \(Jan 2017 – Dec 2018\) of real 1-minute prices \(90% range −0\.40R to −0\.20R\)\.$/);
+  assert.doesNotMatch(practising.text, /paper only|off the account/i);
+  const held = status(false);
+  assert.equal(held.label, 'Off · loses on weekend crypto');
+  assert.match(held.text, /Off the account at the weekend\.$/);
+  assert.match(account({ weekendRecord: rec }).brain.allow(marcus, pos, {}).reason, /Paper only at the weekend$/, 'paper when FTMO only is off');
   // Too short a weekend record: half size.
   const short = account({ weekendRecord: { v: 1, desks: [] } }).brain.allow(marcus, pos, {});
   assert.equal(short.ok, true);
