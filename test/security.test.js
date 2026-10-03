@@ -341,6 +341,51 @@ test('the service never runs from the Desktop: install moves the floor home and 
   assert.equal(stableNode('/usr/bin/true', [path.join(bin, 'node')]), '/usr/bin/true');
 });
 
+test('setting the service up again waits for the old floor to stop, so launchd never refuses with "5: Input/output error"', async () => {
+  const { load, unload } = await import('../scripts/service.js');
+  const wait = async () => {};
+  // launchd: a stopped floor stays loaded for a few polls while it closes its positions, and
+  // loading it again before it's gone fails the way it did on the Mac.
+  function launchd({ lingers = 3, refusals = 0 } = {}) {
+    const s = { loaded: true, stopping: false, lingers, refusals, calls: [] };
+    s.isLoaded = () => {
+      if (s.stopping && s.lingers-- <= 0) { s.loaded = false; s.stopping = false; }
+      return s.loaded;
+    };
+    s.run = (args) => {
+      s.calls.push(args[0]);
+      if (args[0] === 'bootout') s.stopping = true;
+      if (args[0] === 'bootstrap') {
+        if (s.loaded || s.refusals-- > 0) throw new Error('Bootstrap failed: 5: Input/output error');
+        s.loaded = true;
+      }
+      return '';
+    };
+    return s;
+  }
+  const a = launchd();
+  await load('/x.plist', { run: a.run, isLoaded: a.isLoaded, wait });
+  assert.deepEqual(a.calls, ['bootout', 'enable', 'bootstrap'], 'stopped, waited for, switched on, then loaded once');
+  assert.equal(a.loaded, true);
+  // launchd still letting go after the floor exited: it tries again.
+  const b = launchd({ lingers: 1, refusals: 2 });
+  await load('/x.plist', { run: b.run, isLoaded: b.isLoaded, wait });
+  assert.deepEqual(b.calls.filter((c) => c === 'bootstrap').length, 3);
+  assert.equal(b.loaded, true);
+  // Not loaded at all (the state the failed install left): just loads it.
+  const c = launchd();
+  c.loaded = false;
+  await load('/x.plist', { run: c.run, isLoaded: c.isLoaded, wait });
+  assert.deepEqual(c.calls, ['enable', 'bootstrap']);
+  // Never gives up silently: it says the floor isn't running and what to do.
+  const d = launchd({ refusals: 99 });
+  await assert.rejects(load('/x.plist', { run: d.run, isLoaded: d.isLoaded, wait }), /wouldn't start the floor's service \(Bootstrap failed: 5: Input\/output error\)\. The floor isn't running now\.[\s\S]*Allow in the Background[\s\S]*npm start/);
+  // uninstall waits too, so "Stopped" is true when it says so.
+  const e = launchd({ lingers: 4 });
+  assert.equal(await unload({ run: e.run, isLoaded: e.isLoaded, wait }), true);
+  assert.equal(e.loaded, false);
+});
+
 test('a second floor never starts beside a running one (MT5 talks to the first): it opens that one instead', async () => {
   // Something that answers like the floor (the background service) holds the port.
   const running = http.createServer((req, res) => res.end(JSON.stringify({ ok: true, mode: 'live', uptime: 60, service: true })));

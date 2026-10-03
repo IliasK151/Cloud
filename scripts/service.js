@@ -115,6 +115,45 @@ function launchctl(args, { quiet = false } = {}) {
 }
 
 const domain = () => `gui/${process.getuid()}`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// launchd keeps a stopped service loaded until the floor has exited (it takes a few seconds
+// to close its FTMO positions), and until then refuses to load it again with "Bootstrap
+// failed: 5: Input/output error". So stop it and wait until it's gone…
+export async function unload({ run = launchctl, isLoaded = () => !!running(), wait = sleep } = {}) {
+  if (!isLoaded()) return true;
+  run(['bootout', `${domain()}/${LABEL}`], { quiet: true });
+  for (let i = 0; i < 30 && isLoaded(); i++) await wait(1000);
+  return !isLoaded();
+}
+
+// …then load it, trying again while launchd is still letting go of the old one. A service
+// switched off in System Settings can't be loaded either, so it's switched on first.
+export async function load(file, { run = launchctl, isLoaded = () => !!running(), wait = sleep, tries = 6 } = {}) {
+  let last = null;
+  for (let i = 0; i < tries; i++) {
+    await unload({ run, isLoaded, wait });
+    run(['enable', `${domain()}/${LABEL}`], { quiet: true });
+    try {
+      run(['bootstrap', domain(), file]);
+      return;
+    } catch (err) {
+      last = err;
+      await wait(3000);
+    }
+  }
+  throw new Error([
+    `macOS wouldn't start the floor's service (${last?.message || 'launchctl bootstrap failed'}). The floor isn't running now.`,
+    '',
+    '  Try, in this order:',
+    '    1. System Settings → General → Login Items (& Extensions) → "Allow in the Background": switch "node" on,',
+    '       then: npm run service -- install',
+    '    2. Wait a minute, then: npm run service -- install',
+    '    3. Log out and back in (or restart the Mac), then: npm run service -- install',
+    '',
+    '  Meanwhile the floor can run in a Terminal window: npm start',
+  ].join('\n'));
+}
 
 function health(port) {
   return new Promise((resolve) => {
@@ -215,8 +254,19 @@ async function install() {
   }
   let root = ROOT;
   const from = protectedFolder(root);
+  // Already installed, up to date and answering: nothing to set up, so don't stop it (a stop
+  // closes the floor's FTMO positions).
+  const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  if (!from && svc?.pid && before?.service && current === plistAt(root)) {
+    ensureDeps(root);
+    console.log(`\n  ✓ Already installed and running: the floor is on at http://localhost:${p} (up ${Math.round((before.uptime || 0) / 60)} min).`);
+    console.log('    After a git pull, use: npm run service -- restart');
+    for (const l of await vaultLines()) console.log(`    ${l}`);
+    console.log('');
+    return;
+  }
   if (from) {
-    if (svc) launchctl(['bootout', `${domain()}/${LABEL}`], { quiet: true });
+    if (svc) await unload();
     root = moveOut(root);
     console.log(`\n  Moved the floor from your ${from} to ${root}: macOS doesn't let background services`);
     console.log(`  read the ${from}, so the service couldn't start the floor there. A link with the same name`);
@@ -226,10 +276,10 @@ async function install() {
   const logDir = path.join(root, 'data', 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  if (running()) launchctl(['bootout', `${domain()}/${LABEL}`], { quiet: true });
+  if (running()) console.log('\n  Stopping the floor to set the service up again (it closes its FTMO positions first)…');
+  await unload();
   fs.writeFileSync(file, plistAt(root));
-  launchctl(['bootstrap', domain(), file]);
-  launchctl(['enable', `${domain()}/${LABEL}`], { quiet: true });
+  await load(file);
   let h = null;
   for (let i = 0; i < 40 && !h?.service; i++) {
     await new Promise((r) => setTimeout(r, 1000));
@@ -257,7 +307,7 @@ async function install() {
 async function uninstall() {
   const file = plistPath();
   const was = running();
-  if (was) launchctl(['bootout', `${domain()}/${LABEL}`], { quiet: true });
+  if (was) await unload();
   if (fs.existsSync(file)) fs.unlinkSync(file);
   console.log(was || fs.existsSync(file) ? '\n  ✓ Stopped and removed. The floor\'s FTMO positions were closed on the way out; start it again with npm start.\n' : '\n  The service wasn\'t installed.\n');
 }
