@@ -19,6 +19,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { protectedFolder, folderName } from '../server/util/macFolders.js';
 
 export const LABEL = 'com.meridiancapital.floor';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -26,17 +27,9 @@ const MT5_APP = '/Applications/MetaTrader 5.app';
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-// macOS privacy protection keeps background services out of Desktop, Documents, Downloads
-// and iCloud Drive: a service started from there can't read its own files, so the floor
-// never comes up and MT5 has nothing to connect to.
-const PROTECTED = ['Desktop', 'Documents', 'Downloads', path.join('Library', 'Mobile Documents')];
-export function protectedFolder(root, home = os.homedir()) {
-  for (const p of PROTECTED) {
-    const dir = path.join(home, p);
-    if (root === dir || root.startsWith(dir + path.sep)) return p.split(path.sep).at(-1);
-  }
-  return null;
-}
+// macOS keeps background services out of Desktop, Documents, Downloads and iCloud Drive
+// (server/util/macFolders.js).
+export { protectedFolder };
 
 // Moves the floor to your home folder (~/trading-floor) and leaves a link with the same name
 // where it was, so the Desktop folder, Start Trading Floor and `cd ~/Desktop/trading-floor`
@@ -146,6 +139,20 @@ async function port() {
   return config.port;
 }
 
+// The Obsidian vault has to be outside the folders macOS keeps services out of, or it stops
+// updating once the floor runs as a service.
+async function vaultLines() {
+  const { config } = await import('../server/config.js');
+  if (!config.vault) return [];
+  const f = protectedFolder(config.vaultDir);
+  if (!f) return [`Obsidian vault: ${config.vaultDir} (written live while the floor runs)`];
+  return [
+    `▲ Obsidian vault: ${config.vaultDir} is in your ${folderName(f)}, and macOS doesn't let`,
+    '  background services write there, so the vault won\'t update. Set VAULT_DIR in .env to a folder',
+    '  outside it (for example VAULT_DIR=~/Meridian Vault), then: npm run service -- restart',
+  ];
+}
+
 function running() {
   const out = launchctl(['print', `${domain()}/${LABEL}`], { quiet: true });
   if (!out) return null;
@@ -237,6 +244,7 @@ async function install() {
   console.log(`  ✓ The floor now runs non-stop at http://localhost:${p}`);
   console.log('    It starts at every login, restarts by itself if it stops, and keeps the Mac awake.');
   console.log(`    ${addMt5LoginItem()}`);
+  for (const l of await vaultLines()) console.log(`    ${l}`);
   console.log('');
   console.log('  Also, once:');
   console.log('    • FTMO tab: switch on "Stay armed after a restart".');
@@ -265,6 +273,7 @@ async function status() {
   else console.log(`  Service: ${r.state}${r.pid ? ` (pid ${r.pid})` : ''}${r.runs > 1 ? ` · started ${r.runs} times since login` : ''}${!r.pid && r.lastExit ? ` · last exit: ${r.lastExit}` : ''}`);
   if (h) console.log(`  Floor: answering at http://localhost:${p} (${h.mode} mode, up ${Math.round(h.uptime / 60)} min${h.service === false ? ', in a Terminal window, not the service' : ''})`);
   else console.log(`  Floor: not answering on port ${p}, so MT5 can't connect to it.`);
+  for (const l of await vaultLines()) console.log(`  ${l}`);
   if (installed && !h) {
     const from = protectedFolder(ROOT);
     if (from) {

@@ -315,6 +315,8 @@ It writes `server/research/brain.json`, the brain that ships with the floor, wit
 The floor writes everything its desks know into an [Obsidian](https://obsidian.md) vault, live, as linked Markdown notes:
 
 - **Home:** the floor today, desk by desk, and the latest trades.
+- **Now:** what every desk is doing this minute (its market, what it's watching for or holding, its day so far), rewritten every minute.
+- **Journal/** (one folder per desk, one note per trading day): each desk keeps its own diary, written the moment things happen. 📈 when it goes in and why, ✅/❌ when it wins or loses, 🚫 the ideas it turned down and why, 💡 what it learned, 👀 what it's watching for (when that changes), ⛔ when a risk rule stops it. At the session close it writes its **End of day** review: ideas taken and turned down, wins and losses, its best and worst trade, and how it trades now.
 - **Desks/** (one note per desk): its strategy and entry rules, where it stands with the FTMO account, its long-run and weekend records, the nightly review, its form and numbers, the rules it learned from its own trades, what its neural brain noticed, the situations it has traded and its recent trades.
 - **Trades/** (one note per closed trade): why it was taken, the committee's grade, the neural brain's chance, how it ended, win or loss, with tags for searching (`#win`, `#loss`, `#desk/marcus`, `#market/XAUUSD`) and front matter that Dataview can query.
 - **Ideas/** (one note per day): every idea each desk had, the ones it took and the ones it turned down, and why, written as it happens.
@@ -326,10 +328,24 @@ The floor writes everything its desks know into an [Obsidian](https://obsidian.m
 
 It's the same knowledge the desks trade on (their learners, the floor memory, the neural brain and the evidence), so what you read in Obsidian is what they know. Open it with Obsidian → **Open folder as vault**, choosing `data/vault` in the floor's folder (the Brain tab shows the exact folder, with a copy button). Start from **Home**. In the graph view, wins are green, losses red, desks blue, markets gold and lessons purple.
 
-- **Your notes are kept.** Anything you write under *Your notes* at the bottom of a note stays: the floor only rewrites what's above it.
-- **It's kept tidy.** Unchanged notes aren't rewritten. Trade notes older than 180 days and idea logs older than 60 go, because the desk notes keep the numbers.
+**How live it is.** The desks write to the vault the whole time the floor runs, every day of the week (crypto at the weekend):
+
+| What | When it's written |
+| --- | --- |
+| A desk's journal line, and the day's idea log | The moment it happens: an idea taken or turned down, a win, a loss, a lesson, a risk stop |
+| A trade's note, and its desk's, market's and day's notes | A few seconds after the trade closes |
+| Now | Every minute |
+| Home, desks, Playbook, Brain, Lessons, Markets | Every 5 minutes, and straight away when a desk learns, the brain retrains or the nightly review lands |
+| Each desk's End of day review | At the session close (16:50 New York) |
+
+Obsidian picks up the changes as they're written, so you can keep it open next to the floor. The Brain tab shows **● live** and when the vault was last written.
+
+**Non-stop.** The vault is written while the floor runs, so to have the desks in it all the time, run the floor as a background service (`npm run service -- install`, see [Run it non-stop](#run-it-non-stop)) and keep the Mac awake: plugged in, lid open, and *Prevent automatic sleeping on power adapter* on. While the floor is stopped or the Mac sleeps, nothing is written; when it starts again, the vault catches up from the floor's records (any trade in the desks' books without a note gets one).
+
+- **Your notes are kept.** Anything you write under *Your notes* at the bottom of a note stays: the floor only rewrites what's above it. That includes the desks' journals, so you can add your own thoughts to their day.
+- **It's kept tidy.** Unchanged notes aren't rewritten. Trade notes older than 180 days, journals older than 90 and idea logs older than 60 go, because the desk notes keep the numbers.
 - **It's kept separate and private.** Demo mode writes its own vault (`data/vault-demo`), so made-up prices never mix in. Nothing secret is ever written: no tokens, keys or passwords.
-- **It can live anywhere.** Set `VAULT_DIR` in `.env` (for example `VAULT_DIR=~/Documents/Meridian Vault`). `VAULT=0` turns it off.
+- **It can live anywhere you like, except Desktop, Documents, Downloads and iCloud Drive.** Set `VAULT_DIR` in `.env` (for example `VAULT_DIR=~/Meridian Vault`). macOS doesn't let the non-stop service write in those four folders, so a vault there would stop updating (`npm run service -- status` and the Brain tab say so if it happens). `VAULT=0` turns it off.
 
 ## Protecting the prop account (the account brain)
 

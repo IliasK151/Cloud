@@ -100,10 +100,10 @@ export class BrainView {
     }
     const ago = v.lastWrite ? `${Math.max(0, Math.round((Date.now() - v.lastWrite) / 60_000))} min ago` : 'not yet';
     el.innerHTML = v.enabled ? `<h2>Obsidian vault</h2>
-      <p class="sub">Everything the desks know, written live as linked notes: every trade with why it was taken and how it ended, every idea they took or turned down, their wins and losses, the rules they learned, what works and what loses, and the brains' verdicts. It's the same knowledge they trade on.</p>
+      <p class="sub">Everything the desks know, written live as linked notes: each desk's own journal of the day, what every desk is doing right now, every trade with why it was taken and how it ended, every idea they took or turned down, their wins and losses, the rules they learned, what works and what loses, and the brains' verdicts. It's the same knowledge they trade on.</p>
       <p class="vault-path"><code>${escapeHtml(v.dir)}</code> <button class="btn" data-act="vault-copy" data-path="${escapeHtml(v.dir)}">Copy the folder</button></p>
-      <p class="fine">${v.notes.toLocaleString('en-US')} notes · last written ${ago}${v.mode === 'sim' ? ' · demo mode has its own vault' : ''}${v.lastError ? ` · <span class="neg">${escapeHtml(v.lastError.text)}</span>` : ''}</p>
-      <p class="fine">To open it: install Obsidian (obsidian.md), choose <b>Open folder as vault</b> and pick this folder. Start from <b>Home</b>, and try the graph view (wins green, losses red). Anything you write under "Your notes" in a note stays. To keep the vault somewhere else, set <code>VAULT_DIR</code> in <code>.env</code> (for example <code>VAULT_DIR=~/Documents/Meridian Vault</code>).</p>`
+      <p class="fine">${v.live ? '<span class="pos">● live</span> · ' : ''}${v.notes.toLocaleString('en-US')} notes · last written ${ago}${v.mode === 'sim' ? ' · demo mode has its own vault' : ''}${v.lastError ? ` · <span class="neg">${escapeHtml(v.lastError.text)}</span>` : ''}</p>
+      <p class="fine">To open it: install Obsidian (obsidian.md), choose <b>Open folder as vault</b> and pick this folder. Start from <b>Home</b>, and try the graph view (wins green, losses red). Anything you write under "Your notes" in a note stays. To keep the vault somewhere else, set <code>VAULT_DIR</code> in <code>.env</code> (for example <code>VAULT_DIR=~/Meridian Vault</code>; not Desktop, Documents, Downloads or iCloud Drive, which macOS keeps the non-stop service out of).</p>`
       : `<h2>Obsidian vault</h2><p class="sub">Switched off (VAULT=0 in .env).</p>`;
   }
 

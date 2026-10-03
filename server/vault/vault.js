@@ -5,6 +5,7 @@ import { nyParts } from '../market/session.js';
 import { SYMBOLS } from '../market/symbols.js';
 import { situationLabel } from '../brain/memory.js';
 import { summarize, closedTrades } from '../live/dailyReport.js';
+import { protectedFolder, folderName } from '../util/macFolders.js';
 
 // The floor's Obsidian vault: everything the desks know, as linked Markdown notes the boss can
 // read, search and graph in Obsidian, written live while the floor runs.
@@ -15,6 +16,10 @@ import { summarize, closedTrades } from '../live/dailyReport.js';
 //                    what its neural brain noticed, its situations, its recent trades
 //   Trades/YYYY-MM/  one note per closed trade: why it was taken, the committee's grade, the
 //                    brain's chance, how it ended, win or loss
+//   Now.md           what every desk is doing right now, rewritten every minute
+//   Journal/<desk>/  each desk's own running notes for the day, written as it works: what it
+//                    is watching, the ideas it took or turned down, the committee's call, its
+//                    wins and losses, what it learned, and its review at the end of the day
 //   Ideas/           every idea of the day, taken or turned down and why (appended as it happens)
 //   Daily/           the day per desk, the lessons learned, the FTMO account's day
 //   Lessons/         every lesson a desk learned from its own trades
@@ -29,6 +34,9 @@ import { summarize, closedTrades } from '../live/dailyReport.js';
 
 export const VAULT = {
   refreshMs: 5 * 60_000, // desks, markets, playbook and brains are rewritten this often
+  nowMs: 60_000, // Now.md, what every desk is doing, this often
+  watchEveryMs: 20 * 60_000, // a desk notes what it's watching at most this often (when it changed)
+  journalsKeptDays: 90,
   flushMs: 3000, // notes touched by a trade or a lesson are written this soon after
   tradesKeptDays: 180, // older trade notes are removed (the desks' numbers keep them)
   ideasKeptDays: 60,
@@ -93,7 +101,11 @@ export class Vault extends EventEmitter {
       if (!a) return;
       if (this.#tradeNote(a, t)) this.#touch('home', `desk:${a.id}`, 'daily', `market:${t.symbol}`);
     });
-    f.on('event', (e) => this.#idea(e));
+    f.on('event', (e) => {
+      this.#idea(e);
+      this.#journal(e);
+      if (e.kind === 'session' && /^Session close/.test(e.text || '')) this.#endOfDay();
+    });
     this.memory?.on('event', (e) => {
       if (e.kind === 'lesson') this.#touch(`desk:${e.agentId}`, 'lessons', 'daily', 'playbook');
     });
@@ -103,18 +115,32 @@ export class Vault extends EventEmitter {
     every.unref?.();
     const daily = setInterval(() => this.#prune(), 24 * 3_600_000);
     daily.unref?.();
-    this.timers.push(every, daily);
+    const now = setInterval(() => this.tick(), VAULT.nowMs);
+    now.unref?.();
+    this.timers.push(every, daily, now);
+    this.tick();
     return true;
+  }
+
+  // Every minute: the Now note, and what each desk is watching for (when that changes).
+  tick() {
+    try {
+      this.#nowNote();
+      this.#watching();
+    } catch (err) {
+      this.#fail(err);
+    }
   }
 
   stop() {
     for (const t of this.timers) clearInterval(t);
+    this.timers = [];
     clearTimeout(this.flushTimer);
     this.#flush();
   }
 
   view() {
-    return { enabled: true, dir: this.dir, mode: this.mode, notes: this.#count(), written: this.written, lastWrite: this.lastWrite, lastError: this.lastError };
+    return { enabled: true, dir: this.dir, mode: this.mode, notes: this.#count(), written: this.written, lastWrite: this.lastWrite, lastError: this.lastError, live: !!this.timers.length };
   }
 
   // Rewrite everything that summarises (the trade notes are written once, when they close).
@@ -191,8 +217,12 @@ export class Vault extends EventEmitter {
   }
 
   #fail(err) {
-    if (this.lastError?.text !== err.message) this.log.warn?.(`[vault] ${err.message}`);
-    this.lastError = { text: err.message, at: this.now() };
+    const f = ['EPERM', 'EACCES'].includes(err.code) ? protectedFolder(this.dir) : null;
+    const text = f
+      ? `The vault can't be written in your ${folderName(f)}: macOS doesn't let the floor's background service write there. Set VAULT_DIR in .env to a folder outside it (e.g. VAULT_DIR=~/Meridian Vault) and restart the floor.`
+      : err.message;
+    if (this.lastError?.text !== text) this.log.warn?.(`[vault] ${text}`);
+    this.lastError = { text, at: this.now() };
   }
 
   #count() {
@@ -248,6 +278,9 @@ export class Vault extends EventEmitter {
     try {
       clear('Trades', VAULT.tradesKeptDays, /^(\d{4}-\d{2})$/);
       clear('Ideas', VAULT.ideasKeptDays, /^(\d{4}-\d{2}-\d{2})\.md$/);
+      let desks = [];
+      try { desks = fs.readdirSync(path.join(this.dir, 'Journal')); } catch { /* none yet */ }
+      for (const d of desks) clear(path.join('Journal', d), VAULT.journalsKeptDays, /^(\d{4}-\d{2}-\d{2})\.md$/);
     } catch (err) {
       this.#fail(err);
     }
@@ -308,16 +341,134 @@ ${t.grade ? `- Committee grade: **${t.grade}**\n` : ''}${Number.isFinite(n?.p) ?
     if (!a) return;
     const at = Number.isFinite(e.time) ? e.time : this.now();
     const s = nyStamp(at);
-    const file = path.join(this.dir, 'Ideas', `${s.day}.md`);
+    const day = this.fund.session.tradingDay(at);
+    const file = path.join(this.dir, 'Ideas', `${day}.md`);
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      if (!fs.existsSync(file)) fs.writeFileSync(file, `${yaml({ day: s.day, tags: ['ideas'] })}# Ideas · ${s.day}\n\nEvery trade idea the desks had today, the ones they took and the ones they turned down, and why. Day: [[${s.day}]]\n\n`);
+      if (!fs.existsSync(file)) fs.writeFileSync(file, `${yaml({ day, tags: ['ideas'] })}# Ideas · ${day}\n\nEvery trade idea the desks had today, the ones they took and the ones they turned down, and why. Day: [[${day}]]\n\n`);
       fs.appendFileSync(file, `- ${s.time} [[${a.profile.name}]] · ${a.symbol} · ${cell(what)}\n`);
       this.written++;
       this.lastWrite = this.now();
     } catch (err) {
       this.#fail(err);
     }
+  }
+
+  // ---- the desks' own notes ---------------------------------------------------------------------
+  #journalFile(a, day) {
+    return path.join(this.dir, 'Journal', safeName(a.profile.name), `${day}.md`);
+  }
+
+  #append(a, at, line) {
+    const day = this.fund.session.tradingDay(at);
+    const file = this.#journalFile(a, day);
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      if (!fs.existsSync(file)) {
+        fs.writeFileSync(file, `${yaml({ desk: a.id, day, tags: ['journal', `desk/${a.id}`] })}# ${first(a)}'s journal · ${day}\n\nMy own notes as I work today, written as it happens. Me: [[${a.profile.name}]] · The day: [[${day}]] · Every idea on the floor: [[Ideas/${day}|idea log]]\n\n`);
+      }
+      fs.appendFileSync(file, `- ${nyStamp(at).time} ${line}\n`);
+      this.written++;
+      this.lastWrite = this.now();
+      return true;
+    } catch (err) {
+      this.#fail(err);
+      return false;
+    }
+  }
+
+  // What a desk notes as it works (from its own log on the floor).
+  #journal(e) {
+    if (!e?.agentId) return;
+    const a = this.fund.byId.get(e.agentId);
+    if (!a) return;
+    const text = cell(String(e.text || '')).trim();
+    if (!text) return;
+    const at = Number.isFinite(e.time) ? e.time : this.now();
+    let line = null;
+    if (e.kind === 'entry') line = `📈 **In:** ${text}`;
+    else if (e.kind === 'exit') line = /Closed for a win/.test(text) ? `✅ **Won:** ${text}` : /Took a loss/.test(text) ? `❌ **Lost:** ${text}` : `🏁 ${text}`;
+    else if (e.kind === 'partial') line = `💰 ${text}`;
+    else if (e.kind === 'learn') line = `💡 **Learned:** ${text.replace(/^Lesson learned — /, '')}`;
+    else if (e.kind === 'committee') line = `🏛️ **Committee:** ${text}`;
+    else if (e.kind === 'halt' || e.kind === 'risk') line = `⛔ ${text}`;
+    else if (e.kind === 'research') line = `🧪 ${text}`;
+    else if (e.kind === 'live') line = `🟢 **FTMO:** ${text}`;
+    else if (/^(Committee said no|Skipped a signal|Too expensive|Brain passed|Signal skipped —)/.test(text)) line = `🚫 **Turned down:** ${text}`;
+    else if (e.kind === 'info' && !/^(Strategy error)/.test(text)) line = `📝 ${text}`;
+    if (line) this.#append(a, at, line);
+  }
+
+  // Every few minutes each desk notes what it's watching, if that changed (its setup, its plan).
+  #watching() {
+    const now = this.now();
+    this.watch ||= new Map();
+    for (const a of this.fund.agents) {
+      const stage = cell(a.setup?.stage || '').trim();
+      // Starting up isn't worth a line (it would be one after every restart).
+      if (!stage || /^(warming up|waiting for market history)/i.test(stage) || a.position?.()) continue;
+      const last = this.watch.get(a.id);
+      if (last && (last.text === stage || now - last.at < VAULT.watchEveryMs)) continue;
+      this.watch.set(a.id, { text: stage, at: now });
+      const thesis = cell(a.setup?.thesis || '').trim();
+      this.#append(a, now, `👀 ${stage}${thesis && !stage.includes(thesis.slice(0, 30)) ? `. ${thesis}` : ''}`);
+    }
+  }
+
+  // The close: every desk writes its review of the day into its journal.
+  #endOfDay() {
+    const day = this.fund.session.tradingDay(this.now());
+    for (const a of this.fund.agents) {
+      const file = this.#journalFile(a, day);
+      try {
+        if (fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('## End of day')) continue;
+      } catch { /* write it */ }
+      const list = this.#today(this.#trades(a));
+      const s = this.#stats(list);
+      const ideas = a.day?.ideas ?? 0;
+      if (!ideas && !s.n) continue;
+      const best = list.slice().sort((x, y) => y.r - x.r)[0];
+      const worst = list.slice().sort((x, y) => x.r - y.r)[0];
+      const adj = a.learner?.view?.().adjustments || [];
+      const lines = [
+        `- ${ideas} idea${ideas === 1 ? '' : 's'}: ${a.day?.entries ?? 0} taken, ${(a.day?.vetoed ?? 0) + (a.day?.skipped ?? 0)} turned down`,
+        `- ${s.n} trade${s.n === 1 ? '' : 's'}: ${s.wins} won, ${s.n - s.wins} lost, ${fmtR(s.sumR)} (${fmtUsd(s.pnl)})`,
+        best && s.n > 1 ? `- Best: [[${this.#tradeName(a, best)}]] ${fmtR(best.r)} · worst: [[${this.#tradeName(a, worst)}]] ${fmtR(worst.r)}` : null,
+        `- How I trade now: ${adj.length ? adj.map(cell).join('; ') : 'nothing changed yet, my trades haven\'t shown a pattern worth acting on'}`,
+      ].filter(Boolean);
+      try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        if (!fs.existsSync(file)) this.#append(a, this.now(), '📕 Day over.');
+        fs.appendFileSync(file, `\n## End of day\n${lines.join('\n')}\n`);
+        this.written++;
+        this.lastWrite = this.now();
+      } catch (err) {
+        this.#fail(err);
+      }
+    }
+  }
+
+  // The floor right now, every minute: what each desk is doing.
+  #nowNote() {
+    const now = this.now();
+    const s = nyStamp(now);
+    const rows = this.fund.agents.map((a) => {
+      const pos = (a.positionsView?.() || []).map((p) => `${p.side === 'LONG' ? 'long' : 'short'} ${p.symbol}${Number.isFinite(p.r) ? ` ${fmtR(p.r)}` : ''} (${fmtUsd(p.unrealized)})`).join(', ');
+      const td = this.#stats(this.#today(this.#trades(a)));
+      const state = a.halted ? `⛔ ${a.halted}` : a.paused ? 'paused by you' : a.setup?.stage || '—';
+      return `| [[${a.profile.name}]] | ${a.symbol}${a.weekend ? ' 🪙' : ''} | ${cell(state)} | ${pos || '—'} | ${td.n} · ${fmtR(td.sumR)} | [[Journal/${safeName(a.profile.name)}/${this.fund.session.tradingDay(now)}|journal]] |`;
+    });
+    const open = this.fund.agents.reduce((n, a) => n + (a.book?.positions?.size || 0), 0);
+    const body = `${yaml({ tags: ['now'] })}
+# The floor right now
+
+**Live**: ${s.day} ${s.time} New York (rewritten every minute while the floor runs)${this.fund.weekendOn ? ' · weekend: the desks day-trade crypto 🪙' : ''} · ${open} position${open === 1 ? '' : 's'} open
+
+| Desk | Market | Doing now | Open | Today | Notes |
+|---|---|---|---|---|---|
+${rows.join('\n')}
+`;
+    this.write('Now.md', body);
   }
 
   #trades(a) {
@@ -365,7 +516,7 @@ Written by the floor while it runs: every trade, win and loss, the ideas the des
 |---|---|---|---|---|---|---|---|---|---|
 ${rows.join('\n')}
 
-Ideas today: [[Ideas/${day}|every idea, taken or turned down]] · The day: [[${day}]]
+Right now: [[Now|what every desk is doing]] · Ideas today: [[Ideas/${day}|every idea, taken or turned down]] · The day: [[${day}]]
 
 ## The floor
 - Playbook: [[What works]] · [[What loses]] · [[Rules the desks follow]]
@@ -420,7 +571,7 @@ ${rules ? `\nEntry rules: ${rules}\n` : ''}
 | Kept in the book | ${all.n} | ${all.wins} | ${pct(all.winRate)} | ${fmtR(all.avgR)} | ${fmtR(all.sumR)} | ${fmtUsd(all.pnl)} |
 | Since I started | ${L.realN ?? 0} | | | ${fmtR(L.realN ? L.realSumR / L.realN : null)} | ${fmtR(L.realSumR ?? null)} | |
 
-Today: ${a.day?.ideas ?? 0} ideas, ${a.day?.entries ?? 0} taken, ${(a.day?.vetoed ?? 0) + (a.day?.skipped ?? 0)} turned down${a.day?.whyNot ? ` (last: ${cell(a.day.whyNot.text)})` : ''}. Every idea: [[Ideas/${this.fund.session.tradingDay(this.now())}|today's ideas]].
+Today: ${a.day?.ideas ?? 0} ideas, ${a.day?.entries ?? 0} taken, ${(a.day?.vetoed ?? 0) + (a.day?.skipped ?? 0)} turned down${a.day?.whyNot ? ` (last: ${cell(a.day.whyNot.text)})` : ''}. My notes today: [[Journal/${safeName(p.name)}/${this.fund.session.tradingDay(this.now())}|my journal]] · every idea: [[Ideas/${this.fund.session.tradingDay(this.now())}|today's ideas]].
 
 ## The rules I follow now (learned from my own trades)
 ${learn?.adjustments?.length ? learn.adjustments.map((x) => `- ${cell(x)}`).join('\n') : '- Nothing changed yet: my trades haven\'t shown a pattern worth acting on.'}
@@ -566,7 +717,7 @@ ${plan ? plan.rules.map((r) => `- ${r.ok ? '✅' : '⚠️'} ${cell(r.text)}`).j
     this.write(path.join('Daily', `${day}.md`), `${yaml({ day, tags: ['daily'] })}
 # ${day}
 
-Every idea today, taken or turned down: [[Ideas/${day}|the idea log]].
+Every idea today, taken or turned down: [[Ideas/${day}|the idea log]]. Each desk's own notes: ${f.agents.map((a) => `[[Journal/${safeName(a.profile.name)}/${day}|${first(a)}]]`).join(' · ')}.
 
 | Desk | Ideas | Trades | Won | R | P&L |
 |---|---|---|---|---|---|

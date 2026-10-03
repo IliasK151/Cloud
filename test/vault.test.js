@@ -17,6 +17,7 @@ import { normalizeProfile, guardMetrics } from '../server/live/rules.js';
 import { Baseline, loadBaseline, WEEKEND_FILE } from '../server/live/baseline.js';
 import { skipCategory } from '../server/live/dailyReport.js';
 import { config } from '../server/config.js';
+import { protectedFolder, folderName } from '../server/util/macFolders.js';
 
 function floor(mode = 'sim') {
   const clock = new MarketClock(mode, 1);
@@ -149,6 +150,52 @@ test('the vault logs every idea, taken or turned down, and only real prices coun
   assert.equal(marcus.id, 'marcus');
 });
 
+test('the desks keep their own journals live: what they watch, take, turn down, win, lose and learn, and a review at the close', () => {
+  const { fund, md, dir, vault, marcus } = setup();
+  // What it's watching, noted when it changes (not every minute).
+  marcus.setup.stage = 'Armed: long above 20,105, short below 20,050';
+  marcus.setup.thesis = 'New York range 20,050–20,105.';
+  vault.start();
+  assert.equal(vault.view().live, true);
+  const day = fund.session.tradingDay(fund.clock.now());
+  const journal = () => read(dir, path.join('Journal', 'Marcus Reid', `${day}.md`));
+  vault.tick();
+  vault.tick();
+  assert.equal(journal().split('👀 Armed: long above 20,105').length, 2, 'noted once, not every minute');
+  assert.match(journal(), /👀 Armed: long above 20,105, short below 20,050\. New York range 20,050–20,105\./);
+  marcus.setup.stage = 'Range forming';
+  vault.tick();
+  assert.doesNotMatch(journal(), /👀 Range forming/, 'and not more than every 20 minutes');
+  const t = trade(fund, md, marcus, { from: 20_000, to: 20_120 });
+  fund.pushEvent({ agentId: 'marcus', kind: 'setup', text: 'Committee said no: volatility is extreme' });
+  fund.pushEvent({ agentId: 'marcus', kind: 'committee', text: 'Committee APPROVED Marcus\'s NAS100 long (grade A): trend and room agree' });
+  marcus.note('Lesson learned — Sit out the Asian session. My trades there lose.', 'learn');
+  let j = journal();
+  assert.match(j, /^---\ndesk: "marcus"/);
+  assert.match(j, /# Marcus's journal · /);
+  assert.match(j, /📈 \*\*In:\*\* Bought .* NAS100/);
+  assert.match(j, /✅ \*\*Won:\*\* Closed for a win on NAS100/);
+  assert.match(j, /🚫 \*\*Turned down:\*\* Committee said no: volatility is extreme/);
+  assert.match(j, /🏛️ \*\*Committee:\*\* Committee APPROVED/);
+  assert.match(j, /💡 \*\*Learned:\*\* Sit out the Asian session/);
+  assert.ok(t.r > 0);
+  // The close: a review of the day, once.
+  fund.pushEvent({ kind: 'session', text: 'Session close: all desks flat into the close' });
+  fund.pushEvent({ kind: 'session', text: 'Session close: all desks flat into the close' });
+  j = journal();
+  assert.equal(j.split('## End of day').length, 2, 'written once');
+  assert.match(j, /## End of day\n- \d+ ideas?: \d+ taken, \d+ turned down\n- 1 trade: 1 won, 0 lost, \+\d\.\d\dR/);
+  assert.match(j, /- How I trade now: /);
+  // Now.md: the floor right now.
+  const now = read(dir, 'Now.md');
+  assert.match(now, /# The floor right now\n\n\*\*Live\*\*: \d{4}-\d{2}-\d{2} \d{2}:\d{2} New York \(rewritten every minute while the floor runs\)/);
+  assert.match(now, /\| \[\[Marcus Reid\]\] \| NAS100 \| /);
+  assert.match(now, /\[\[Journal\/Marcus Reid\/\d{4}-\d{2}-\d{2}\|journal\]\]/);
+  assert.match(read(dir, 'Home.md'), /Right now: \[\[Now\|what every desk is doing\]\]/);
+  vault.stop();
+  assert.equal(vault.view().live, false);
+});
+
 test('old trade notes are pruned; names are safe for every OS', () => {
   const { dir, vault } = setup();
   const old = path.join(dir, 'Trades', '2019-01');
@@ -159,6 +206,29 @@ test('old trade notes are pruned; names are safe for every OS', () => {
   assert.equal(fs.existsSync(old), false);
   assert.ok(VAULT.tradesKeptDays >= 90);
   assert.equal(safeName('a/b:c*d?"e<f>g|h#i^[j]'), 'a-b-c-d--e-f-g-h-i--j-');
+});
+
+test('a vault in a folder macOS keeps the non-stop service out of says so, in plain words', () => {
+  const home = path.join(os.tmpdir(), 'home');
+  assert.equal(protectedFolder(path.join(home, 'Documents', 'Meridian Vault'), home), 'Documents');
+  assert.equal(protectedFolder(path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'Vault'), home), 'Mobile Documents');
+  assert.equal(folderName('Mobile Documents'), 'iCloud Drive');
+  assert.equal(protectedFolder(path.join(home, 'Meridian Vault'), home), null);
+  assert.equal(protectedFolder(path.join(home, 'trading-floor', 'data', 'vault'), home), null);
+  // A write the service isn't allowed to make: the Brain tab and the log say why and what to do.
+  const { fund, memory } = setup();
+  const warned = [];
+  const vault = new Vault({ dir: path.join(os.homedir(), 'Documents', 'Meridian Vault'), mode: 'sim', fund, memory, log: { warn: (s) => warned.push(s) } });
+  const realMkdir = fs.mkdirSync;
+  fs.mkdirSync = () => { throw Object.assign(new Error('EPERM: operation not permitted, mkdir'), { code: 'EPERM' }); };
+  try {
+    assert.equal(vault.start(), false);
+  } finally {
+    fs.mkdirSync = realMkdir;
+  }
+  assert.match(vault.view().lastError.text, /can't be written in your Documents: macOS doesn't let the floor's background service write there\. Set VAULT_DIR in \.env to a folder outside it \(e\.g\. VAULT_DIR=~\/Meridian Vault\)/);
+  assert.equal(warned.length, 1);
+  assert.equal(vault.view().live, false);
 });
 
 // ---- the weekend ---------------------------------------------------------------------------

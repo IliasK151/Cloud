@@ -55,7 +55,8 @@ const num = (value, fallback) => {
 const feed = (process.env.FEED || 'live').toLowerCase() === 'sim' ? 'sim' : 'live';
 
 // The Obsidian vault the floor writes (server/vault/vault.js): data/vault, or VAULT_DIR (for
-// example ~/Documents/Meridian Vault). Demo mode always writes its own, data/vault-demo, so
+// example ~/Meridian Vault; not Desktop, Documents, Downloads or iCloud Drive, which macOS
+// keeps the background service out of). Demo mode always writes its own, data/vault-demo, so
 // made-up prices never mix with the real vault.
 function resolveVaultDir() {
   if (feed === 'sim') return path.join(DATA_DIR, 'vault-demo');
