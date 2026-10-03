@@ -20,6 +20,7 @@ import http from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { protectedFolder, folderName } from '../server/util/macFolders.js';
+import { codeIsNewer } from '../server/util/codeStamp.js';
 
 export const LABEL = 'com.meridiancapital.floor';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -203,6 +204,9 @@ function running() {
   };
 }
 
+// The running floor started before the code on disk last changed (a git pull since).
+export const stale = (root, health, now = Date.now()) => Number.isFinite(health?.uptime) && codeIsNewer(root, now - health.uptime * 1000);
+
 const tail = (file, n) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').slice(-n).join('\n') : '(no log yet)');
 
 // MetaTrader 5 opens at login too, so the EA is back on its chart after a restart.
@@ -254,13 +258,21 @@ async function install() {
   }
   let root = ROOT;
   const from = protectedFolder(root);
-  // Already installed, up to date and answering: nothing to set up, so don't stop it (a stop
-  // closes the floor's FTMO positions).
+  // Already installed and answering: nothing to set up, so don't stop and reinstall it. But a
+  // floor started before a `git pull` runs the old code (the page is already the new one), so
+  // that one restarts onto the new code.
   const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
   if (!from && svc?.pid && before?.service && current === plistAt(root)) {
     ensureDeps(root);
-    console.log(`\n  ✓ Already installed and running: the floor is on at http://localhost:${p} (up ${Math.round((before.uptime || 0) / 60)} min).`);
-    console.log('    After a git pull, use: npm run service -- restart');
+    if (stale(root, before)) {
+      launchctl(['kickstart', '-k', `${domain()}/${LABEL}`]);
+      console.log('\n  ✓ Already installed. The code changed since the floor started (git pull), so it\'s restarting');
+      console.log('    onto the new code (open FTMO positions are closed and, with "Stay armed" on, trading re-arms');
+      console.log('    once MT5 is back). Reload the floor\'s page in a minute.');
+    } else {
+      console.log(`\n  ✓ Already installed and running the latest code: the floor is on at http://localhost:${p} (up ${Math.round((before.uptime || 0) / 60)} min).`);
+    }
+    console.log('    After a git pull, npm run service -- restart does the same.');
     for (const l of await vaultLines()) console.log(`    ${l}`);
     console.log('');
     return;
@@ -322,6 +334,7 @@ async function status() {
   else if (!r) console.log('  Installed, but launchd isn\'t running it. Try: npm run service -- restart');
   else console.log(`  Service: ${r.state}${r.pid ? ` (pid ${r.pid})` : ''}${r.runs > 1 ? ` · started ${r.runs} times since login` : ''}${!r.pid && r.lastExit ? ` · last exit: ${r.lastExit}` : ''}`);
   if (h) console.log(`  Floor: answering at http://localhost:${p} (${h.mode} mode, up ${Math.round(h.uptime / 60)} min${h.service === false ? ', in a Terminal window, not the service' : ''})`);
+  if (h && stale(ROOT, h)) console.log('  ▲ It\'s still running the code from before your last git pull. Load the new code: npm run service -- restart');
   else console.log(`  Floor: not answering on port ${p}, so MT5 can't connect to it.`);
   for (const l of await vaultLines()) console.log(`  ${l}`);
   if (installed && !h) {

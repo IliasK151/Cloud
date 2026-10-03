@@ -83,6 +83,15 @@ export async function api(path, opts = {}) {
     ...opts,
     headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    // This page is read from disk, the floor's code was loaded when it started: after a git
+    // pull the page knows buttons the running floor doesn't yet.
+    let body = null;
+    try { body = await res.json(); } catch { /* not JSON */ }
+    if (res.status === 404 && body?.error === 'unknown action') {
+      throw new Error('the floor is still running its old code (from before your last git pull), so it doesn\'t know this button yet. In Terminal: cd ~/trading-floor && npm run service -- restart, then reload this page');
+    }
+    throw new Error(body?.error ? `${res.status}: ${body.error}` : `${res.status} ${res.statusText}`);
+  }
   return res.json();
 }

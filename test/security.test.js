@@ -386,6 +386,25 @@ test('setting the service up again waits for the old floor to stop, so launchd n
   assert.equal(e.loaded, false);
 });
 
+test('after a git pull, install restarts a floor still running the old code', async () => {
+  const { stale } = await import('../scripts/service.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'floor-'));
+  fs.mkdirSync(path.join(root, 'server', 'live'), { recursive: true });
+  const code = path.join(root, 'server', 'live', 'liveTrader.js');
+  fs.writeFileSync(code, '');
+  fs.writeFileSync(path.join(root, 'package.json'), '{}');
+  const hourAgo = (Date.now() - 3_600_000) / 1000;
+  for (const f of [code, path.join(root, 'package.json')]) fs.utimesSync(f, hourAgo, hourAgo);
+  // The floor started 10 minutes ago, after the code last changed: it runs the latest.
+  assert.equal(stale(root, { uptime: 600 }), false);
+  // A git pull now rewrites the file: the running floor is older than its code.
+  fs.writeFileSync(code, '// new');
+  assert.equal(stale(root, { uptime: 600 }), true);
+  // A floor started after the pull is current again; no answer means nothing to compare.
+  assert.equal(stale(root, { uptime: 0 }, Date.now() + 10_000), false);
+  assert.equal(stale(root, null), false);
+});
+
 test('a second floor never starts beside a running one (MT5 talks to the first): it opens that one instead', async () => {
   // Something that answers like the floor (the background service) holds the port.
   const running = http.createServer((req, res) => res.end(JSON.stringify({ ok: true, mode: 'live', uptime: 60, service: true })));

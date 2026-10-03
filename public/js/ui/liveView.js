@@ -474,7 +474,10 @@ export class LiveView {
           ? (!v.armed && v.rememberedArmed ? 'Arming again by itself as soon as MT5 is connected and every check passes.' : 'If the floor, the Mac or MT5 restarts while armed, it arms again by itself once MT5 is back and every check passes. Disarm, Close all and a risk-guard stop stay off until you arm again.')
           : 'After a restart (floor, Mac or MT5), live trading waits for you to arm it again.'}</small></div>
       </div>` : ''}
-      ${v.mode === 'live' ? `<div class="plan-switch stay-armed">
+      ${v.mode === 'live' && v.ftmoOnly === undefined ? `<div class="plan-switch stay-armed">
+        <div><b>FTMO only: needs a restart of the floor</b><small>The floor is still running its code from before your last git pull, so it doesn't have this switch yet. In Terminal: <code>cd ~/trading-floor && npm run service -- restart</code>, then reload this page.</small></div>
+      </div>` : ''}
+      ${v.mode === 'live' && v.ftmoOnly !== undefined ? `<div class="plan-switch stay-armed">
         <label class="switch"><input type="checkbox" data-ftmo-only ${v.ftmoOnly ? 'checked' : ''} aria-label="FTMO only"><span></span></label>
         <div><b>FTMO only: ${v.ftmoOnly ? 'ON' : 'OFF'}</b><small>${v.ftmoOnly
           ? 'The desks take a trade only when it goes to your FTMO account. Nothing trades on paper: if FTMO can\'t take a trade (not armed, MT5 off, one of the account\'s rules), the desk doesn\'t take it, and says why.'

@@ -1892,6 +1892,10 @@ test('FTMO only: a trade the account turns down is never taken, a test alert sti
   live.reconcile();
   assert.equal(sync().filter((c) => c[0] === 'open').length, 0);
   assert.ok(chen.position('XAUUSD'), 'the test trade stays');
+  // A git pull while the floor runs: the FTMO tab says the floor needs a restart.
+  live.codeStale = () => true;
+  assert.ok(live.view().warnings.some((w) => /still running the code from before your last git pull[\s\S]*npm run service -- restart/.test(w)));
+  live.codeStale = () => false;
   // The switch is remembered across restarts.
   live.setFtmoOnly(false);
   await new Promise((r) => setTimeout(r, 250));

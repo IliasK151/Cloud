@@ -7,6 +7,7 @@ import express from 'express';
 import { WebSocketServer } from 'ws';
 
 import { config, ROOT } from './config.js';
+import { codeIsNewer } from './util/codeStamp.js';
 import { MarketClock, Session } from './market/session.js';
 import { MarketData } from './market/marketData.js';
 import { FeedManager } from './market/feedManager.js';
@@ -175,6 +176,16 @@ const secrets = { webhook: config.webhookSecret };
 const firewall = new WebhookFirewall({ file: path.join(config.dataDir, 'security-log.json'), log });
 const INDEX_HTML = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
 
+// A `git pull` while the floor runs: the page (read from disk) is the new one, this process
+// still the old one, so new buttons answer 404. Checked at most twice a minute.
+const STARTED_AT = Date.now();
+let staleCheck = { at: 0, stale: false };
+const codeStale = () => {
+  if (Date.now() - staleCheck.at > 30_000) staleCheck = { at: Date.now(), stale: codeIsNewer(ROOT, STARTED_AT) };
+  return staleCheck.stale;
+};
+live.codeStale = codeStale;
+
 // ---- HTTP ----------------------------------------------------------------------------------
 const app = express();
 app.disable('x-powered-by');
@@ -197,7 +208,7 @@ app.use(express.static(path.join(ROOT, 'public'), { index: false }));
 
 // The page checks its floor key here after the floor restarts (a new key means reload).
 app.get('/api/session', (req, res) => res.json({ ok: true }));
-app.get('/api/health', (req, res) => res.json({ ok: true, mode: config.feed, uptime: process.uptime(), service: process.env.FLOOR_SERVICE === '1', notes: feeds.notes }));
+app.get('/api/health', (req, res) => res.json({ ok: true, mode: config.feed, uptime: process.uptime(), service: process.env.FLOOR_SERVICE === '1', stale: codeStale(), notes: feeds.notes }));
 app.get('/api/state', localOnly, (req, res) => res.json(fund.initPayload()));
 app.get('/api/agents/:id', localOnly, (req, res) => {
   const detail = fund.agentDetail(req.params.id);
