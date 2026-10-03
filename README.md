@@ -532,12 +532,12 @@ The record ships with the floor (`server/research/baseline.json`), and the accou
 The desk table, the Today card (*Loses over the long run*), the account's rule list and the Nightly review card's **Long run** column show it.
 
 **What it does to the account.** The account was replayed with every desk's trades in time order, 0.5% risk a trade, FTMO 1-Step $10,000:
-- **Training as it ran:** −20.6% over the 22 months, with a 20.7% drawdown, past FTMO's 10% max loss. It wasn't stacked risk: the worst day was −0.6%. It was a steady bleed from desks that lose a little on every trade.
+- **Training as it ran:** −23.3% over the 22 months, with a 23.3% drawdown, past FTMO's 10% max loss. It wasn't stacked risk: the worst day was −0.6%. It was a steady bleed from desks that lose a little on every trade.
 - **Rules that change almost nothing here:** one position per correlated group, a 1.5% open-risk cap, a −1.5% daily stop and 5 positions at most.
-- **The committee's grade:** it didn't separate winners from losers (A −0.26R, B −0.18R, C −0.17R a trade).
-- **With the long-run record and the quarter size deep in drawdown:** −0.7%, with a 1.5% drawdown.
+- **The committee's grade:** it didn't separate winners from losers (A −0.29R, B −0.21R, C −0.14R a trade).
+- **With the long-run record and the quarter size deep in drawdown:** −0.4%, with a 1.5% drawdown.
 
-To check that this isn't hindsight, the desks were judged on the first half only (to May 2019, where the same nine come out as losers). The account was then replayed on the second half, which the judging never saw: −9.1% with a 9.8% drawdown as it ran, −0.2% with a 0.8% drawdown with the record.
+To check that this isn't hindsight, the desks were judged on the first half only (to May 2019, where the same nine come out as losers). The account was then replayed on the second half, which the judging never saw: −8.8% with a 9.0% drawdown as it ran, 0.0% with a 1.2% drawdown with the record.
 
 **What it doesn't do: make the desks profitable.** None of them has an edge on these markets. The research lab didn't find one either:
 - **Its searches on the same 22 months:** 18,000 strategy ideas across the six markets. One passed every gate and lost money in the months after.
