@@ -69,6 +69,9 @@ const lc = (label) => (/^(Asia|London|New York|Session|Late)/.test(label) ? labe
 
 export class LiquidityScalp extends TraderAgent {
   static strategyName = 'Liquidity Scalp (AJ Currency style)';
+  // perZone: scalps per killzone · extend: minutes the killzone runs past its usual end ·
+  // sweepWindow / shiftWindow / retraceBars: the timing limits above, in minutes
+  static RULES = { perZone: PER_KILLZONE, extend: 0, sweepWindow: SWEEP_WINDOW, shiftWindow: SHIFT_WINDOW, retraceBars: RETRACE_BARS };
   static strategyBlurb = 'Reads the higher timeframe first, marks the liquidity (Asia range, previous day, session highs and lows, equal highs and lows) and scalps the killzone: a run through a pool, a close back inside, a 1-minute structure shift with displacement, then in on the pullback to the middle of the move. Tight capped stop, target the liquidity on the other side, fast in and out.';
 
   constructor(profile, env) {
@@ -99,7 +102,10 @@ export class LiquidityScalp extends TraderAgent {
     const at = (min) => nyTimeOnSameDay(now, Math.floor(min / 60), min % 60);
     const m = nyMinuteOfDay(now);
     // After the 18:00 roll the next killzone belongs to the new trading day.
-    return { ...def, start: at(def.from), end: at(def.to), active: m >= def.from && m < def.to, before: m < def.from || m >= 18 * 60, key: `${this.session.tradingDay(now)}|${def.name}` };
+    const ext = this.rules.extend || 0;
+    const to = def.to + ext;
+    const local = ext ? `${def.local}, plus ${ext === 60 ? 'an hour' : `${ext} minutes`}` : def.local;
+    return { ...def, local, start: at(def.from), end: at(to), active: m >= def.from && m < to, before: m < def.from || m >= 18 * 60, key: `${this.session.tradingDay(now)}|${def.name}` };
   }
 
   // The longest history on hand: the research store keeps days, the feed about 15 hours.
@@ -260,7 +266,7 @@ export class LiquidityScalp extends TraderAgent {
       // The run: the first bar through the pool, inside the killzone and recent.
       let j = -1;
       for (let i = n - 1; i >= 0 && B[i].time >= p.takenAt; i--) j = i;
-      if (j < 0 || B[j].time < kzStart || j < n - SWEEP_WINDOW) continue;
+      if (j < 0 || B[j].time < kzStart || j < n - this.rules.sweepWindow) continue;
       if (long ? B[j].low > p.price - buf : B[j].high < p.price + buf) {
         // Only a tick through: look for a real run later on.
         let k = -1;
@@ -272,7 +278,7 @@ export class LiquidityScalp extends TraderAgent {
       for (let i = j; i < n; i++) if (long ? B[i].low < B[e].low : B[i].high > B[e].high) e = i;
       progress.swept ??= p;
       if (e >= n - 1) continue; // still running
-      if (n - 1 - e > SHIFT_WINDOW) { this.used.add(key); continue; } // it ran and never turned
+      if (n - 1 - e > this.rules.shiftWindow) { this.used.add(key); continue; } // it ran and never turned
       // The trap: back inside the pool.
       if (long ? bar.close <= p.price : bar.close >= p.price) continue;
       progress.trapped = true;
@@ -359,11 +365,11 @@ export class LiquidityScalp extends TraderAgent {
       this.pending.bars++;
       if (this.position()) this.pending = null;
       else if (!kz.active) this.#cancel('the killzone closed before the pullback');
-      else if (this.pending.bars > RETRACE_BARS) this.#cancel(`no pullback to the entry within ${RETRACE_BARS} minutes`);
+      else if (this.pending.bars > this.rules.retraceBars) this.#cancel(`no pullback to the entry within ${this.rules.retraceBars} minutes`);
     }
 
     const count = this.perZone.get(kz.key) || 0;
-    const room = count < PER_KILLZONE;
+    const room = count < this.rules.perZone;
     let found = null;
     let progress = { swept: null, trapped: false, shifted: false, displaced: false };
     if (kz.active && !this.position() && !this.pending && room) {
@@ -457,7 +463,7 @@ export class LiquidityScalp extends TraderAgent {
         { label: progress.swept ? `Liquidity run: ${lc(progress.swept.label)}` : 'Liquidity run through a pool', ok: !!progress.swept },
         { label: 'Trap: closed back inside', ok: progress.trapped },
         { label: '1-minute structure shift with displacement', ok: progress.shifted && progress.displaced },
-        { label: `Scalps this killzone: ${count} of ${PER_KILLZONE}`, ok: room },
+        { label: `Scalps this killzone: ${count} of ${this.rules.perZone}`, ok: room },
       ],
       confidence: Math.round(Math.min(90, (kz.active ? 25 : 0) + (htf.bias !== 'NEUTRAL' ? 15 : 5) + (progress.swept ? 20 : 0) + (progress.trapped ? 10 : 0) + (progress.shifted ? 10 : 0) + (progress.displaced ? 10 : 0))),
       indicators: { 'ATR(14) 1m': a, 'Scalp stop cap': cap.dist, 'Pools above': above.length, 'Pools below': below.length },
@@ -465,7 +471,7 @@ export class LiquidityScalp extends TraderAgent {
     if (this.position()) this.setStage(`In a ${kz.name} scalp, working toward the liquidity`);
     else if (this.pending) this.setStage(`Waiting for the pullback to ${this.px(this.pending.entry)} to ${this.pending.side === 'LONG' ? 'buy' : 'sell'}`);
     else if (!kz.active) this.setStage(kz.before ? `Waiting for the ${kz.name} killzone (${kz.local})` : `Done for today: the ${kz.name} killzone (${kz.local}) is over`);
-    else if (!room) this.setStage(`Done for this killzone (${PER_KILLZONE} scalps)`);
+    else if (!room) this.setStage(`Done for this killzone (${this.rules.perZone} scalps)`);
     else if (progress.trapped) this.setStage(`${progress.swept.label} swept and trapped: waiting for the 1-minute shift`);
     else if (progress.swept) this.setStage(`${progress.swept.label} is being run: waiting for the close back inside`);
     else this.setStage(`${kz.name} killzone: watching ${above[0] ? this.px(above[0].price) : '—'} above and ${below[0] ? this.px(below[0].price) : '—'} below for the run`, 'quiet');

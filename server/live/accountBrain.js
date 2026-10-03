@@ -43,6 +43,7 @@ export const LIMITS = {
   formMin: 3, // real-price trades before a desk's form counts
   formWindow: 20, // its most recent real-price trades (paper and account alike)
   labPaperTrades: 10, // a research desk's new strategy: live paper trades before the account
+  practiceRiskPct: 0.25, // Free Trial practice: desks the evidence holds back trade at this risk at most
 };
 
 const GRADE_RANK = { A: 3, B: 2, C: 1 };
@@ -196,7 +197,7 @@ export class AccountBrain {
         const losers = judged.filter((a) => base.forDesk(a.id).verdict === 'loses').map((a) => a.profile.name.split(' ')[0]);
         return {
           text: `Long-run record: each desk was replayed on up to ${span} of real 1-minute prices. ${losers.length
-            ? `${losers.length} of the ${judged.length} desks on the account lost money there with confidence (${losers.join(', ')}): paper only, unless the nightly review finds a real edge on your own prices`
+            ? `${losers.length} of the ${judged.length} desks on the account lost money there with confidence (${losers.join(', ')}): ${training && p.practiceAll !== false ? `they practise on the Free Trial at ${Math.min(LIMITS.practiceRiskPct, p.riskPerTradePct)}% a trade; on a paid challenge, paper only` : 'paper only'}, unless the nightly review finds a real edge on your own prices`
             : `None of the ${judged.length} desks on the account lost money there with confidence`}`,
           ok: true,
         };
@@ -232,8 +233,12 @@ export class AccountBrain {
       dailyStopPct: p.dailyStopPct, dailyStopOn: p.dailyStopOn !== false, dailyLossPct: p.dailyLossPct, guardPct: p.guardPct, maxTradesPerDay: p.maxTradesPerDay, streakStop: p.streakStop, minGrade,
       tradeCapOn: p.tradeCapOn !== false, streakStopOn: p.streakStopOn !== false, provenOnly: p.provenOnly !== false,
       training, canTrain: p.type === 'trial',
+      practiceAll: p.type === 'trial' && p.practiceAll !== false, practice: training && p.practiceAll !== false, practiceRiskPct: LIMITS.practiceRiskPct,
       rules: training ? [
         { text: 'Training on FTMO: every trade the desks take goes to the account, so they learn on FTMO itself. The committee grade, proven-desk, correlation and daily-plan holds are paused; the risk limits below stay', ok: false },
+        p.practiceAll !== false
+          ? { text: `Practice is ON: desks the evidence holds back (losing over the long run, no edge on your prices, out of form, a new research strategy) trade the Free Trial too, at ${Math.min(LIMITS.practiceRiskPct, p.riskPerTradePct)}% a trade, so you watch every desk trade. On average they lose a little; a paid challenge never does this`, ok: false }
+          : { text: 'Practice is OFF: desks the evidence holds back stay on paper while the others train on FTMO', ok: true },
         { text: 'Real prices only: a market whose live feed is down is not traded, never simulated', ok: true },
         { text: `Risk ${riskPct.toFixed(2)}% per trade now (base ${base}%), smaller for the committee's B and C grades`, ok: mult >= 0.99 },
         { text: 'Every order carries its stop-loss', ok: true },
@@ -300,19 +305,30 @@ export class AccountBrain {
     // The desk's own loss limit and its record on the account (your own alerts are your call).
     let alloc = { mult: 1 };
     let ev = null;
+    // Practice on the Free Trial: what the evidence would hold back goes anyway, small.
+    let practice = null;
+    const hold = (why) => {
+      if (st.practice) practice ??= why;
+      return st.practice ? null : { ok: false, reason: why };
+    };
     if (!boss) {
       const limit = this.deskLimit(agent);
       if (limit) return { ok: false, reason: limit };
       // A research desk's new strategy proves itself live on paper before it risks the account.
       const lab = this.labProving(agent);
-      if (lab) return { ok: false, reason: lab };
+      if (lab) { const no = hold(lab); if (no) return no; }
       // The evidence decides next: the nightly review on your own prices, and the long run.
       ev = this.evidence(agent);
-      if (ev?.mult === 0) return { ok: false, reason: ev.text };
+      if (ev?.mult === 0) { const no = hold(ev.text); if (no) return no; }
       const form = this.form(agent);
-      if (!form.ok) return { ok: false, reason: form.text };
+      if (!form.ok) { const no = hold(form.text); if (no) return no; }
       alloc = this.allocation(agent);
-      if (ev && ev.mult < 1) alloc = { ...alloc, mult: alloc.mult * ev.mult };
+      if (ev && ev.mult > 0 && ev.mult < 1) alloc = { ...alloc, mult: alloc.mult * ev.mult };
+    }
+    if (practice) {
+      const pct = Math.min(LIMITS.practiceRiskPct, this.live.profile.riskPerTradePct);
+      const mult = pct / this.live.profile.riskPerTradePct;
+      return { ok: true, riskMult: st.mult * Math.min(alloc.mult, 1) * mult, reasons: [...st.reasons, `Practice on the Free Trial at ${pct}% a trade: ${practice}`], boss, training: true, practice: true };
     }
     const reasons = [...st.reasons, ...(alloc.text ? [alloc.text] : []), ...(ev && ev.mult < 1 ? [ev.text] : [])];
     // Training on FTMO: every trade goes, sized by the plan (and the desk's grade, in the live trader).
@@ -467,12 +483,20 @@ export class AccountBrain {
     if (st?.cooloff && lt.armed) return { state: 'stopped', label: 'Cooling off', text: st.cooloff.text };
     const limit = this.deskLimit(agent);
     if (limit && lt.armed) return { state: 'stopped', label: 'Desk limit', text: limit };
+    // Held back by the evidence: paper only, or with practice on the Free Trial, small on it.
+    const held = (what, text) => {
+      const say = `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+      if (!st?.practice) return { state: 'proving', label: `Paper · ${what}`, text: say };
+      const pct = Math.min(LIMITS.practiceRiskPct, p.riskPerTradePct);
+      if (!lt.armed) return { state: 'ready', label: `Practice · ${what} · not armed`, text: `Practises on the Free Trial at ${pct}% a trade once you arm live trading. ${say}` };
+      return { state: 'training', label: `Practice · ${what}`, text: `Practises on the Free Trial at ${pct}% a trade (practice is on). ${say}` };
+    };
     const lab = this.labProving(agent);
-    if (lab) return { state: 'proving', label: 'Paper · proving live', text: `${lab}.` };
+    if (lab) return held('proving live', lab);
     const ev = this.evidence(agent);
-    if (ev?.mult === 0) return { state: 'proving', label: ev.verdict === 'loses' ? 'Paper · loses long-term' : 'Paper · no edge', text: `${ev.text.charAt(0).toUpperCase()}${ev.text.slice(1)}.` };
+    if (ev?.mult === 0) return held(ev.verdict === 'loses' ? 'loses long-term' : 'no edge', ev.text);
     const form = this.form(agent);
-    if (!form.ok) return { state: 'proving', label: 'Paper · out of form', text: `${form.text.charAt(0).toUpperCase()}${form.text.slice(1)}.` };
+    if (!form.ok) return held('out of form', form.text);
     const alloc = this.allocation(agent);
     const half = [alloc.text, ev && ev.mult < 1 ? ev.text : null].filter(Boolean).map((t) => ` ${t}.`).join('');
     const halfSize = !!alloc.text || (ev && ev.mult < 1);

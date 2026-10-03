@@ -5,6 +5,9 @@ import { ema, rsi, atr, closes, last } from '../../market/indicators.js';
 export class TrendPullback extends TraderAgent {
   static strategyName = 'Trend Pullback';
   static strategyBlurb = 'Joins established trends on pullbacks into the EMA 20 once RSI has reset, entering on a reversal bar through the prior bar; stop under the pullback, 2.2R target.';
+  // slope: the EMA 50's rise over 10 bars, in ATRs · touch: how near the EMA 20 counts as a
+  // pullback, in ATRs · reset: how far RSI(14) must have cooled from 50
+  static RULES = { slope: 0.1, touch: 0.2, reset: 2 };
 
   evaluate() {
     const bars = this.bars();
@@ -18,14 +21,15 @@ export class TrendPullback extends TraderAgent {
     const bar = bars[n - 1];
     const prev = bars[n - 2];
     const slope = e50[n - 1] - e50[n - 11];
-    const up = e20[n - 1] > e50[n - 1] && slope > 0.1 * a && bar.close > e50[n - 1];
-    const down = e20[n - 1] < e50[n - 1] && slope < -0.1 * a && bar.close < e50[n - 1];
+    const R = this.rules;
+    const up = e20[n - 1] > e50[n - 1] && slope > R.slope * a && bar.close > e50[n - 1];
+    const down = e20[n - 1] < e50[n - 1] && slope < -R.slope * a && bar.close < e50[n - 1];
     const look = bars.slice(-6);
     const rLook = r.slice(-6);
-    const touchedUp = look.some((b, k) => b.low <= e20[n - 6 + k] + 0.2 * a);
-    const touchedDown = look.some((b, k) => b.high >= e20[n - 6 + k] - 0.2 * a);
-    const resetUp = Math.min(...rLook) < 48;
-    const resetDown = Math.max(...rLook) > 52;
+    const touchedUp = look.some((b, k) => b.low <= e20[n - 6 + k] + R.touch * a);
+    const touchedDown = look.some((b, k) => b.high >= e20[n - 6 + k] - R.touch * a);
+    const resetUp = Math.min(...rLook) < 50 - R.reset;
+    const resetDown = Math.max(...rLook) > 50 + R.reset;
     const price = this.price();
 
     if (!this.position()) {

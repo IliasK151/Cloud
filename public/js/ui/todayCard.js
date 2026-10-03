@@ -57,7 +57,9 @@ export function marketClock(ms, timeZone) {
     ny: `${String(p.h).padStart(2, '0')}:${String(p.m).padStart(2, '0')}`,
     local: localTime(ms, timeZone),
     session, quiet, weekend, windows,
-    scalp: [kz('London', 2 * 60, 5 * 60), kz('New York', 8 * 60, 11 * 60)],
+    // The London scalpers trade 02:00–05:00 New York (Ryan on gold to 06:00), New York's
+    // 08:00–11:00 (Mia and Nico to 12:00).
+    scalp: [kz('London', 2 * 60, 6 * 60), kz('New York', 8 * 60, 12 * 60)],
   };
 }
 

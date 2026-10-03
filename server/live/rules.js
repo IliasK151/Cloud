@@ -56,14 +56,19 @@ export const DEFAULTS = {
   // to the account, so the desks learn on FTMO itself. No grade, proven-desk, correlation or
   // daily-plan holds; real prices, a stop-loss on every order and FTMO's loss guard stay.
   // Its default depends on the account type, so it isn't set here (see trainingOn).
+  // Practice (Free Trial, while training; on unless switched off): desks the evidence holds
+  // back (losing over the long run, no edge on your prices, out of form, a new research
+  // strategy) still trade the trial, small (see accountBrain LIMITS.practiceRiskPct), so the
+  // boss watches every desk trade. Never on a paid challenge or funded account.
 };
 
 // Training is for the Free Trial (demo money). A paid challenge or a funded account always
 // runs the full account plan.
 export const trainingOn = (p) => !!p && p.type === 'trial' && p.training !== false;
+export const practiceOn = (p) => trainingOn(p) && p.practiceAll !== false;
 
 // The account plan's on/off switches (see the Brain and FTMO tabs).
-export const PLAN_SWITCHES = ['training', 'dailyStopOn', 'tradeCapOn', 'streakStopOn', 'provenOnly'];
+export const PLAN_SWITCHES = ['training', 'practiceAll', 'dailyStopOn', 'tradeCapOn', 'streakStopOn', 'provenOnly'];
 const flag = (v, fallback) => (v == null ? fallback : v !== false && v !== 'false');
 
 const clampNum = (v, lo, hi, fallback) => {
@@ -106,6 +111,7 @@ export function normalizeProfile(input = {}, account = {}) {
     streakStop: Math.round(clampNum(input.streakStop ?? DEFAULTS.streakStop, 2, 10, DEFAULTS.streakStop)),
     stayArmed: flag(input.stayArmed, DEFAULTS.stayArmed),
     training: type === 'trial' ? flag(input.training, true) : false,
+    practiceAll: type === 'trial' ? flag(input.practiceAll, true) : false,
   });
 }
 

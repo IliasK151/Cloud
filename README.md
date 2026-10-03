@@ -249,17 +249,17 @@ Every desk asks one neural network before it trades. It's a real network, writte
 
 - **What it senses:** about 50 facts about the idea, each between −1 and +1 and signed in the trade's favour. They cover the hourly and 15-minute trend, structure, momentum, the moves of the last 5, 15, 60 and 240 minutes, distance from VWAP, levels behind and ahead, where price sits in today's and yesterday's range, volatility for the time of day, the regime, the stop, target and costs, the time of day and week, the desk's form, losing streak and trades so far today, the market and the desk's style.
 - **How it thinks:** two hidden layers of 24 and 12 neurons, then the chance the trade ends in profit. It turns that chance into the R it expects after costs, from the desk's own average win and loss.
-- **How it learned:** every trading desk was replayed through the floor's own code on 22 months of real 1-minute prices, 11,582 trades. The senses at each entry and how each trade ended are what it learned from.
+- **How it learned:** every trading desk was replayed through the floor's own code on 22 months of real 1-minute prices, 15,296 trades with the desks' current rules. The senses at each entry and how each trade ended are what it learned from.
 
 **The honest test, on months it never saw.** Every month from the tenth on, the brain was retrained on the months before and then judged that month's trades, as the floor will do every night:
 
 | | Trades | Every trade | Brain's picks | It passed on | Ranking skill |
 |---|---|---|---|---|---|
-| All desks | 9,960 | −0.13R | −0.11R (13%) | −0.13R | 0.506 |
-| 1st half | 4,980 | −0.14R | −0.13R | −0.14R | 0.508 |
-| 2nd half | 4,980 | −0.12R | −0.09R | −0.13R | 0.503 |
+| All desks | 12,898 | −0.15R | −0.11R (10%) | −0.15R | 0.519 |
+| 1st half | 6,449 | −0.16R | −0.14R | −0.17R | 0.512 |
+| 2nd half | 6,449 | −0.13R | −0.07R | −0.13R | 0.527 |
 
-Ranking skill is the AUC: the chance that a random winner gets a higher score than a random loser, where 0.5 is a coin. At 0.506, **the brain can't tell these desks' winners from their losers.** No single sense can either: the best of them scores 0.513. What is real is small. Trades whose costs are high do worse (−0.20R against −0.07R), and trades with the hourly trend do a little better (−0.11R against −0.17R). The desks' entries carry almost no information about how their trades will end, so no filter on them can make them profitable. (The final network's best epoch was its first: there was nothing more to learn that held up.)
+Ranking skill is the AUC: the chance that a random winner gets a higher score than a random loser, where 0.5 is a coin. At 0.519, **the brain can barely tell these desks' winners from their losers.** No single sense can either: the best of them scores 0.520, and that one only says which kind of market it is. What is real is small. Trades whose costs are high do worse (−0.21R against −0.08R), and trades with the hourly trend do a little better (−0.14R against −0.17R). The desks' entries carry almost no information about how their trades will end, so no filter on them can make them profitable. The brain's picks did better than every trade in both halves, but by too little, and with too little ranking skill, to trust yet. (The final network stopped improving on held-back trades after 2 passes: there was little to learn that held up.)
 
 **So the brain earns its say.**
 - **Learning (now):** it judges every idea, lights up in the Brain tab and learns from every trade on real prices, but decides nothing. Every idea still trades on paper as the desk wants, so the desks trade all the time and every trade is a lesson.
@@ -305,7 +305,8 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
   - no new trades in a news blackout;
   - FTMO's loss guard: it closes everything at 80% of a limit, and no trade goes in whose stop, together with every open and in-flight stop, could breach it;
   - the risk limits (below): a 2-hour cool-off after 3 losses in a row instead of the rest of the day, each desk's loss limit, no flipping, the cost check and capital following results;
-  - the evidence: a desk that lost money over the long run (22 months of real prices, see *The long run* below) or in the nightly review on your own prices trades paper only, and a research desk's new strategy trades paper until 10 live trades haven't lost money in total.
+  - the evidence, unless practice is on (next point): a desk that lost money over the long run (22 months of real prices, see *The long run* below) or in the nightly review on your own prices trades paper only, and a research desk's new strategy trades paper until 10 live trades haven't lost money in total.
+- **Practice: every desk trades the trial (Free Trial, on by default while training).** The desks the evidence holds back still trade your Free Trial, at 0.25% a trade (or your risk per trade, if that's lower). That covers desks losing over the long run, with no edge on your prices, out of form, or running a new research strategy. You see every desk trade on MT5, not just the two or three the evidence clears. Everything in the list above still applies: the loss guard, stops, news blackouts, the cool-off, each desk's loss limit and the drawdown cut. Expect the trial to drift down slowly. Replayed on the 22 months at 0.25% a trade, training as it ran lost about 0.6% a month, because these desks lose a little on average. Their desk chips read *Practice · loses long-term* and so on. Switch it off on the FTMO or Brain tab to keep those desks on paper. A paid challenge or funded account never practises: the switch isn't there.
 
   Sizes still follow the committee's grade: A full, B 60%, C 25% of the risk per trade. Below the broker's minimum lot, the minimum is used if it still risks no more than your risk per trade. They still halve after a −0.75% day or two losses in a row, and shrink in drawdown. Up to 8 positions can be open at once (the EA's own cap; raise *Max floor positions* in the EA's inputs for more). Kenji's pairs trades and Isabella's market making can't be copied onto one account, so those two stay paper. Switching training on puts every other desk on the account. It's for the Free Trial only: on a paid challenge or a funded account the switch isn't there and the full plan applies. Switch it off on the FTMO or Brain tab to go back to the plan below.
 - **Every rule that can hold trades back has its own switch** on the Brain and FTMO tabs, for when you want to let the desks run and watch the performance:
@@ -507,20 +508,20 @@ What the floor does on 1-Step:
 
 ### The long run: every desk on 22 months of real prices
 
-A few weeks of your own prices can't tell an edge from luck, so every trading desk was also replayed minute by minute through the floor's own code on Oanda's real 1-minute bars: July 2018 to mid-May 2020 (EURUSD and GBPUSD from January 2018), 11,582 trades in all. The replay includes the committee (whose market brain reads days of history, as on the floor), FTMO's costs and the desk's learning.
+A few weeks of your own prices can't tell an edge from luck, so every trading desk was also replayed minute by minute through the floor's own code on Oanda's real 1-minute bars: July 2018 to mid-May 2020 (EURUSD and GBPUSD from January 2018), 15,296 trades in all with the desks' current rules (see *More setups* below). The replay includes the committee (whose market brain reads days of history, as on the floor), FTMO's costs and the desk's learning.
 
 | Desk | Market | Trades | Per trade (90% range) | Quarters up | Verdict |
 |---|---|---|---|---|---|
-| Marcus | NAS100 | 775 | −0.08R (−0.15 to −0.02) | 2 of 8 | loses |
+| Marcus | NAS100 | 865 | −0.08R (−0.14 to −0.02) | 1 of 8 | loses |
 | Amara | XAUUSD | 1,999 | −0.14R (−0.18 to −0.10) | 0 of 8 | loses |
-| James | SPX500 | 1,154 | −0.12R (−0.17 to −0.06) | 0 of 8 | loses |
-| Priya | EURUSD | 918 | −0.21R (−0.27 to −0.15) | 2 of 10 | loses |
+| James | SPX500 | 1,996 | −0.14R (−0.18 to −0.10) | 1 of 8 | loses |
+| Priya | EURUSD | 1,279 | −0.23R (−0.28 to −0.18) | 0 of 10 | loses |
 | Lucas | USOIL | 4,207 | −0.15R (−0.17 to −0.12) | 0 of 8 | loses |
-| Jake | GBPUSD | 580 | −0.18R (−0.26 to −0.10) | 0 of 10 | loses |
-| Layla | EURUSD | 687 | −0.15R (−0.21 to −0.08) | 1 of 10 | loses |
-| Ryan | XAUUSD | 393 | −0.17R (−0.26 to −0.09) | 1 of 8 | loses |
-| Mia | XAUUSD | 364 | −0.19R (−0.28 to −0.09) | 1 of 8 | loses |
-| Nico | NAS100 | 505 | +0.00R (−0.08 to +0.09) | 4 of 8 | unclear |
+| Jake | GBPUSD | 1,193 | −0.19R (−0.24 to −0.14) | 0 of 10 | loses |
+| Layla | EURUSD | 1,242 | −0.17R (−0.22 to −0.13) | 1 of 10 | loses |
+| Ryan | XAUUSD | 914 | −0.20R (−0.25 to −0.13) | 0 of 8 | loses |
+| Mia | XAUUSD | 1,017 | −0.21R (−0.27 to −0.15) | 0 of 8 | loses |
+| Nico | NAS100 | 584 | +0.03R (−0.04 to +0.10) | 4 of 8 | unclear |
 
 The record ships with the floor (`server/research/baseline.json`), and the account brain uses it with the nightly review:
 
@@ -532,12 +533,12 @@ The record ships with the floor (`server/research/baseline.json`), and the accou
 The desk table, the Today card (*Loses over the long run*), the account's rule list and the Nightly review card's **Long run** column show it.
 
 **What it does to the account.** The account was replayed with every desk's trades in time order, 0.5% risk a trade, FTMO 1-Step $10,000:
-- **Training as it ran:** −23.3% over the 22 months, with a 23.3% drawdown, past FTMO's 10% max loss. It wasn't stacked risk: the worst day was −0.6%. It was a steady bleed from desks that lose a little on every trade.
+- **Training as it ran:** −27.3% over the 22 months, with a 27.5% drawdown, past FTMO's 10% max loss. It wasn't stacked risk: the worst day was −0.9%. It was a steady bleed from desks that lose a little on every trade.
 - **Rules that change almost nothing here:** one position per correlated group, a 1.5% open-risk cap, a −1.5% daily stop and 5 positions at most.
-- **The committee's grade:** it didn't separate winners from losers (A −0.29R, B −0.21R, C −0.14R a trade).
-- **With the long-run record and the quarter size deep in drawdown:** −0.4%, with a 1.5% drawdown.
+- **The committee's grade:** it didn't separate winners from losers (A −0.11R, B −0.10R, C −0.16R a trade, and only 2% of trades got an A or a B).
+- **With the long-run record and the quarter size deep in drawdown:** +0.7%, with a 1.9% drawdown (only Nico, at half size, is left on the account).
 
-To check that this isn't hindsight, the desks were judged on the first half only (to May 2019, where the same nine come out as losers). The account was then replayed on the second half, which the judging never saw: −8.8% with a 9.0% drawdown as it ran, 0.0% with a 1.2% drawdown with the record.
+To check that this isn't hindsight, the desks were judged on the first half only (to May 2019, where the same nine come out as losers). The account was then replayed on the second half, which the judging never saw: −9.9% with a 10.1% drawdown as it ran, +1.2% with a 1.5% drawdown with the record.
 
 **What it doesn't do: make the desks profitable.** None of them has an edge on these markets. The research lab didn't find one either:
 - **Its searches on the same 22 months:** 18,000 strategy ideas across the six markets. One passed every gate and lost money in the months after.
@@ -552,6 +553,25 @@ npm run baseline -- --dir path/to/history --source "where the bars came from"
 ```
 
 It replays the desks in parallel (`--jobs 4`), about 12 minutes for 22 months, and writes `server/research/baseline.json`.
+
+### More setups: looser entry rules, tested first
+
+Each strategy's entry filters are settings now (`static RULES` in its file; a desk's `rules` in `server/engine/roster.js` override them), so a desk can be loosened to find more setups. Looser versions were replayed on the same 22 months. One was kept only if the desk got at least 10% more trades and its average per trade got no more than 0.03R worse. In other words, only if the extra trades are about as good as the ones it already took:
+
+| Desk | Looser rule | Trades | Per trade |
+|---|---|---|---|
+| Marcus | ORB range 1–12 ATR (was 1.5–9), no volume filter | 775 → 865 | −0.082R → −0.083R |
+| James | fades the ±1.5σ VWAP band (was 2σ), RSI ±12 (was ±18), ADX under 32 (was 28) | 1,154 → 1,996 | −0.115R → −0.140R |
+| Priya | squeezes of 4 bars (was 6) | 918 → 1,279 | −0.214R → −0.235R |
+| Jake | the 5- and 1-minute swings as liquidity too | 580 → 1,193 | −0.179R → −0.189R |
+| Layla | the same | 687 → 1,242 | −0.146R → −0.174R |
+| Ryan | the same, and London's killzone an hour longer (to 11:00 London) | 393 → 914 | −0.174R → −0.195R |
+| Mia | the same, and New York's an hour longer (to 12:00 New York) | 364 → 1,017 | −0.190R → −0.211R |
+| Nico | New York's killzone an hour longer (to 12:00 New York) | 505 → 584 | +0.004R → +0.028R |
+
+Nico keeps his liquidity map. The wider one doubled his trades (1,022) but turned them slightly negative (−0.026R). He is the one desk the account still takes with practice off, so only the change that made him better was kept. Amara and Lucas keep their rules. Amara's looser sweeps added trades that lost about 0.29R each. Lucas already trades about 7 times a day, and a flatter trend filter added only 4% more trades, and worse ones. More scalps per killzone added nothing for any scalper. In all, the trading desks take about 32% more trades. Keep in mind that more trades from desks that lose means more losses, in proportion. On paper that costs nothing. On the Free Trial with practice on, it's a faster drift down. On a paid challenge these desks stay off the account until the evidence changes.
+
+To try other values on your own history: `scripts/scalp-test.js` replays one desk with any profile, for example `replay({ profile: { ...desk, rules: { volume: 1.3 } }, bars })`.
 
 ### Ready for a paid challenge? `npm run edge`
 

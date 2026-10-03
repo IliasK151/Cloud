@@ -7,6 +7,9 @@ import { indexFrom } from './orb.js';
 export class LiquiditySweep extends TraderAgent {
   static strategyName = 'Liquidity Sweep Reversal';
   static strategyBlurb = 'Maps resting liquidity at swing and session highs/lows. When price runs those stops and closes back inside with displacement, it trades the reversal toward the opposite pool.';
+  // maxAdx: trades only below this ADX (rotational tape) · stopRun: the sweep bar's range in
+  // ATRs · wick: the rejection wick's share of that bar
+  static RULES = { maxAdx: 25, stopRun: 1.3, wick: 0.5 };
 
   constructor(profile, env) {
     super(profile, env);
@@ -59,7 +62,8 @@ export class LiquiditySweep extends TraderAgent {
     this.pools = pools;
     // Sweeps fail in strong trends (they become breakouts), so only fade in rotational tape.
     const x = last(adx(bars, 14).adx);
-    const rotational = x < 25;
+    const R = this.rules;
+    const rotational = x < R.maxAdx;
 
     // A sweep needs a stop-run wick (rejection) or a displacement candle back through the level.
     const range = (b) => Math.max(b.high - b.low, 1e-9);
@@ -71,8 +75,8 @@ export class LiquiditySweep extends TraderAgent {
         const key = `H${p.price.toFixed(5)}`;
         if (this.used.has(key)) continue;
         const sweepBar = recent.reduce((m, b) => (b.high > m.high ? b : m), recent[0]);
-        const rejected = upperWick(sweepBar) >= 0.5 || (bar.close < bar.open && body >= 0.6 * a);
-        const stopRun = range(sweepBar) >= 1.3 * a;
+        const rejected = upperWick(sweepBar) >= R.wick || (bar.close < bar.open && body >= 0.6 * a);
+        const stopRun = range(sweepBar) >= R.stopRun * a;
         if (sweepBar.high > p.price + 0.1 * a && bar.close < p.price && rejected && stopRun) {
           this.used.add(key);
           const stop = sweepBar.high + 0.35 * a;
@@ -89,8 +93,8 @@ export class LiquiditySweep extends TraderAgent {
         const key = `L${p.price.toFixed(5)}`;
         if (this.used.has(key)) continue;
         const sweepBar = recent.reduce((m, b) => (b.low < m.low ? b : m), recent[0]);
-        const rejected = lowerWick(sweepBar) >= 0.5 || (bar.close > bar.open && body >= 0.6 * a);
-        const stopRun = range(sweepBar) >= 1.3 * a;
+        const rejected = lowerWick(sweepBar) >= R.wick || (bar.close > bar.open && body >= 0.6 * a);
+        const stopRun = range(sweepBar) >= R.stopRun * a;
         if (sweepBar.low < p.price - 0.1 * a && bar.close > p.price && rejected && stopRun) {
           this.used.add(key);
           const stop = sweepBar.low - 0.35 * a;
@@ -120,10 +124,10 @@ export class LiquiditySweep extends TraderAgent {
       thesis: `${nearAbove ? `Buy-side liquidity rests above ${this.px(nearAbove.price)}` : 'No untouched buy-side liquidity above'}, ${nearBelow ? `sell-side below ${this.px(nearBelow.price)}` : 'no untouched sell-side liquidity below'}. I don't chase: I wait for a stop run through a pool, a rejection wick or displacement candle back inside, then target the opposite pool.`,
       checklist: [
         { label: 'Liquidity pools mapped', ok: pools.above.length + pools.below.length > 0 },
-        { label: 'Rotational tape (ADX < 25)', ok: rotational },
+        { label: `Rotational tape (ADX < ${R.maxAdx})`, ok: rotational },
         { label: 'Price within 1.5 ATR of a pool', ok: close },
-        { label: 'Stop-run spike (range ≥ 1.3 ATR)', ok: range(bar) >= 1.3 * a },
-        { label: 'Rejection wick or displacement', ok: upperWick(bar) >= 0.5 || lowerWick(bar) >= 0.5 || body >= 0.6 * a },
+        { label: `Stop-run spike (range ≥ ${R.stopRun} ATR)`, ok: range(bar) >= R.stopRun * a },
+        { label: 'Rejection wick or displacement', ok: upperWick(bar) >= R.wick || lowerWick(bar) >= R.wick || body >= 0.6 * a },
       ],
       confidence: Math.round(Math.min(90, 20 + (close ? 35 : 0) + Math.min(25, (pools.above.length + pools.below.length) * 5))),
       indicators: { 'ATR(14)': a, 'ADX(14)': x, 'Pools above': pools.above.length, 'Pools below': pools.below.length, 'EMA 50': e50 },

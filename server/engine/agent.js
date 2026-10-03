@@ -17,6 +17,9 @@ const freshDayStats = () => ({ trades: 0, entries: 0, wins: 0, losses: 0, grossW
 export class TraderAgent {
   static strategyName = 'Discretionary';
   static strategyBlurb = '';
+  // A strategy's entry rules (its filters and thresholds); profile.rules overrides any of
+  // them for one desk, and the replays test other values on real history.
+  static RULES = {};
 
   constructor(profile, env) {
     this.profile = profile;
@@ -42,6 +45,7 @@ export class TraderAgent {
       bias: 'NEUTRAL', stage: 'Warming up', thesis: '', armed: false,
       levels: [], checklist: [], confidence: 0, indicators: {},
     };
+    this.rules = { ...this.constructor.RULES, ...(profile.rules || {}) };
     this.learner = new DeskLearner(this);
   }
 

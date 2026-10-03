@@ -5,6 +5,9 @@ import { bollinger, keltner, atr, sma, closes, last } from '../../market/indicat
 export class VolatilitySqueeze extends TraderAgent {
   static strategyName = 'Volatility Squeeze Breakout';
   static strategyBlurb = 'Waits for Bollinger Bands to compress inside the Keltner Channel for 6+ bars, then trades the release in the direction of momentum with a 1.5 ATR stop.';
+  // minBars: how long the squeeze must last · confirmBars: bars after the release that
+  // momentum has to confirm it
+  static RULES = { minBars: 6, confirmBars: 3 };
 
   constructor(profile, env) {
     super(profile, env);
@@ -24,7 +27,8 @@ export class VolatilitySqueeze extends TraderAgent {
     let run = 0;
     for (let i = n - 2; i >= 0 && on(i); i--) run++;
     const squeezeNow = on(n - 1);
-    const released = !squeezeNow && on(n - 2) && run >= 6;
+    const R = this.rules;
+    const released = !squeezeNow && on(n - 2) && run >= R.minBars;
     const mom = c[n - 1] - mid[n - 1];
     const momRising = mom > c[n - 4] - mid[n - 4];
     const price = this.price();
@@ -34,7 +38,7 @@ export class VolatilitySqueeze extends TraderAgent {
       this.note(`Squeeze fired after ${run} bars — momentum ${mom > 0 ? 'up' : 'down'}`, 'setup');
     } else if (this.fired) {
       this.fired.bars++;
-      if (this.fired.bars > 3) this.fired = null;
+      if (this.fired.bars > R.confirmBars) this.fired = null;
     }
 
     if (this.fired && !this.position()) {
@@ -61,8 +65,8 @@ export class VolatilitySqueeze extends TraderAgent {
         ? `Volatility is compressed: Bollinger Bands sit inside the Keltner Channel (${run + 1} bars). Energy is building; I trade the release with momentum.`
         : `No squeeze right now (BB/KC width ratio ${bw.toFixed(2)}). I only trade compression releases.`,
       checklist: [
-        { label: 'Squeeze on (BB inside KC)', ok: squeezeNow || run >= 6 },
-        { label: 'Squeeze lasted 6+ bars', ok: run >= 6 || (squeezeNow && run + 1 >= 6) },
+        { label: 'Squeeze on (BB inside KC)', ok: squeezeNow || run >= R.minBars },
+        { label: `Squeeze lasted ${R.minBars}+ bars`, ok: run >= R.minBars || (squeezeNow && run + 1 >= R.minBars) },
         { label: 'Momentum direction clear', ok: Math.abs(mom) > 0.2 * a },
         { label: 'Release confirmed', ok: !!this.fired },
       ],

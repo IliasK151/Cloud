@@ -47,6 +47,7 @@ const SWITCH_NOTES = {
   tradeCapOn: [(p) => `Trade cap switched ON: at most ${p.maxTradesPerDay} trades a day on the account`, () => 'Trade cap switched OFF by the boss: no limit on trades a day'],
   streakStopOn: [(p) => `Losing-streak stop switched ON: done for the day after ${p.streakStop} losses in a row`, () => 'Losing-streak stop switched OFF by the boss (risk still halves after 2 losses in a row)'],
   provenOnly: [() => 'Proven desks only switched ON: only desks with a proven edge on real prices trade the account', () => 'Proven desks only switched OFF by the boss: unproven desks trade the account at half risk'],
+  practiceAll: [() => 'Practice switched ON: every desk trades the Free Trial while training, the ones the evidence holds back at a small practice size', () => 'Practice switched OFF: desks the evidence holds back stay on paper again'],
 };
 
 // Desks whose trades can't be mirrored 1:1 onto a single prop account.
@@ -158,6 +159,7 @@ export class LiveTrader extends EventEmitter {
     const p = this.login ? this.state.profiles[this.login] || null : null;
     if (p) for (const k of PLAN_KEYS) if (p[k] == null && k in DEFAULTS) p[k] = DEFAULTS[k];
     if (p && p.training == null) p.training = p.type === 'trial';
+    if (p && p.practiceAll == null) p.practiceAll = p.type === 'trial';
     return strictUntilKnown(p);
   }
 
@@ -303,6 +305,8 @@ export class LiveTrader extends EventEmitter {
     if (!keys.length) return { ok: false, error: 'Nothing to change' };
     const wantsTraining = body.training != null && body.training !== false && body.training !== 'false';
     if (wantsTraining && p.type !== 'trial') return { ok: false, error: 'Training on FTMO is for the Free Trial. A paid challenge or funded account keeps the full account plan.' };
+    const wantsPractice = body.practiceAll != null && body.practiceAll !== false && body.practiceAll !== 'false';
+    if (wantsPractice && p.type !== 'trial') return { ok: false, error: 'Practice is for the Free Trial. A paid challenge or funded account only trades desks the evidence clears.' };
     for (const k of keys) {
       const on = body[k] !== false && body[k] !== 'false';
       if (p[k] === on) continue;

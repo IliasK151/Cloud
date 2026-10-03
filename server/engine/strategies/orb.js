@@ -15,6 +15,9 @@ export function indexFrom(bars, ms) {
 export class OpeningRangeBreakout extends TraderAgent {
   static strategyName = 'Opening Range Breakout';
   static strategyBlurb = 'Marks the first 15 minutes after the London and New York opens, then trades a volume-confirmed break of that range with a stop at the range midpoint.';
+  // minWidth / maxWidth: the range in ATRs it trades · volume: the break bar's volume against
+  // the 20-bar average
+  static RULES = { minWidth: 1.5, maxWidth: 9, volume: 1.1 };
 
   constructor(profile, env) {
     super(profile, env);
@@ -69,11 +72,12 @@ export class OpeningRangeBreakout extends TraderAgent {
     if (!this.windows.has(key)) this.windows.set(key, { long: false, short: false });
     const state = this.windows.get(key);
     const width = hi - lo;
-    const widthOk = width >= 1.5 * a && width <= 9 * a;
+    const R = this.rules;
+    const widthOk = width >= R.minWidth * a && width <= R.maxWidth * a;
     const vols = bars.map((b) => b.volume);
     const avgVol = last(sma(vols, 20));
     const bar = bars[bars.length - 1];
-    const volOk = bar.volume >= 1.1 * avgVol;
+    const volOk = bar.volume >= R.volume * avgVol;
     const price = this.price();
     this.range = { hi, lo, mid, name: win.name, forming: false };
 
@@ -101,8 +105,8 @@ export class OpeningRangeBreakout extends TraderAgent {
       thesis: `${win.name} range ${this.px(lo)}–${this.px(hi)} (${(width / a).toFixed(1)}× ATR). A close outside the range on above-average volume is the trigger; stop at the midpoint, 2R target, trail after 1R.`,
       checklist: [
         { label: 'Range complete', ok: true },
-        { label: 'Range width 1.5–9× ATR', ok: widthOk },
-        { label: 'Break bar volume > 1.1× average', ok: volOk },
+        { label: `Range width ${R.minWidth}–${R.maxWidth}× ATR`, ok: widthOk },
+        { label: `Break bar volume > ${R.volume}× average`, ok: volOk },
         { label: 'Long side available', ok: !state.long },
         { label: 'Short side available', ok: !state.short },
       ],
@@ -110,7 +114,7 @@ export class OpeningRangeBreakout extends TraderAgent {
       indicators: { 'ATR(14)': a, 'Range width': width, 'Vol / avg': avgVol ? bar.volume / avgVol : 0 },
     };
     if (!flat) this.setStage(`In the ${win.name} breakout trade`);
-    else if (!widthOk) this.setStage(`${win.name} range ${width < 1.5 * a ? 'too tight' : 'too wide'} — standing aside`);
+    else if (!widthOk) this.setStage(`${win.name} range ${width < R.minWidth * a ? 'too tight' : 'too wide'} — standing aside`);
     else if (armed) this.setStage(`Armed: long above ${this.px(hi)}, short below ${this.px(lo)}`);
     else this.setStage(`${win.name} range traded both ways — done for this open`);
   }

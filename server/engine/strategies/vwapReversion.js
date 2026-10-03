@@ -6,6 +6,9 @@ import { indexFrom } from './orb.js';
 export class VwapReversion extends TraderAgent {
   static strategyName = 'VWAP Mean Reversion';
   static strategyBlurb = 'Fades stretched moves outside the ±2σ session VWAP bands once price closes back inside, targeting VWAP. Disabled when ADX says the tape is trending.';
+  // band: the VWAP band it fades, in σ · rsi: how far RSI(7) must be from 50 · maxAdx: fades
+  // only below this ADX · minBand: σ at least this many ATRs (bands wide enough to pay)
+  static RULES = { band: 2, rsi: 18, maxAdx: 28, minBand: 0.6 };
 
   evaluate() {
     const bars = this.bars();
@@ -22,26 +25,27 @@ export class VwapReversion extends TraderAgent {
     const a = last(atr(bars, 14));
     const r = rsi(closes(bars), 7);
     const x = last(adx(bars, 14).adx);
-    const up2 = v + 2 * s;
-    const dn2 = v - 2 * s;
+    const R = this.rules;
+    const up2 = v + R.band * s;
+    const dn2 = v - R.band * s;
     const bar = bars[bars.length - 1];
     const prev = bars[bars.length - 2];
     const price = this.price();
-    const bandsOk = s > 0.6 * a;
-    const calm = x < 28;
+    const bandsOk = s > R.minBand * a;
+    const calm = x < R.maxAdx;
     const recentHigh = Math.max(...bars.slice(-4).map((b) => b.high));
     const recentLow = Math.min(...bars.slice(-4).map((b) => b.low));
 
     if (!this.position() && bandsOk && calm) {
-      if (prev.high > up2 && bar.close < up2 && last(r, 1) > 68) {
+      if (prev.high > up2 && bar.close < up2 && last(r, 1) > 50 + R.rsi) {
         const stop = recentHigh + 0.3 * a;
         if ((price - v) / (stop - price) >= 1) {
-          this.openTrade({ side: 'SHORT', stop, target: v, reason: 'Rejected +2σ VWAP band, fading to VWAP', partialAt: 0.8, timeStopBars: 45 });
+          this.openTrade({ side: 'SHORT', stop, target: v, reason: `Rejected +${R.band}σ VWAP band, fading to VWAP`, partialAt: 0.8, timeStopBars: 45 });
         }
-      } else if (prev.low < dn2 && bar.close > dn2 && last(r, 1) < 32) {
+      } else if (prev.low < dn2 && bar.close > dn2 && last(r, 1) < 50 - R.rsi) {
         const stop = recentLow - 0.3 * a;
         if ((v - price) / (price - stop) >= 1) {
-          this.openTrade({ side: 'LONG', stop, target: v, reason: 'Reclaimed −2σ VWAP band, fading to VWAP', partialAt: 0.8, timeStopBars: 45 });
+          this.openTrade({ side: 'LONG', stop, target: v, reason: `Reclaimed −${R.band}σ VWAP band, fading to VWAP`, partialAt: 0.8, timeStopBars: 45 });
         }
       }
     }
@@ -53,17 +57,17 @@ export class VwapReversion extends TraderAgent {
       bias: dev > 1 ? 'SHORT' : dev < -1 ? 'LONG' : 'NEUTRAL',
       armed: !this.position() && calm && bandsOk && stretched,
       levels: [
-        { label: '+2σ', price: up2 },
+        { label: `+${R.band}σ`, price: up2 },
         { label: 'VWAP', price: v },
-        { label: '−2σ', price: dn2 },
+        { label: `−${R.band}σ`, price: dn2 },
       ],
       thesis: `Price is ${dev >= 0 ? '+' : ''}${dev.toFixed(2)}σ from session VWAP ${this.px(v)}. ${calm ? 'Tape is rotational (ADX ' + x.toFixed(0) + '), so extremes tend to revert.' : 'ADX ' + x.toFixed(0) + ' says trending — no fading today.'}`,
       checklist: [
         { label: 'Session VWAP established', ok: true },
-        { label: 'ADX(14) < 28 (rotational)', ok: calm },
-        { label: 'Bands wide enough (σ > 0.6 ATR)', ok: bandsOk },
+        { label: `ADX(14) < ${R.maxAdx} (rotational)`, ok: calm },
+        { label: `Bands wide enough (σ > ${R.minBand} ATR)`, ok: bandsOk },
         { label: 'Price stretched beyond 1.6σ', ok: stretched },
-        { label: 'RSI(7) at extreme', ok: last(r) > 68 || last(r) < 32 },
+        { label: 'RSI(7) at extreme', ok: last(r) > 50 + R.rsi || last(r) < 50 - R.rsi },
       ],
       confidence: Math.round(Math.min(95, 20 + (calm ? 25 : 0) + (bandsOk ? 15 : 0) + Math.min(35, Math.abs(dev) * 15))),
       indicators: { VWAP: v, 'σ': s, 'Deviation σ': dev, 'RSI(7)': last(r), 'ADX(14)': x },

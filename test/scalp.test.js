@@ -185,3 +185,32 @@ test('npm run scalp-test replays a scalper through the floor\'s own code on a ru
   assert.equal(res.entries[0].side, 'LONG');
   assert.ok(res.trades.length >= 1, 'and closed it by the end');
 });
+
+test('more setups: each desk\'s entry rules come from its strategy, the roster tunes them, and a longer killzone runs an hour past the usual end', () => {
+  const byId = (id) => ROSTER.find((p) => p.id === id);
+  // The looser rules that passed on 22 months of real prices (README "More setups").
+  assert.deepEqual(byId('marcus').rules, { minWidth: 1.0, maxWidth: 12, volume: 0 });
+  assert.deepEqual(byId('james').rules, { band: 1.5, rsi: 12, maxAdx: 32 });
+  assert.deepEqual(byId('priya').rules, { minBars: 4 });
+  for (const id of ['jake', 'layla', 'ryan', 'mia']) assert.equal(byId(id).scalp.pools, 'all', id);
+  assert.equal(byId('nico').scalp.pools, undefined, 'the one desk the account still takes: only what made it better');
+  for (const id of ['ryan', 'mia', 'nico']) assert.equal(byId(id).rules.extend, 60, id);
+  for (const id of ['jake', 'layla', 'amara', 'lucas']) assert.equal(byId(id).rules?.extend, undefined, id);
+  assert.equal(byId('amara').rules, undefined, 'its looser rules made the trades worse');
+  assert.equal(byId('lucas').rules, undefined);
+
+  // A desk's rules: the strategy's own, with the roster's on top.
+  const plain = desk();
+  assert.deepEqual(plain.agent.rules, LiquidityScalp.RULES);
+  const late = desk({ ...jake, id: 'late', rules: { extend: 60 } });
+  assert.equal(late.agent.rules.extend, 60);
+  assert.equal(late.agent.rules.perZone, LiquidityScalp.RULES.perZone);
+  // 05:30 New York: London's killzone (02:00–05:00) is over, unless it runs an hour longer.
+  for (const d of [plain, late]) {
+    for (let m = 0; m <= 210; m++) d.step(d.bar(d.sec(2, 0) + m * 60, 1.3417, 1.3419, 1.3415, 1.3418));
+  }
+  assert.equal(plain.agent.ctx.kz.active, false);
+  assert.equal(late.agent.ctx.kz.active, true);
+  assert.match(late.agent.ctx.kz.local, /07:00–10:00 London, plus an hour/);
+  assert.equal(plain.agent.ctx.kz.local, KILLZONES.london.local);
+});

@@ -1299,7 +1299,7 @@ test('the paper broker charges each market its own commission', () => {
 test('a desk earns its place on the account with its form: out of form, it trades paper only until it recovers', () => {
   const { fund, live, sync } = setup();
   sync();
-  live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // training: every desk on
+  live.setup({ program: '2-step', type: 'trial', size: 100_000, practiceAll: false }); // training: every desk on
   assert.equal(live.arm().ok, true);
   const ryan = fund.byId.get('ryan');
   const gold = { symbol: 'XAUUSD', qty: 1 };
@@ -1337,7 +1337,7 @@ test('a desk saved before it kept its form starts it from its learning journal',
 test('capital follows the nightly review: no edge on your prices is paper only, unclear is half size', async () => {
   const { fund, live, sync } = setup();
   sync();
-  live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // training: every desk on
+  live.setup({ program: '2-step', type: 'trial', size: 100_000, practiceAll: false }); // training: every desk on
   assert.equal(live.arm().ok, true);
   const verdicts = {
     marcus: { id: 'marcus', n: 21, avgR: -0.56, verdict: 'no edge' },
@@ -1445,7 +1445,7 @@ test('end to end: a review on disk takes a desk off the account, and the Today c
   }));
   live.review = new EdgeReview({ dataDir, log: { info() {}, warn() {} } });
   sync();
-  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', size: 100_000, practiceAll: false });
   assert.equal(live.arm().ok, true);
   const amara = fund.byId.get('amara');
   assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), true, 'she still trades on paper');
@@ -1498,7 +1498,7 @@ test('long run: a desk that lost money over months of real prices stays off the 
   const { skipCategory } = await import('../server/live/dailyReport.js');
   const { fund, live, sync } = setup();
   sync();
-  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', size: 100_000, practiceAll: false });
   assert.equal(live.arm().ok, true);
   live.baseline = new Baseline(LONG);
   const brain = live.brain;
@@ -1547,6 +1547,44 @@ test('long run: a desk that lost money over months of real prices stays off the 
   assert.equal(brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {}).ok, true);
 });
 
+test('practice on the Free Trial: desks the evidence holds back still trade it, small; never on a paid challenge', async () => {
+  const { Baseline } = await import('../server/live/baseline.js');
+  const { fund, live, sync } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000, riskPerTradePct: 0.5 });
+  assert.equal(live.profile.practiceAll, true, 'on by default on the Free Trial');
+  assert.equal(live.arm().ok, true);
+  live.baseline = new Baseline(LONG);
+  const brain = live.brain;
+  const lucas = fund.byId.get('lucas');
+  const full = brain.allow(fund.byId.get('jake'), { symbol: 'GBPUSD', qty: 1 }, {});
+  const v = brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {});
+  assert.equal(v.ok, true, 'it trades the trial');
+  assert.equal(v.practice, true);
+  assert.ok(Math.abs(v.riskMult - full.riskMult * 0.5) < 1e-9, 'at 0.25% a trade, half the 0.5% the account risks');
+  assert.ok(v.reasons.some((r) => /^Practice on the Free Trial at 0\.25% a trade: Lucas lost money over the long run/.test(r)));
+  assert.equal(brain.deskStatus(lucas).label, 'Practice · loses long-term');
+  assert.match(brain.deskStatus(lucas).text, /Practises on the Free Trial at 0\.25% a trade/);
+  const plan = live.view().plan;
+  assert.equal(plan.practice, true);
+  assert.ok(plan.rules.some((r) => /^Practice is ON: desks the evidence holds back/.test(r.text)));
+  assert.ok(plan.rules.some((r) => /they practise on the Free Trial at 0\.25% a trade; on a paid challenge, paper only/.test(r.text)));
+  // The cool-off and a desk's own loss limit still hold; so does the boss's switch.
+  assert.equal(live.setPlan({ practiceAll: false }).ok, true);
+  assert.match(brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {}).reason, /lost money over the long run/);
+  assert.equal(brain.deskStatus(lucas).label, 'Paper · loses long-term');
+  assert.ok(live.view().plan.rules.some((r) => /^Practice is OFF/.test(r.text)));
+  // Practice only means something while training.
+  live.setPlan({ practiceAll: true, training: false });
+  assert.equal(brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {}).ok, false);
+  // A paid challenge never practises.
+  live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
+  assert.equal(live.profile.practiceAll, false);
+  assert.match(live.setPlan({ practiceAll: true }).error, /Practice is for the Free Trial/);
+  assert.equal(brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {}).ok, false);
+  live.baseline = null;
+});
+
 test('the shipped long-run record is complete and judged on thousands of real trades', async () => {
   const { loadBaseline, Baseline } = await import('../server/live/baseline.js');
   const data = loadBaseline(undefined, { warn: (m) => assert.fail(m) });
@@ -1581,7 +1619,7 @@ test('a research desk\'s new strategy trades paper first, then the account', asy
   const { skipCategory } = await import('../server/live/dailyReport.js');
   const { fund, live, sync } = setup();
   sync();
-  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  live.setup({ program: '2-step', type: 'trial', size: 100_000, practiceAll: false });
   assert.equal(live.arm().ok, true);
   const elena = fund.byId.get('elena');
   elena.active = { name: '15m Squeeze breakout', symbol: 'XAUUSD', live: { trades: 3, sumR: 1.2, realTrades: 3, realSumR: 1.2 } };

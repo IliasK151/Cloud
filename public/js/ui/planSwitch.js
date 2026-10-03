@@ -15,6 +15,15 @@ const SWITCHES = [
     confirmOn: () => 'Train the desks on FTMO?\n\nEvery trade the desks take goes to your FTMO Free Trial: no committee-grade, proven-desk, correlation or daily-plan holds. Expect many more trades, including ones the committee isn\'t convinced by (sized smaller).\n\nFTMO\'s loss guard still closes everything near the limits, and every order carries its stop-loss.',
   },
   {
+    key: 'practiceAll',
+    only: (p) => p.canTrain, // Free Trial only
+    needsTraining: true, // it changes what training sends
+    title: () => 'Practice: every desk trades the trial',
+    on: (p) => `Desks the evidence holds back (losing over the long run, out of form, a new research strategy) still trade your Free Trial, at ${p.practiceRiskPct}% a trade, so you watch every desk trade. On average they lose a little.`,
+    off: () => 'Desks the evidence holds back stay on paper; only the others train on FTMO.',
+    confirmOn: (p) => `Let every desk trade the Free Trial?\n\nDesks that lost money over 22 months of real prices will trade your FTMO Free Trial too, at ${p.practiceRiskPct}% a trade. You'll see far more trades, and the trial will most likely drift down slowly: these desks lose a little on average.\n\nFTMO's loss guard, a stop-loss on every order, the cool-off and each desk's loss limit still apply. A paid challenge never does this.`,
+  },
+  {
     key: 'dailyStopOn',
     title: (p) => `Daily stop at −${p.dailyStopPct}%`,
     on: (p) => `No new trades on the account after a −${p.dailyStopPct}% day.`,
@@ -52,12 +61,14 @@ export function planSwitches(plan) {
   if (!plan) return '';
   return `<div class="plan-switches">${SWITCHES.filter((sw) => !sw.only || sw.only(plan)).map((sw) => {
     const on = plan[sw.key] !== false;
-    // While training on FTMO the plan's holds are paused: their switches wait.
-    const paused = plan.training && sw.key !== 'training' && !sw.training;
-    const cls = sw.key === 'training' ? `training ${on ? 'on' : 'off'}` : on ? '' : 'off';
+    // While training on FTMO the plan's holds are paused: their switches wait. Practice only
+    // means something while training.
+    const paused = sw.needsTraining ? !plan.training : plan.training && sw.key !== 'training' && !sw.training;
+    const why = sw.needsTraining ? 'only while training on FTMO' : 'paused while training';
+    const cls = sw.key === 'training' || sw.key === 'practiceAll' ? `training ${on ? 'on' : 'off'}` : on ? '' : 'off';
     return `<div class="plan-switch ${cls}${paused ? ' paused' : ''}">
-      <label class="switch safe" title="${paused ? 'Paused while training on FTMO' : on ? 'Switch off' : 'Switch on'}"><input type="checkbox" data-plan-switch="${sw.key}" ${on ? 'checked' : ''} ${paused ? 'disabled' : ''} aria-label="${escapeHtml(sw.title(plan))}"><span></span></label>
-      <div><b>${escapeHtml(sw.title(plan))}: ${on ? 'ON' : 'OFF'}${paused ? ' · paused while training' : ''}</b><small>${escapeHtml(on ? sw.on(plan) : sw.off(plan))}</small></div>
+      <label class="switch safe" title="${paused ? escapeHtml(why) : on ? 'Switch off' : 'Switch on'}"><input type="checkbox" data-plan-switch="${sw.key}" ${on ? 'checked' : ''} ${paused ? 'disabled' : ''} aria-label="${escapeHtml(sw.title(plan))}"><span></span></label>
+      <div><b>${escapeHtml(sw.title(plan))}: ${on ? 'ON' : 'OFF'}${paused ? ` · ${why}` : ''}</b><small>${escapeHtml(on ? sw.on(plan) : sw.off(plan))}</small></div>
     </div>`;
   }).join('')}</div>`;
 }
