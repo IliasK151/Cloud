@@ -73,6 +73,7 @@ export class LiveView {
       if (t.id === 'lv-type' || t.id === 'lv-program') this.#applyPreset(this.root.querySelector('#lv-type').value);
       if (t.matches('[data-plan-switch]')) onPlanSwitch(t, this.store.live?.plan);
       if (t.matches('[data-stay-armed]')) this.#onStayArmed(t);
+      if (t.matches('[data-ftmo-only]')) this.#post('ftmo-only', { on: t.checked }).then((r) => { if (!r.ok) t.checked = !t.checked; });
       if (t.id === 'tg-enabled') this.#alertsPost('settings', { enabled: t.checked }).then((r) => this.#afterAlerts(r));
       if (t.matches('[data-tg-kind]')) this.#alertsPost('settings', { kinds: { [t.dataset.tgKind]: t.checked } }).then((r) => this.#afterAlerts(r));
     });
@@ -472,6 +473,12 @@ export class LiveView {
         <div><b>Stay armed after a restart: ${p.stayArmed ? 'ON' : 'OFF'}</b><small>${p.stayArmed
           ? (!v.armed && v.rememberedArmed ? 'Arming again by itself as soon as MT5 is connected and every check passes.' : 'If the floor, the Mac or MT5 restarts while armed, it arms again by itself once MT5 is back and every check passes. Disarm, Close all and a risk-guard stop stay off until you arm again.')
           : 'After a restart (floor, Mac or MT5), live trading waits for you to arm it again.'}</small></div>
+      </div>` : ''}
+      ${v.mode === 'live' ? `<div class="plan-switch stay-armed">
+        <label class="switch"><input type="checkbox" data-ftmo-only ${v.ftmoOnly ? 'checked' : ''} aria-label="FTMO only"><span></span></label>
+        <div><b>FTMO only: ${v.ftmoOnly ? 'ON' : 'OFF'}</b><small>${v.ftmoOnly
+          ? 'The desks take a trade only when it goes to your FTMO account. Nothing trades on paper: if FTMO can\'t take a trade (not armed, MT5 off, one of the account\'s rules), the desk doesn\'t take it, and says why.'
+          : 'The desks trade on paper all the time; the account plan decides which of their trades also go to FTMO.'}</small></div>
       </div>` : ''}`;
 
     // Rules card

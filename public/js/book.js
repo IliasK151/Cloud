@@ -75,7 +75,7 @@ export function deskBook(store, id) {
 // A desk's real standing with the FTMO account (from the account brain), never just "switched on".
 export function ftmoStatus(d, { detail = false } = {}) {
   const st = d.status;
-  if (!st || st.state === 'off' || st.state === 'paper') return `<span class="muted" title="${escapeHtml(st?.text || '')}">${d.eligible ? 'off' : 'paper only'}</span>`;
+  if (!st || st.state === 'off' || st.state === 'paper') return `<span class="muted" title="${escapeHtml(st?.text || '')}">${d.eligible ? 'off' : escapeHtml(st?.label?.toLowerCase() || 'paper only')}</span>`;
   const cls = { live: 'no', cleared: 'ok', ready: 'ok', training: 'ok', probation: 'warn', proving: 'paper', stopped: 'warn', halted: 'warn' }[st.state] || 'paper';
   const skip = d.lastSkip && st.state !== 'live' ? `Last trade not sent (${d.lastSkip.symbol}): ${d.lastSkip.reason}` : '';
   const tip = [st.text, skip].filter(Boolean).join('\n');

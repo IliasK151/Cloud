@@ -152,6 +152,8 @@ export class Broker extends EventEmitter {
       r: t.initialRisk > 0 ? net / t.initialRisk : null,
       entryReason: t.entryReason, exitReason: t.exitReason,
       ...(t.simFeed ? { simFeed: true } : {}),
+      // FTMO only: the account refused it, so it was undone at once and doesn't count.
+      ...(t.cancelled ? { cancelled: t.cancelled } : {}),
       ...(t.meta ? { thesis: t.meta.thesis, grade: t.meta.grade, score: t.meta.score, verdict: t.meta.verdict, f: t.meta.f } : {}),
     };
     // The neural brain's call at entry. What it sensed (x) is there for it to learn from, but

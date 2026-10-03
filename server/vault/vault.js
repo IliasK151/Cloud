@@ -287,8 +287,9 @@ export class Vault extends EventEmitter {
   }
 
   // ---- what the floor knows ------------------------------------------------------------------
+  // Real prices only, and not a trade the FTMO account refused (undone at once, not counted).
   #real(t) {
-    return !(this.mode === 'live' && t.simFeed) && Number.isFinite(t.r);
+    return !(this.mode === 'live' && t.simFeed) && !t.cancelled && Number.isFinite(t.r);
   }
 
   #tradeName(a, t) {
@@ -335,7 +336,7 @@ ${t.grade ? `- Committee grade: **${t.grade}**\n` : ''}${Number.isFinite(n?.p) ?
     const text = String(e.text || '');
     let what = null;
     if (e.kind === 'entry') what = `**took it**: ${text}`;
-    else if (/^(Committee said no|Skipped a signal|Too expensive|Brain passed|Signal skipped —)/.test(text)) what = `turned down: ${text}`;
+    else if (/^(Committee said no|Skipped a signal|Too expensive|Brain passed|Signal skipped —|Not taken \(FTMO only\))/.test(text)) what = `turned down: ${text}`;
     if (!what) return;
     const a = this.fund.byId.get(e.agentId);
     if (!a) return;
@@ -394,7 +395,7 @@ ${t.grade ? `- Committee grade: **${t.grade}**\n` : ''}${Number.isFinite(n?.p) ?
     else if (e.kind === 'halt' || e.kind === 'risk') line = `⛔ ${text}`;
     else if (e.kind === 'research') line = `🧪 ${text}`;
     else if (e.kind === 'live') line = `🟢 **FTMO:** ${text}`;
-    else if (/^(Committee said no|Skipped a signal|Too expensive|Brain passed|Signal skipped —)/.test(text)) line = `🚫 **Turned down:** ${text}`;
+    else if (/^(Committee said no|Skipped a signal|Too expensive|Brain passed|Signal skipped —|Not taken \(FTMO only\))/.test(text)) line = `🚫 **Turned down:** ${text}`;
     else if (e.kind === 'info' && !/^(Strategy error)/.test(text)) line = `📝 ${text}`;
     if (line) this.#append(a, at, line);
   }

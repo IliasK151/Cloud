@@ -60,7 +60,7 @@ const INELIGIBLE = {
 // Paper stays the "brain": when an enabled desk opens, scales out, trails or closes a trade,
 // the same action is sent to MT5 with lots sized for the prop account's risk rules.
 export class LiveTrader extends EventEmitter {
-  constructor({ fund, md, bridge, clock, mode, dataDir, token, log = console }) {
+  constructor({ fund, md, bridge, clock, mode, dataDir, token, log = console, ftmoOnly = false }) {
     super();
     this.fund = fund;
     this.md = md;
@@ -74,6 +74,10 @@ export class LiveTrader extends EventEmitter {
     this.sessionId = crypto.randomBytes(3).toString('hex');
     this.armed = false;
     this.armedAt = null;
+    // FTMO only (gate()): the floor starts with it on (server/index.js) unless the boss
+    // switched it off; the desks ask before every trade.
+    this.ftmoOnly = typeof this.state.ftmoOnly === 'boolean' ? this.state.ftmoOnly : !!ftmoOnly;
+    fund.env.tradeGate = (agent, intent) => this.gate(agent, intent);
     this.events = [];
     // Orders from an earlier run that MT5 never confirmed didn't happen.
     this.links = new Map((this.state.links || []).map((l) => [l.key, { ...l, previousSession: true, ...(l.state === 'pending' ? { state: 'failed', reason: 'never confirmed by MT5 before the floor restarted' } : {}) }]));
@@ -135,7 +139,7 @@ export class LiveTrader extends EventEmitter {
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       const links = [...this.links.values()].slice(-200).map(({ previousSession, ...l }) => l);
-      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, peaks: this.state.peaks || {}, costs: this.state.costs || {}, backfill: this.state.backfill || {}, actions: this.bridge.actions, links };
+      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, ftmoOnly: this.ftmoOnly, peaks: this.state.peaks || {}, costs: this.state.costs || {}, backfill: this.state.backfill || {}, actions: this.bridge.actions, links };
       try {
         fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(data, null, 1));
         fs.renameSync(`${this.file}.tmp`, this.file);
@@ -483,6 +487,7 @@ export class LiveTrader extends EventEmitter {
         this.#note(`${this.#who(link)} order rejected by MT5: ${ack.msg}`, 'risk', link.agentId);
         this.reports.event(this.reportDay(), 'reject', `${this.#who(link)} ${link.brokerSymbol} order rejected by MT5: ${ack.msg}`);
         this.#alert('trade', `⚠️ ${this.#who(link)}'s ${link.brokerSymbol} order was rejected by MT5: ${ack.msg}`);
+        this.#dropPaper(link.agentId, link.floorSymbol, link.tradeId, `MT5 rejected the order (${ack.msg})`, { cancel: true, link });
       }
       this.save();
     } else if (ack.kind === 'close' && !ack.ok && link) {
@@ -650,6 +655,7 @@ export class LiveTrader extends EventEmitter {
           link.state = 'failed';
           link.reason = 'MT5 never confirmed the order';
           this.#note(`${this.#who(link)} ${link.brokerSymbol} order was never confirmed by MT5, so it doesn't count`, 'risk', link.agentId);
+          this.#dropPaper(link.agentId, link.floorSymbol, link.tradeId, 'MT5 never confirmed the order', { cancel: true, link });
           this.save();
         }
       } else {
@@ -667,6 +673,8 @@ export class LiveTrader extends EventEmitter {
           this.reports.closed(this.reportDay(), { key: link.key, agentId: link.agentId, ...this.#deskInfo(link.agentId), symbol: link.brokerSymbol, side: link.side, volume: link.volume0, entry: link.liveEntry, risk: link.risk, grade: link.grade, pnl, openedAt: link.createdAt });
           const r = link.risk > 0 ? ` (${pnl >= 0 ? '+' : '−'}${Math.abs(pnl / link.risk).toFixed(1)}R)` : '';
           this.#alert('trade', `${pnl >= 0 ? '✅' : '❌'} ${this.#who(link)} closed ${link.brokerSymbol} ${fmtUsd(pnl, { sign: true, cents: true })}${r} · ${link.closeRequested ? 'desk exit' : 'stop, target or manual on MT5'}\n\n${this.#todayTradesText()}`);
+          // FTMO only: the FTMO trade is over, so the desk's is too.
+          if (!link.closeRequested) this.#dropPaper(link.agentId, link.floorSymbol, link.tradeId, 'Closed on FTMO (stop, target, by hand or the loss guard)', { link });
           this.save();
         }
       }
@@ -850,6 +858,80 @@ export class LiveTrader extends EventEmitter {
     return this.bridge.hasPending((c) => c.meta?.linkKey === link.key);
   }
 
+  // ---- FTMO only ---------------------------------------------------------------------------
+  // On unless the boss switches it off: a desk takes a trade only if it goes to the FTMO
+  // account, so every trade on the floor is an FTMO trade (live mode; the demo stays on paper).
+  // The desk asks before its fill (engine/agent.js): null means go, otherwise why not. Without
+  // a stop (`intent.stop`) only whether the account can take anything from this desk now.
+  gate(agent, intent = {}) {
+    if (!this.ftmoOnly || this.mode !== 'live' || intent.testAlert) return null;
+    const why = this.#accountReady(agent);
+    if (why) return this.#refuse(agent, intent.symbol, why);
+    if (!Number.isFinite(intent.stop) || !Number.isFinite(intent.entry)) return null;
+    const plan = {
+      risk: Math.abs(intent.entry - intent.stop), entry: intent.entry, target: intent.target ?? null, tag: intent.tag || '',
+      grade: intent.grade ?? null, neural: intent.neural ?? null, riskMult: intent.riskMult, learnMult: intent.learnMult,
+    };
+    const d = this.#decide(agent, { symbol: intent.symbol, qty: intent.side === 'SHORT' ? -1 : 1, trade: {} }, plan);
+    return d.skip ? this.#refuse(agent, intent.symbol, d.skip) : null;
+  }
+
+  // Why the account can't take any trade right now (null: it can).
+  #accountBlock() {
+    if (!this.bridge.connected || !this.account) return 'MT5 isn\'t connected to the floor';
+    if (!this.profile) return 'the FTMO account isn\'t set up yet (FTMO tab)';
+    if (this.halt) return `trading on the account is halted: ${this.halt.reason}`;
+    if (!this.armed) return 'FTMO trading isn\'t armed (FTMO tab → Arm live trading)';
+    return null;
+  }
+
+  #accountReady(agent) {
+    const block = this.#accountBlock();
+    if (block) return block;
+    if (!this.eligible(agent.id)) return INELIGIBLE[agent.id];
+    if (!this.profile.desks?.[agent.id]) return 'this desk is switched off for the FTMO account (FTMO tab)';
+    return null;
+  }
+
+  // Counted on the day's report (the "Today on the account" card says why nothing went), at
+  // most once per desk and reason every 20 minutes: a setup that keeps firing isn't new ideas.
+  #refuse(agent, symbol, reason) {
+    const k = `${agent.id}|${reason}`;
+    const last = this.lastRefusal?.get(k);
+    if (!last || Date.now() - last > 20 * 60_000) {
+      (this.lastRefusal ||= new Map()).set(k, Date.now());
+      this.reports.skipped(this.reportDay(), { agentId: agent.id, ...this.#deskInfo(agent.id), symbol: symbol ?? agent.symbol, reason });
+      this.emit('change');
+    }
+    return reason;
+  }
+
+  // FTMO only: the desk's trade lasts as long as its FTMO trade. One FTMO refused is cancelled
+  // (it doesn't count for the desk); one that ended on MT5 (stop, target, by hand, the guard)
+  // is closed on the desk too. True if it closed one.
+  // Only this run's trades: paper trade ids start again at every restart.
+  #dropPaper(agentId, symbol, tradeId, reason, { cancel = false, link = null } = {}) {
+    if (!this.ftmoOnly || this.mode !== 'live' || tradeId == null || link?.previousSession) return false;
+    const agent = this.fund.byId.get(agentId);
+    const pos = agent?.book.positions.get(symbol);
+    if (!pos || pos.trade?.id !== tradeId) return false;
+    if (cancel) pos.trade.cancelled = reason;
+    agent.closeTrade(symbol, cancel ? `Cancelled: ${reason}` : reason);
+    return true;
+  }
+
+  setFtmoOnly(on) {
+    const v = on === true || on === 'true';
+    if (v === this.ftmoOnly) return { ok: true };
+    this.ftmoOnly = v;
+    this.state.ftmoOnly = v;
+    this.save();
+    this.#note(v
+      ? 'FTMO only switched ON: the desks take a trade only when it goes to the FTMO account. Nothing trades on paper'
+      : 'FTMO only switched OFF: the desks trade on paper again, and the account plan decides what also goes to FTMO', 'risk');
+    return { ok: true };
+  }
+
   #paperKey(agent, pos) {
     return `${this.sessionId}:${agent.id}:${pos.trade.id}`;
   }
@@ -1028,12 +1110,15 @@ export class LiveTrader extends EventEmitter {
     return tradesListText(closedTrades(r), { accountToday: floating });
   }
 
-  #skip(agent, pos, key, reason) {
+  #skip(agent, pos, key, reason, { cancel = false } = {}) {
     this.links.set(key, {
       key, agentId: agent.id, floorSymbol: pos.symbol, brokerSymbol: this.profile.symbolMap[pos.symbol],
       side: pos.qty > 0 ? 'BUY' : 'SELL', state: 'skipped', reason, createdAt: Date.now(), login: this.login,
     });
     this.reports.skipped(this.reportDay(), { agentId: agent.id, ...this.#deskInfo(agent.id), symbol: pos.symbol, reason });
+    // FTMO only: the desk asked first, but the account moved on in between (another desk took
+    // the last position, say). It doesn't keep the trade on paper.
+    if (cancel && this.#dropPaper(agent.id, pos.symbol, pos.trade?.id, `FTMO couldn't take it: ${reason}`, { cancel: true })) return this.emit('change');
     // Say it on the floor, but not again for the same reason within 20 minutes.
     const last = this.lastSkipNote.get(agent.id);
     if (last && last.reason === reason && Date.now() - last.at < 20 * 60_000) return this.emit('change');
@@ -1042,43 +1127,47 @@ export class LiveTrader extends EventEmitter {
     return undefined;
   }
 
-  #openLive(agent, pos, key) {
+  // Can this desk's trade go to the account right now, and at what size? Everything the
+  // account checks before an order, in one place: #openLive sends what passes, and with
+  // FTMO only on, the desk asks it before taking the trade at all (gate()).
+  //   pos:  { symbol, qty (its sign is the side), trade: { simFeed } }
+  //   plan: { risk (stop distance), entry, target, tag, grade, neural, testAlert, riskMult, learnMult }
+  #decide(agent, pos, plan) {
     const p = this.profile;
     const acc = this.account;
-    const plan = agent.plans.get(pos.symbol);
     const brokerSymbol = p.symbolMap[pos.symbol];
     const spec = brokerSymbol ? this.bridge.quotes[brokerSymbol] : null;
-    if (!brokerSymbol) return this.#skip(agent, pos, key, `no FTMO symbol mapped for ${pos.symbol}`);
+    if (!brokerSymbol) return { skip: `no FTMO symbol mapped for ${pos.symbol}` };
     // Never real money on made-up prices: a market whose live feed is down runs on a
     // simulated stand-in, and a trade decided on it is paper practice only.
     const feed = this.md.get(pos.symbol);
-    if (feed?.source === 'sim' || feed?.status === 'SIM') return this.#skip(agent, pos, key, `${pos.symbol} is on simulated prices right now (its live feed is down); only real prices trade real money`);
-    if (pos.trade?.simFeed) return this.#skip(agent, pos, key, `the desk decided this ${pos.symbol} trade on simulated prices`);
-    if (!plan || !(plan.risk > 0)) return this.#skip(agent, pos, key, 'no stop-loss on the desk trade');
-    if (plan.testAlert) return this.#skip(agent, pos, key, 'it was a test alert from the TradingView tab (tests never trade the account)');
-    if (!spec) return this.#skip(agent, pos, key, `no MT5 price for ${brokerSymbol} yet`);
+    if (feed?.source === 'sim' || feed?.status === 'SIM') return { skip: `${pos.symbol} is on simulated prices right now (its live feed is down); only real prices trade real money` };
+    if (pos.trade?.simFeed) return { skip: `the desk decided this ${pos.symbol} trade on simulated prices` };
+    if (!plan || !(plan.risk > 0)) return { skip: 'no stop-loss on the desk trade' };
+    if (plan.testAlert) return { skip: 'it was a test alert from the TradingView tab (tests never trade the account)' };
+    if (!spec) return { skip: `no MT5 price for ${brokerSymbol} yet` };
     // Transaction costs: a trade that gives most of its edge to the spread and commission
     // before it starts doesn't go (your own TradingView alerts are your call).
     const cost = this.costOf(brokerSymbol, plan.risk);
     if (cost && cost.totalR > COST_MAX_R && plan.tag !== 'TV') {
-      return this.#skip(agent, pos, key, `costs would eat ${cost.totalR.toFixed(2)}R before it starts (spread ${cost.spreadR.toFixed(2)}R + commission ${cost.commissionR.toFixed(2)}R), over the ${COST_MAX_R}R limit: the stop is too tight for ${brokerSymbol}'s costs right now`);
+      return { skip: `costs would eat ${cost.totalR.toFixed(2)}R before it starts (spread ${cost.spreadR.toFixed(2)}R + commission ${cost.commissionR.toFixed(2)}R), over the ${COST_MAX_R}R limit: the stop is too tight for ${brokerSymbol}'s costs right now` };
     }
-    if (!acc.algoAllowed || !acc.tradeAllowed) return this.#skip(agent, pos, key, 'Algo Trading is switched off in MT5');
+    if (!acc.algoAllowed || !acc.tradeAllowed) return { skip: 'Algo Trading is switched off in MT5' };
     const actions = this.bridge.actionsToday();
-    if (actions >= ACTION_LIMITS.newTrades) return this.#skip(agent, pos, key, `${actions} order actions sent to MT5 today; new trades stop at ${ACTION_LIMITS.newTrades}, far below FTMO's ${ACTION_LIMITS.ftmo} a day`);
+    if (actions >= ACTION_LIMITS.newTrades) return { skip: `${actions} order actions sent to MT5 today; new trades stop at ${ACTION_LIMITS.newTrades}, far below FTMO's ${ACTION_LIMITS.ftmo} a day` };
     const ours = this.bridge.positions.filter((x) => this.#ours(x)).length
       + [...this.links.values()].filter((l) => l.state === 'pending').length;
     // Training on FTMO: as many positions as the EA allows (its own cap, 8 unless changed).
     const training = trainingOn(p);
     const maxPositions = training ? Math.max(p.maxPositions, this.bridge.caps?.maxPositions || 8) : p.maxPositions;
-    if (ours >= maxPositions) return this.#skip(agent, pos, key, `already ${ours} live positions (max ${maxPositions})`);
+    if (ours >= maxPositions) return { skip: `already ${ours} live positions (max ${maxPositions})` };
 
     // Learning (or a new strategy on probation) may size a desk's trade down on the account, never up.
     const news = this.fund.env.news?.blackout(pos.symbol);
-    if (news) return this.#skip(agent, pos, key, `news blackout (${news.event.title})`);
+    if (news) return { skip: `news blackout (${news.event.title})` };
     // The account brain: only proven desks' A-grade trades, sized by where the account stands.
     const verdict = this.brain.allow(agent, pos, plan);
-    if (!verdict.ok) return this.#skip(agent, pos, key, verdict.reason);
+    if (!verdict.ok) return { skip: verdict.reason };
     // The boss's own alerts go at the account plan's risk; a desk's own trades may be sized
     // down further by its committee grade and what it has learned (never up).
     const deskMult = verdict.boss ? 1 : Math.min(1, plan.riskMult ?? plan.learnMult ?? 1);
@@ -1090,26 +1179,34 @@ export class LiveTrader extends EventEmitter {
       const perLot = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue);
       const minRisk = perLot * (spec.volMin || 0.01);
       if (Number.isFinite(minRisk) && minRisk > 0 && minRisk <= acc.balance * (p.riskPerTradePct / 100)) lots = spec.volMin || 0.01;
-      else return this.#skip(agent, pos, key, `even the ${spec.volMin} lot minimum would risk ${fmtUsd(minRisk)}, more than your ${p.riskPerTradePct}% per trade`);
+      else return { skip: `even the ${spec.volMin} lot minimum would risk ${fmtUsd(minRisk)}, more than your ${p.riskPerTradePct}% per trade` };
     }
     const actualRisk = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue) * lots;
     // Orders MT5 hasn't filled yet count too: several desks can send trades in the same second.
     const inFlight = [...this.links.values()].filter((l) => l.state === 'pending' && !l.previousSession && !l.ticket).reduce((sum, l) => sum + (l.risk || 0), 0);
     const openRisk = this.openRisk() + inFlight;
     const m = this.#metricsWith(openRisk);
-    if (actualRisk > m.dailyRoom) return this.#skip(agent, pos, key, `not enough room under the daily loss guard (${fmtUsd(Math.max(0, m.dailyRoom))} left)`);
-    if (actualRisk > m.maxRoom) return this.#skip(agent, pos, key, `not enough room under the max loss guard (${fmtUsd(Math.max(0, m.maxRoom))} left)`);
+    if (actualRisk > m.dailyRoom) return { skip: `not enough room under the daily loss guard (${fmtUsd(Math.max(0, m.dailyRoom))} left)` };
+    if (actualRisk > m.maxRoom) return { skip: `not enough room under the max loss guard (${fmtUsd(Math.max(0, m.maxRoom))} left)` };
     // Training on FTMO leaves out the open-risk budget: the loss-guard room above already
     // makes sure every open stop together can't breach FTMO's limits.
     if (!training && openRisk + actualRisk > acc.balance * (p.maxOpenRiskPct / 100)) {
-      return this.#skip(agent, pos, key, `open-risk budget of ${p.maxOpenRiskPct}% is full`);
+      return { skip: `open-risk budget of ${p.maxOpenRiskPct}% is full` };
     }
+    return { brokerSymbol, spec, cost, verdict, lots, actualRisk };
+  }
 
+  #openLive(agent, pos, key) {
+    const plan = agent.plans.get(pos.symbol);
+    const d = this.#decide(agent, pos, plan);
+    if (d.skip) return this.#skip(agent, pos, key, d.skip, { cancel: !plan?.testAlert });
+    const { brokerSymbol, spec, cost, verdict, lots, actualRisk } = d;
     const side = pos.qty > 0 ? 'BUY' : 'SELL';
     const comment = `MF-${agent.id}-${Date.now().toString(36).slice(-5)}`;
     const tpDistance = plan.target != null ? Math.abs(plan.target - plan.entry) : 0;
     const link = {
       key, agentId: agent.id, floorSymbol: pos.symbol, brokerSymbol, side, state: 'pending', login: this.login,
+      tradeId: pos.trade?.id ?? null,
       comment, magic: this.magicFor(agent.id), paperEntry: plan.entry, paperQty0: Math.abs(pos.qty),
       stopDistance: plan.risk, volume0: lots, volumeNow: lots, liveEntry: side === 'BUY' ? spec.ask : spec.bid,
       risk: actualRisk, createdAt: Date.now(), reason: plan.reason, openedDay: this.bridge.serverDay,
@@ -1279,6 +1376,9 @@ export class LiveTrader extends EventEmitter {
           : ' MT5 is sending your broker\'s prices for them now.';
       warnings.push(`No real prices for ${waiting.join(', ')} right now: the live feed isn't answering. Nothing is simulated, so desks on ${waiting.length === 1 ? 'that market' : 'those markets'} stand aside until real prices arrive.${how}`);
     }
+    // FTMO only: if the account can't take anything, nothing trades at all. Say so first.
+    const ftmoOnlyBlock = this.ftmoOnly && this.mode === 'live' ? this.#accountBlock() : null;
+    if (ftmoOnlyBlock) warnings.unshift(`The desks aren't trading at all: ${ftmoOnlyBlock}. FTMO only is on, so nothing trades on paper either.`);
     const plan = this.brain.state();
     const orphans = this.bridge.positions.filter((x) => this.#ours(x) && !links.some((l) => l.ticket === x.ticket && !l.previousSession && ['open', 'closing'].includes(l.state)));
     if (orphans.length) warnings.push(`${orphans.length} floor position(s) on MT5 are from a previous session. They keep their stop-loss; close them below if you like.`);
@@ -1298,6 +1398,8 @@ export class LiveTrader extends EventEmitter {
       armed: this.armed,
       armedAt: this.armedAt,
       rememberedArmed: !!this.state.armed?.[this.login],
+      ftmoOnly: this.ftmoOnly,
+      ftmoOnlyBlock,
       halt: this.halt,
       metrics: this.metrics(),
       openRisk: this.openRisk(),

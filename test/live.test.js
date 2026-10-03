@@ -17,7 +17,7 @@ import { autoMap } from '../server/live/symbolMap.js';
 const GOLD = { bid: 3800, ask: 3800.2, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
 const tick = () => new Promise((r) => setImmediate(r));
 
-function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], dataDir = null } = {}) {
+function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], dataDir = null, ftmoOnly = false } = {}) {
   const clock = new MarketClock('live');
   const session = new Session(clock);
   session.isFlattenWindow = () => false; // tests must not depend on the time of day
@@ -28,7 +28,7 @@ function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], da
   const fund = new Fund({ config: { startingCapital: 100_000_000, feed: mode, fundName: 'Test' }, md, clock, session, broker, risk, committee });
   const bridge = new Mt5Bridge();
   dataDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
-  const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} } });
+  const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} }, ftmoOnly });
   clearInterval(live.timer);
   md.applyTick('XAUUSD', 3800.1, 1, clock.now());
 
@@ -1800,3 +1800,108 @@ test('the research history keeps months of the broker\'s own bars, and the broke
   assert.equal(store.addBrokerHistory('EURUSD', [bar(now - 1e6)]), null);
   store.stop();
 });
+
+// ---- FTMO only -----------------------------------------------------------------------------
+test('FTMO only: a desk takes a trade only when it goes to FTMO, and its trade lasts as long as the FTMO one', async () => {
+  const { fund, live, sync, mt5, chen } = setup({ ftmoOnly: true });
+  const buy = () => chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 });
+  const trades = () => fund.broker.book('chen').trades;
+
+  // MT5 not connected: nothing at all, and the desk says why.
+  let res = buy();
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /not on FTMO: MT5 isn't connected/);
+  assert.equal(chen.position('XAUUSD'), null, 'nothing on paper');
+  assert.match(chen.setup.stage, /^Not taken \(FTMO only\): MT5 isn't connected/);
+
+  // Connected and set up (a Free Trial: every desk that can trade it is on), not armed yet.
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  assert.match(buy().reason, /FTMO trading isn't armed/);
+  assert.equal(chen.position('XAUUSD'), null);
+  const v = live.view();
+  assert.equal(v.ftmoOnly, true);
+  assert.match(v.ftmoOnlyBlock, /isn't armed/);
+  assert.match(v.warnings[0], /The desks aren't trading at all: FTMO trading isn't armed/);
+  assert.ok(v.today.reasons.some(([why]) => why === 'FTMO trading not armed'), 'counted on the day\'s report');
+  assert.match(v.today.recent[0].reason, /FTMO trading isn't armed/);
+
+  // Armed: the trade is taken and goes to MT5.
+  assert.equal(live.arm().ok, true);
+  assert.equal(live.view().ftmoOnlyBlock, null);
+  assert.equal(buy().ok, true);
+  await tick();
+  live.reconcile();
+  let open = sync().find((c) => c[0] === 'open');
+  assert.ok(open, 'sent to MT5');
+
+  // MT5 rejects it: the desk's trade is cancelled at once and doesn't count.
+  mt5.acks.push({ id: open[1], ok: false, msg: 'Market closed' });
+  sync();
+  assert.equal(chen.position('XAUUSD'), null);
+  assert.match(trades().at(-1).cancelled, /MT5 rejected the order \(Market closed\)/);
+  assert.match(trades().at(-1).exitReason, /^Cancelled: /);
+  assert.equal(chen.lifetime.trades, 0, 'not the desk\'s record');
+
+  // Again, filled this time; MT5's stop closes it, and the desk's trade closes with it.
+  assert.equal(buy().ok, true);
+  await tick();
+  live.reconcile();
+  open = sync().find((c) => c[0] === 'open');
+  mt5.acks.push({ id: open[1], ok: true, ticket: 9101, price: 3800.2, volume: Number(open[4]) });
+  mt5.positions.push({ ticket: 9101, symbol: 'XAUUSD', side: 'BUY', volume: Number(open[4]), open: 3800.2, sl: 3795, tp: 3810, profit: 0, magic: Number(open[7]), comment: open[8] });
+  sync();
+  assert.ok(chen.position('XAUUSD'));
+  mt5.positions = [];
+  for (let i = 0; i < 3; i++) sync();
+  assert.equal(chen.position('XAUUSD'), null, 'closed on the desk too');
+  assert.match(trades().at(-1).exitReason, /Closed on FTMO/);
+  assert.equal(trades().at(-1).cancelled, undefined);
+  assert.equal(chen.lifetime.trades, 1);
+
+  // Pairs and market making can't go to one prop account: they add nothing.
+  const kenji = fund.byId.get('kenji');
+  assert.equal(kenji.trade('XAUUSD', 1, { tag: 'PAIR' }), null);
+  assert.equal(kenji.position('XAUUSD'), null);
+  assert.match(kenji.setup.stage, /Not taken \(FTMO only\): Pairs trades/);
+
+  // Switched off: the desks trade on paper again (here, disarmed, paper only).
+  live.disarm();
+  assert.equal(live.setFtmoOnly(false).ok, true);
+  chen.cooldownBars = 0; // the usual pause after the loss above
+  const again = buy();
+  assert.equal(again.ok, true, again.reason);
+  assert.ok(chen.position('XAUUSD'));
+  assert.equal(live.view().ftmoOnlyBlock, null);
+});
+
+test('FTMO only: a trade the account turns down is never taken, a test alert still is, and the demo stays on paper', async () => {
+  const { fund, live, sync, chen } = setup({ ftmoOnly: true });
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  assert.equal(live.arm().ok, true);
+  // A market with no FTMO symbol: the account can't take it, so the desk doesn't either.
+  live.profile.symbolMap.XAUUSD = null;
+  const res = chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 });
+  assert.match(res.reason, /not on FTMO: no FTMO symbol mapped for XAUUSD/);
+  assert.equal(chen.position('XAUUSD'), null);
+  // The TradingView tab's test button: a paper test, never sent, never cancelled.
+  live.profile.symbolMap.XAUUSD = 'XAUUSD';
+  assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810, test: true }).ok, true);
+  await tick();
+  live.reconcile();
+  assert.equal(sync().filter((c) => c[0] === 'open').length, 0);
+  assert.ok(chen.position('XAUUSD'), 'the test trade stays');
+  // The switch is remembered across restarts.
+  live.setFtmoOnly(false);
+  await new Promise((r) => setTimeout(r, 250));
+  const saved = JSON.parse(fs.readFileSync(path.join(live.file, '..', 'live.json'), 'utf8'));
+  assert.equal(saved.ftmoOnly, false);
+
+  // Demo mode: no FTMO account, the desks trade on paper as a demo.
+  const demo = setup({ mode: 'sim', ftmoOnly: true });
+  assert.equal(demo.chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
+  assert.ok(demo.chen.position('XAUUSD'));
+  assert.equal(fund.byId.get('chen'), chen);
+});
+

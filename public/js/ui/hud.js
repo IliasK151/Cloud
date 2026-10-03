@@ -128,9 +128,11 @@ export class Hud {
       const a = s.agents[id];
       if (!a) continue;
       const d = deskBook(s, id);
-      row.pnl.textContent = d.na ? 'paper' : money(d.day, { sign: true, compact: Math.abs(d.day) >= 1e5 });
+      // FTMO only: a desk that isn't on the account doesn't trade at all.
+      const ftmoOnly = !!s.live?.ftmoOnly && s.live?.mode === 'live';
+      row.pnl.textContent = d.na ? (ftmoOnly ? 'off' : 'paper') : money(d.day, { sign: true, compact: Math.abs(d.day) >= 1e5 });
       row.pnl.className = `pnl num ${d.na ? 'na' : signClass(d.day)}`;
-      row.pnl.title = d.na ? 'Not switched on for the FTMO account' : ftmo ? 'P&L on your FTMO account today' : 'Paper P&L today';
+      row.pnl.title = d.na ? (ftmoOnly ? 'Not on the FTMO account, so with FTMO only on it doesn\'t trade' : 'Not switched on for the FTMO account') : ftmo ? 'P&L on your FTMO account today' : 'Paper P&L today';
       // In FTMO view a paper position is called what it is, unless it is live on MT5.
       const ld = ftmo ? s.live?.desks?.find((x) => x.id === id) : null;
       const paperTrade = ftmo && a.status === 'IN TRADE' && ld?.status?.state !== 'live';
@@ -154,8 +156,10 @@ export class Hud {
   // Mark desks that trade the FTMO account (red when a live position is open).
   setLive(v) {
     const note = document.getElementById('rail-note');
-    const proving = bookMode(this.store) === 'ftmo' ? provingNote(v) : '';
-    const html = proving || (bookMode(this.store) === 'ftmo' ? todayRailNote(this.store) : '');
+    // FTMO only and the account can't take anything (MT5 off, not armed, ...): said in either view.
+    const blocked = v.ftmoOnlyBlock ? todayRailNote(this.store) : '';
+    const proving = !blocked && bookMode(this.store) === 'ftmo' ? provingNote(v) : '';
+    const html = blocked || proving || (bookMode(this.store) === 'ftmo' ? todayRailNote(this.store) : '');
     if (note && note.dataset.html !== html) {
       note.dataset.html = html;
       note.innerHTML = html;

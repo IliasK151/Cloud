@@ -51,6 +51,9 @@ const GRADE_RANK = { A: 3, B: 2, C: 1 };
 const fmtR = (x) => (Number.isFinite(x) ? `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}R` : '—');
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
+// FTMO only (liveTrader gate()): a trade the account holds back isn't taken on paper either.
+const noPaper = (lt) => !!lt?.ftmoOnly && lt.mode === 'live';
+
 export class AccountBrain {
   constructor(live) {
     this.live = live;
@@ -129,7 +132,7 @@ export class AccountBrain {
     if (training && p.streakStopOn !== false && streak >= p.streakStop && lastToday && lastClosed.closedAt) {
       const until = lastClosed.closedAt + LIMITS.cooloffMs;
       const left = until - Date.now();
-      if (left > 0) cooloff = { until, minutes: Math.ceil(left / 60_000), text: `${streak} losses in a row on the account: a ${LIMITS.cooloffMs / 3_600_000}-hour cool-off, ${Math.ceil(left / 60_000)} minutes to go (the desks keep trading on paper meanwhile)` };
+      if (left > 0) cooloff = { until, minutes: Math.ceil(left / 60_000), text: `${streak} losses in a row on the account: a ${LIMITS.cooloffMs / 3_600_000}-hour cool-off, ${Math.ceil(left / 60_000)} minutes to go (${noPaper(this.live) ? 'nothing trades meanwhile: FTMO only is on' : 'the desks keep trading on paper meanwhile'})` };
     }
 
     // FTMO's own rules stop the day even while training: 1-Step's Best Day rule. A day that
@@ -175,7 +178,7 @@ export class AccountBrain {
     const full = acc.balance * (base / 100);
     const limitRules = [
       training && (p.streakStopOn !== false
-        ? { text: `${p.streakStop} losses in a row: a ${LIMITS.cooloffMs / 3_600_000}-hour cool-off on the account, the desks keep learning on paper${cooloff ? ` (${cooloff.minutes} minutes to go)` : ` (streak ${streak})`}`, ok: !cooloff }
+        ? { text: `${p.streakStop} losses in a row: a ${LIMITS.cooloffMs / 3_600_000}-hour cool-off on the account${noPaper(this.live) ? ' (FTMO only: nothing trades during it)' : ', the desks keep learning on paper'}${cooloff ? ` (${cooloff.minutes} minutes to go)` : ` (streak ${streak})`}`, ok: !cooloff }
         : { text: `Cool-off after ${p.streakStop} losses in a row is OFF (the losing-streak switch)`, ok: false }),
       { text: `Desk loss limit: a desk that loses ${LIMITS.deskLossR}× its full risk (${fmtUsd(LIMITS.deskLossR * full)}) on the account in a day is off it until tomorrow`, ok: true },
       { text: `No flipping: after a losing trade on a market, nothing the other way on it for ${LIMITS.noFlipMs / 60_000} minutes`, ok: true },
@@ -208,7 +211,7 @@ export class AccountBrain {
         const sk = nb?.ready ? nb.skill() : null;
         if (!sk) return null;
         return sk.trusted
-          ? { text: `Neural brain has a say: on trades it hadn't seen it ranks winners above losers (skill ${sk.auc}). Ideas it expects to lose stay off the account, a few trade small on paper so it keeps learning. It never sends a trade these rules hold back`, ok: true }
+          ? { text: `Neural brain has a say: on trades it hadn't seen it ranks winners above losers (skill ${sk.auc}). Ideas it expects to lose stay off the account${noPaper(this.live) ? ' and, with FTMO only on, aren\'t traded at all' : ', a few trade small on paper so it keeps learning'}. It never sends a trade these rules hold back`, ok: true }
           : { text: `Neural brain is learning: it judges every idea and learns from every trade, but decides nothing for the account until it tells winners from losers on trades it hasn't seen (skill ${sk.auc ?? '—'} now, it needs ${nb.trust.minAuc})`, ok: true };
       })(),
       lt.fund?.weekendOn && { text: `Weekend: the desks day-trade crypto (Bitcoin and Ether) until Sunday 18:00 New York, flat by 16:50 each day. At most ${LIMITS.weekendCrypto} crypto positions on the account at once, because crypto moves together, and each desk's weekend crypto record counts as its long-run record`, ok: true },
@@ -240,7 +243,7 @@ export class AccountBrain {
         { text: 'Training on FTMO: every trade the desks take goes to the account, so they learn on FTMO itself. The committee grade, proven-desk, correlation and daily-plan holds are paused; the risk limits below stay', ok: false },
         p.practiceAll !== false
           ? { text: `Practice is ON: desks the evidence holds back (losing over the long run, no edge on your prices, out of form, a new research strategy) trade the Free Trial too, at ${Math.min(LIMITS.practiceRiskPct, p.riskPerTradePct)}% a trade, so you watch every desk trade. On average they lose a little; a paid challenge never does this`, ok: false }
-          : { text: 'Practice is OFF: desks the evidence holds back stay on paper while the others train on FTMO', ok: true },
+          : { text: `Practice is OFF: desks the evidence holds back ${noPaper(this.live) ? 'don\'t trade (FTMO only is on)' : 'stay on paper'} while the others train on FTMO`, ok: true },
         { text: 'Real prices only: a market whose live feed is down is not traded, never simulated', ok: true },
         { text: `Risk ${riskPct.toFixed(2)}% per trade now (base ${base}%), smaller for the committee's B and C grades`, ok: mult >= 0.99 },
         { text: 'Every order carries its stop-loss', ok: true },
@@ -298,7 +301,7 @@ export class AccountBrain {
     const boss = plan.tag === 'TV';
     // An idea the neural brain passed on, taken small on paper so it learns whether it was
     // right: an experiment, never for the account (training or not).
-    if (plan.neural?.explore) return { ok: false, reason: `the neural brain passed on this idea (${Math.round((plan.neural.p ?? 0) * 100)}% chance, ${fmtR(plan.neural.expR)} expected): it trades small on paper only, so the brain learns whether it was right` };
+    if (plan.neural?.explore) return { ok: false, reason: `the neural brain passed on this idea (${Math.round((plan.neural.p ?? 0) * 100)}% chance, ${fmtR(plan.neural.expR)} expected): ${noPaper(this.live) ? 'with FTMO only on, it isn\'t traded' : 'it trades small on paper only, so the brain learns whether it was right'}` };
     // FTMO's own rules and the risk limits hold even while training.
     if (st.ruleStop) return { ok: false, reason: st.ruleStop };
     if (st.cooloff) return { ok: false, reason: st.cooloff.text };
@@ -376,7 +379,7 @@ export class AccountBrain {
     const today = (l) => (l.closedDay ? l.closedDay === day : Date.now() - (l.closedAt || 0) < 12 * 3_600_000);
     const pnl = this.#links().filter((l) => l.agentId === agent.id && l.state === 'closed' && Number.isFinite(l.pnl) && today(l)).reduce((s, l) => s + l.pnl, 0);
     if (!(full > 0) || pnl > -LIMITS.deskLossR * full) return null;
-    return `desk loss limit: ${fmtUsd(pnl)} on the account today, ${LIMITS.deskLossR}× its full risk of ${fmtUsd(full)}. Off the account until tomorrow; it keeps trading on paper`;
+    return `desk loss limit: ${fmtUsd(pnl)} on the account today, ${LIMITS.deskLossR}× its full risk of ${fmtUsd(full)}. Off the account until tomorrow${noPaper(lt) ? ' (FTMO only: it doesn\'t trade until then)' : '; it keeps trading on paper'}`;
   }
 
   // At the weekend every desk day-trades crypto, and Bitcoin, Ether and the rest move together:
@@ -473,7 +476,7 @@ export class AccountBrain {
     const avgR = recent.reduce((s, r) => s + r, 0) / n;
     if (avgR >= 0) return { ok: true, n, avgR };
     const name = agent.profile.name.split(' ')[0];
-    return { ok: false, n, avgR, text: `out of form: ${name}'s last ${n} trades on real prices averaged ${avgR >= 0 ? '+' : '−'}${Math.abs(avgR).toFixed(2)}R. Paper only until that's back to 0R or better; the desk keeps trading on paper` };
+    return { ok: false, n, avgR, text: `out of form: ${name}'s last ${n} trades on real prices averaged ${avgR >= 0 ? '+' : '−'}${Math.abs(avgR).toFixed(2)}R. ${noPaper(this.live) ? 'Off the account until that\'s back to 0R or better' : 'Paper only until that\'s back to 0R or better; the desk keeps trading on paper'}` };
   }
 
   // Capital follows results, as at a multi-manager fund: a desk whose recent trades on the
@@ -496,8 +499,8 @@ export class AccountBrain {
   deskStatus(agent, st = this.state()) {
     const lt = this.live;
     const p = lt.profile;
-    if (!p?.desks?.[agent.id]) return { state: 'off', label: 'Off', text: 'Not switched on for the FTMO account: paper only' };
-    if (!lt.eligible(agent.id)) return { state: 'paper', label: 'Paper only', text: lt.ineligibleReason(agent.id) };
+    if (!p?.desks?.[agent.id]) return { state: 'off', label: 'Off', text: `Not switched on for the FTMO account: ${noPaper(lt) ? 'with FTMO only on, it doesn\'t trade' : 'paper only'}` };
+    if (!lt.eligible(agent.id)) return noPaper(lt) ? { state: 'paper', label: 'Not trading', text: `${lt.ineligibleReason(agent.id).replace(/ — paper only\.?$/, '')}. With FTMO only on, it doesn't trade.` } : { state: 'paper', label: 'Paper only', text: lt.ineligibleReason(agent.id) };
     const open = this.#links().find((l) => l.agentId === agent.id && !l.previousSession && ['open', 'closing', 'pending'].includes(l.state));
     if (open) return { state: 'live', label: 'LIVE', text: `Live on MT5: ${open.side} ${open.volumeNow ?? open.volume0} ${open.brokerSymbol}` };
     if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };

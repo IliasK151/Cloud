@@ -121,6 +121,10 @@ export class TraderAgent {
       return false;
     }
     if (this.position(symbol)) return false;
+    // FTMO only (live/liveTrader.js gate()): the desk trades nothing the FTMO account can't take
+    // right now (MT5 not connected, not armed, the desk switched off, ...).
+    const ready = this.env.tradeGate?.(this, { symbol, side, tag, testAlert }) ?? null;
+    if (ready) return this.#notOnFtmo(ready);
     const entry = this.price(symbol);
     const long = side === 'LONG';
     if (!Number.isFinite(entry) || !Number.isFinite(stop) || (long ? stop >= entry : stop <= entry)) return false;
@@ -185,6 +189,17 @@ export class TraderAgent {
     }
     if (nb?.sizeMult != null) riskMultiplier *= nb.sizeMult;
 
+    // FTMO only: this exact trade, through every check the account makes before an order
+    // (the account brain, costs on MT5, room under the loss guard, ...). Not there, not taken.
+    const onFtmo = this.env.tradeGate?.(this, {
+      symbol, side, entry, stop, target, tag, testAlert, grade: review?.grade ?? null,
+      neural: nb?.x ? { p: nb.p, expR: nb.expR, explore: !!nb.explore } : null, riskMult: riskMultiplier, learnMult: learn.sizeMult,
+    }) ?? null;
+    if (onFtmo) {
+      this.day.skipped++;
+      return this.#notOnFtmo(onFtmo);
+    }
+
     const qty = this.risk.size(this, symbol, entry, stop, { riskMultiplier });
     if (!qty) {
       this.#whyNot('the position size came out at zero');
@@ -228,6 +243,18 @@ export class TraderAgent {
 
   #whyNot(text) {
     this.day.whyNot = { text, at: this.env.clock.now() };
+  }
+
+  // A trade FTMO can't take isn't taken at all. Said on the floor when the reason changes,
+  // and again at most every 10 minutes (a setup that keeps firing isn't news).
+  #notOnFtmo(reason) {
+    this.lastReject = `not on FTMO: ${reason}`;
+    this.#whyNot(`not taken, FTMO couldn't take it: ${reason}`);
+    const now = this.env.clock.now();
+    const said = this.ftmoSaid?.reason === reason && now - this.ftmoSaid.at < 10 * 60_000;
+    if (!said) this.ftmoSaid = { reason, at: now };
+    this.setStage(`Not taken (FTMO only): ${reason}`, said ? 'quiet' : 'setup');
+    return false;
   }
 
   // The stop and target that fit the market's costs, or null if none sensibly does.
@@ -284,8 +311,18 @@ export class TraderAgent {
     return res;
   }
 
-  // Direct execution without a managed plan (pairs / market making).
+  // Direct execution without a managed plan (pairs / market making). FTMO only: neither can
+  // go to a single prop account, so they add nothing new; closing what they hold always goes.
   trade(symbol, qty, opts = {}) {
+    const pos = this.position(symbol);
+    const reduces = !!pos && Math.sign(qty) === -Math.sign(pos.qty) && Math.abs(qty) <= Math.abs(pos.qty) + 1e-12;
+    if (!reduces) {
+      const why = this.env.tradeGate?.(this, { symbol, side: qty > 0 ? 'LONG' : 'SHORT', tag: opts.tag || '' }) ?? null;
+      if (why) {
+        this.#notOnFtmo(why);
+        return null;
+      }
+    }
     return this.broker.execute(this.id, symbol, qty, opts);
   }
 
@@ -326,6 +363,13 @@ export class TraderAgent {
 
   // Broker callback for every closed round trip that belongs to this desk.
   onTradeClosed(trade) {
+    // FTMO only: a trade the account refused was undone straight away. It isn't the desk's
+    // record, a lesson or something for the brains to learn from.
+    if (trade.cancelled) {
+      this.learner.open.delete(trade.id);
+      this.note(`Cancelled my ${trade.symbol} trade: ${trade.cancelled}. It doesn't count.`, 'info', { symbol: trade.symbol });
+      return;
+    }
     const win = trade.pnl > 0;
     // The situation it was taken in, for the floor's shared memory (the learner forgets it below).
     const ctx = this.learner.open.get(trade.id)?.ctx;

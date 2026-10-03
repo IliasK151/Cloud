@@ -65,6 +65,13 @@ export function marketClock(ms, timeZone) {
 
 // ---- why trades stay on paper -----------------------------------------------------------------
 const MEANING = {
+  // FTMO only: the account couldn't take anything, so the desks didn't trade at all.
+  'MT5 not connected': 'MT5 isn\'t talking to the floor: open MT5 with the MeridianBridge EA on a chart. With FTMO only on, nothing trades until it is.',
+  'FTMO account not set up': 'Save the account setup on this tab. With FTMO only on, nothing trades until it is.',
+  'FTMO trading not armed': 'Press Arm live trading on this tab (and switch on "Stay armed after a restart" so a restart doesn\'t stop the desks). With FTMO only on, nothing trades until it\'s armed.',
+  'Account halted': 'A risk guard stopped trading on the account. Clear the halt on this tab when you\'re ready.',
+  'Desk switched off for FTMO': 'Switch the desk on in the desk list below.',
+  'Can\'t trade a prop account': 'Pairs trading and market making can\'t be copied onto a single FTMO account, so with FTMO only on these desks don\'t trade.',
   'Committee grade too low': 'The committee grades every idea A, B or C. Only A and B-grade trades go to the account; a C ("not convinced") stays on paper so the desk keeps measuring.',
   'Desk not proven yet': 'The desk needs 10+ trades on real prices with a positive edge first, or switch off "Proven desks only" below.',
   'Correlated position already open': 'One position per correlated group: both US indices are one bet, so are the coins and the FX pairs.',
@@ -226,6 +233,8 @@ export function ftmoLine(v) {
 export function todayRailNote(store) {
   const s = todaySummary(store);
   const v = store.live;
+  // FTMO only: when the account can't take anything, nothing trades. Say why, on the floor.
+  if (v?.ftmoOnlyBlock) return `<b>Not trading:</b> ${escapeHtml(v.ftmoOnlyBlock)}. <button class="btn" data-goto-view="ftmo">Open the FTMO tab</button>`;
   if (!s || !v?.armed || !v.connected) return '';
   const f = s.funnel;
   const what = f.sent

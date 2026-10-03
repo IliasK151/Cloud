@@ -258,8 +258,9 @@ export class QuantResearch extends TraderAgent {
   onTradeClosed(trade) {
     super.onTradeClosed(trade);
     const act = this.active;
-    // The neural brain's explorations don't count towards the strategy's live record.
-    if (!act || trade.symbol !== act.symbol || trade.r == null || trade.neural?.explore) return;
+    // The neural brain's explorations don't count towards the strategy's live record, nor a
+    // trade the FTMO account refused (undone at once).
+    if (!act || trade.symbol !== act.symbol || trade.r == null || trade.neural?.explore || trade.cancelled) return;
     const l = act.live;
     l.trades++;
     if (trade.r > 0) l.wins++;

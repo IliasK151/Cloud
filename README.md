@@ -515,7 +515,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 - **FTMO rule guard.** It watches the daily and maximum loss using FTMO's method (equity against the day's starting balance, and against the account size, or on 1-Step against the best end-of-day balance). At 80% of a limit it closes the floor's positions and stops trading: until the next server day for the daily limit, and until you clear it for the max loss. It can also stop when the profit target is hit, which is on by default.
 - **2-Step or 1-Step** (below): the FTMO tab asks which program the account is on, and follows that program's limits.
 - **Arming is always your decision.** The floor starts disarmed after a restart, unless you switch on **Stay armed after a restart** (below). Paid accounts need you to type the account number to arm. **Close all & disarm** is always one click away.
-- **Two desks stay paper-only.** The stat-arb and market-making desks don't mirror onto a single prop account.
+- **Two desks can't trade the account.** The stat-arb and market-making desks don't mirror onto a single prop account, so with **FTMO only** on (below) they don't trade at all.
 - **Research desks can trade it too,** once you switch them on: they trade only validated strategies, at half size while a new strategy is on probation.
 - **The account brain decides what reaches the account** (above): only committee A-grade trades from desks with a proven edge, sized down in drawdown and after losses, with a daily stop, a daily trade cap and one position per correlated group.
 - **News.** Nothing is sent to MT5 inside a news blackout, and the floor's positions are closed 5 minutes before high-impact news.
@@ -534,7 +534,16 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 
 ![New FTMO account detected](docs/ftmo-connect.jpg)
 
-**Which P&L you're looking at.** Every desk also keeps paper trading with the fund's practice money, which runs to millions per desk. Once an FTMO account is connected, the top bar, desk list, desk signs, video wall and trader panels show **your FTMO account**: its equity, today's P&L and each desk's P&L on it. A desk that isn't switched on for the account says **paper**. The **FTMO / Paper** switch at the top flips the floor (and the dashboard) back to the paper fund, and the paper dashboard has a **Reset paper P&L** button.
+### FTMO only: every trade is an FTMO trade
+
+On by default in live mode (a switch in the FTMO tab's Connection card). A desk takes a trade **only when it goes to your FTMO account**. Before its fill, the desk runs the same checks the account makes before an order: MT5 connected, the account set up and **armed**, the desk switched on, the market mapped to an MT5 symbol, the costs on MT5, room under the loss guard, the account brain. If FTMO can't take the trade, the desk doesn't take it either, and its stage says why (*Not taken (FTMO only): FTMO trading isn't armed*).
+
+- **The desk's trade lasts as long as the FTMO one.** When MT5 closes the position (its stop, its target, you closing it by hand, the loss guard, Close all), the desk's trade closes too. When MT5 rejects or never confirms an order, the desk's trade is cancelled at once and doesn't count: not in its record, not as a lesson, not for the brains.
+- **Nothing trades on paper.** That includes the neural brain's small experiments, the pairs and market-making desks (they can't be copied onto one prop account) and any desk you've switched off for the account. The demo (`npm run demo`) still trades on paper, and so does the TradingView tab's test button.
+- **If nothing trades, the floor says why.** The desk rail and the top of the FTMO tab show *Not trading: …* whenever the account can't take anything: MT5 not connected, the account not set up, not armed, or halted. The most common one is **not armed**: a restart disarms the floor unless **Stay armed after a restart** is on, so switch that on once. The *Today on the account* card counts every reason a desk didn't trade.
+- **The desks learn from their FTMO trades only.** On a Free Trial that's plenty (training and practice send nearly every idea). On a paid challenge the account plan holds most ideas back, and with FTMO only on, those desks don't trade or learn at all, so a desk that isn't proven yet never gets the paper trades it needs to prove itself. Switch FTMO only off there if you want them to keep proving themselves on paper.
+
+**Which P&L you're looking at.** Every desk also keeps paper trading with the fund's practice money, which runs to millions per desk (with FTMO only on, those are its FTMO trades, at the floor's own size). Once an FTMO account is connected, the top bar, desk list, desk signs, video wall and trader panels show **your FTMO account**: its equity, today's P&L and each desk's P&L on it. A desk that isn't switched on for the account says **paper**. The **FTMO / Paper** switch at the top flips the floor (and the dashboard) back to the paper fund, and the paper dashboard has a **Reset paper P&L** button.
 
 **Why a desk hasn't traded yet.** A desk only trades when its setup appears, and some setups only appear at certain times (the opening-range breakout needs the New York open). No new trades open between 16:50 and 18:00 New York time, around the daily roll-over.
 

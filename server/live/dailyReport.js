@@ -14,6 +14,13 @@ const EVENTS = 60;
 
 // Why a trade stayed on paper, grouped the way the boss thinks about it.
 const CATEGORIES = [
+  // FTMO only: the account couldn't take anything, so the desk didn't trade at all.
+  [/MT5 isn't connected/i, 'MT5 not connected'],
+  [/account isn't set up/i, 'FTMO account not set up'],
+  [/isn't armed/i, 'FTMO trading not armed'],
+  [/account is halted/i, 'Account halted'],
+  [/switched off for the FTMO account/i, 'Desk switched off for FTMO'],
+  [/Pairs trades|Market making relies/i, 'Can\'t trade a prop account'],
   [/neural brain passed/i, 'Neural brain\'s paper experiment'],
   [/weekend crypto:/i, 'Weekend crypto: enough positions open'],
   [/Best Day rule/i, 'FTMO Best Day rule'],
