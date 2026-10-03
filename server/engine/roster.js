@@ -23,6 +23,7 @@ export const ROSTER = [
   {
     id: 'marcus', name: 'Marcus Reid', title: 'Head of Index Futures', desk: 'Index Futures',
     Strategy: OpeningRangeBreakout, symbols: ['NAS100'], gender: 'male',
+    weekendSymbol: 'BTCUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     // More setups, as many as good: tested on 22 months of real prices (README "More setups").
     rules: { minWidth: 1.0, maxWidth: 12, volume: 0 },
     appearance: { skin: '#b98356', hair: '#1b1410', hairStyle: 'short', eyes: '#3b2415', outfit: 'vest', jacket: '#1d2b4a', shirt: '#e9eef6', tie: '#7a1f2b', trousers: '#1d2b4a', glasses: false, headset: true, stubble: 0.3 },
@@ -32,6 +33,7 @@ export const ROSTER = [
   {
     id: 'sofia', name: 'Sofia Laurent', title: 'Global Macro PM', desk: 'Global Macro',
     Strategy: MarketStructure, symbols: ['USDJPY'], gender: 'female', maxTradesPerDay: 6,
+    weekendSymbol: 'ETHUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     appearance: { skin: '#f0c9a8', hair: '#5a311b', hairStyle: 'long', eyes: '#5b7f5a', outfit: 'blazer', jacket: '#d9cdb9', shirt: '#1e2230', neckline: true, glasses: false, headset: false },
     accent: '#9085e9',
     voice: { neural: 'bf_emma', lang: 'en-GB', prefer: ['Serena', 'Kate', 'Stephanie', 'Martha', 'Google UK English Female'] },
@@ -46,6 +48,7 @@ export const ROSTER = [
   {
     id: 'amara', name: 'Amara Okafor', title: 'Metals Trader', desk: 'Metals',
     Strategy: LiquiditySweep, symbols: ['XAUUSD'], gender: 'female',
+    weekendSymbol: 'ETHUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     appearance: { skin: '#6a4128', hair: '#120c0a', hairStyle: 'bun', eyes: '#2b1a10', outfit: 'blazer', jacket: '#b9822c', shirt: '#f3efe7', neckline: true, lips: '#5e2f2b', glasses: false, headset: true },
     accent: '#c98500',
     voice: { neural: 'af_heart', lang: 'en-US', prefer: ['Zoe', 'Ava', 'Allison', 'Susan', 'Samantha'] },
@@ -68,6 +71,7 @@ export const ROSTER = [
   {
     id: 'james', name: 'James Whitfield', title: 'Head of Execution', desk: 'Execution & VWAP',
     Strategy: VwapReversion, symbols: ['SPX500'], gender: 'male',
+    weekendSymbol: 'BTCUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     rules: { band: 1.5, rsi: 12, maxAdx: 32 },
     appearance: { skin: '#f1d0b9', hair: '#9a9a9a', hairStyle: 'receding', eyes: '#6b7a86', outfit: 'suit', jacket: '#262a31', shirt: '#cfe0f5', tie: '#1f3b63', glasses: '#3a2a1c', headset: false, stubble: 0.12 },
     accent: '#5aa0f2',
@@ -76,6 +80,7 @@ export const ROSTER = [
   {
     id: 'priya', name: 'Priya Sharma', title: 'G10 FX Volatility', desk: 'FX G10',
     Strategy: VolatilitySqueeze, symbols: ['EURUSD'], gender: 'female',
+    weekendSymbol: 'BTCUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     rules: { minBars: 4 },
     appearance: { skin: '#a9714b', hair: '#0f0a08', hairStyle: 'long', eyes: '#2a1a10', outfit: 'blazer', jacket: '#2f2a4a', shirt: '#ece4f3', glasses: '#2b2b33', headset: false },
     accent: '#7c6ff0',
@@ -84,6 +89,7 @@ export const ROSTER = [
   {
     id: 'lucas', name: 'Lucas Meyer', title: 'Energy Trader', desk: 'Energy',
     Strategy: TrendPullback, symbols: ['USOIL'], gender: 'male',
+    weekendSymbol: 'ETHUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     appearance: { skin: '#e3b58f', hair: '#4a2e1a', hairStyle: 'textured', eyes: '#5c4630', outfit: 'shirt', jacket: '#8fb0d6', shirt: '#9db9dc', trousers: '#2a2d33', glasses: false, headset: true, stubble: 0.35 },
     accent: '#008300',
     voice: { neural: 'bm_fable', lang: 'en-AU', prefer: ['Lee', 'Gordon', 'Daniel', 'Oliver'] },
@@ -140,6 +146,7 @@ export const ROSTER = [
   {
     id: 'jake', name: 'Jake Morrison', title: 'Liquidity Scalper · Cable', desk: 'Scalping · GBPUSD London',
     Strategy: LiquidityScalp, symbols: ['GBPUSD'], gender: 'male', scalper: true, scalp: { killzone: 'london', pools: 'all' }, maxTradesPerDay: 4,
+    weekendSymbol: 'ETHUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     appearance: { skin: '#e9bf9b', hair: '#6b4a2e', hairStyle: 'textured', eyes: '#4a6b8a', outfit: 'knit', jacket: '#20242b', glasses: false, headset: true, stubble: 0.5 },
     accent: '#ef5350',
     voice: { neural: 'am_liam', lang: 'en-AU', prefer: ['Lee', 'Gordon', 'Daniel', 'Oliver'] },
@@ -147,6 +154,7 @@ export const ROSTER = [
   {
     id: 'layla', name: 'Layla Nasser', title: 'Liquidity Scalper · Euro', desk: 'Scalping · EURUSD London',
     Strategy: LiquidityScalp, symbols: ['EURUSD'], gender: 'female', scalper: true, scalp: { killzone: 'london', pools: 'all' }, maxTradesPerDay: 4,
+    weekendSymbol: 'BTCUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     appearance: { skin: '#d6a57c', hair: '#1a1210', hairStyle: 'long', eyes: '#3a2616', outfit: 'blazer', jacket: '#efe9df', shirt: '#1d2230', neckline: true, glasses: false, headset: true },
     accent: '#4fc3f7',
     voice: { neural: 'bf_alice', lang: 'en-GB', prefer: ['Kate', 'Serena', 'Martha', 'Stephanie', 'Google UK English Female'] },
@@ -154,6 +162,7 @@ export const ROSTER = [
   {
     id: 'ryan', name: 'Ryan Cole', title: 'Liquidity Scalper · Gold', desk: 'Scalping · Gold London',
     Strategy: LiquidityScalp, symbols: ['XAUUSD'], gender: 'male', scalper: true, scalp: { killzone: 'london', pools: 'all' }, rules: { extend: 60 }, maxTradesPerDay: 4,
+    weekendSymbol: 'BTCUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     appearance: { skin: '#f0cfb2', hair: '#2b1d14', hairStyle: 'side', eyes: '#5a4632', outfit: 'shirt', jacket: '#26344a', shirt: '#26344a', trousers: '#1b1e24', glasses: false, headset: true, stubble: 0.25 },
     accent: '#ffca28',
     voice: { neural: 'bm_daniel', lang: 'en-GB', prefer: ['Daniel', 'Oliver', 'Arthur', 'Jamie', 'Google UK English Male'] },
@@ -161,6 +170,7 @@ export const ROSTER = [
   {
     id: 'mia', name: 'Mia Torres', title: 'Liquidity Scalper · Gold', desk: 'Scalping · Gold New York',
     Strategy: LiquidityScalp, symbols: ['XAUUSD'], gender: 'female', scalper: true, scalp: { killzone: 'newyork', pools: 'all' }, rules: { extend: 60 }, maxTradesPerDay: 4,
+    weekendSymbol: 'ETHUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     appearance: { skin: '#c68d62', hair: '#2a1a12', hairStyle: 'ponytail', eyes: '#3b2415', outfit: 'turtleneck', jacket: '#3b1f2b', glasses: false, headset: true },
     accent: '#ff8f3a',
     voice: { neural: 'af_river', lang: 'en-US', prefer: ['Samantha', 'Allison', 'Ava', 'Zoe', 'Susan'] },
@@ -168,6 +178,7 @@ export const ROSTER = [
   {
     id: 'nico', name: 'Nico Rossi', title: 'Liquidity Scalper · Nasdaq', desk: 'Scalping · Nasdaq New York',
     Strategy: LiquidityScalp, symbols: ['NAS100'], gender: 'male', scalper: true, scalp: { killzone: 'newyork' }, rules: { extend: 60 }, maxTradesPerDay: 4,
+    weekendSymbol: 'BTCUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
     appearance: { skin: '#dcae88', hair: '#141013', hairStyle: 'short', eyes: '#2e2014', outfit: 'suit', jacket: '#2c2f36', shirt: '#f4f5f7', tie: '#8a1c2b', trousers: '#2c2f36', glasses: '#1a1a1a', headset: false, stubble: 0.6 },
     accent: '#ab47bc',
     voice: { neural: 'am_eric', lang: 'en-US', prefer: ['Alex', 'Tom', 'Evan', 'Aaron', 'Nathan'] },

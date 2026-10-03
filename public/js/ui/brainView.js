@@ -1,4 +1,5 @@
 import { money, escapeHtml, initials, nyTime, signClass } from '../format.js';
+import { api } from '../net.js';
 import { planSwitches, onPlanSwitch } from './planSwitch.js';
 import { MemoryGraph } from './memoryGraph.js';
 import { NeuralBrain3D } from './neuralBrain.js';
@@ -50,6 +51,7 @@ export class BrainView {
       </div>
       <div class="card mg-card" id="bv-neural"></div>
       <div class="card mg-card" id="bv-memory"></div>
+      <div class="card vault-card" id="bv-vault"></div>
       <div class="grid brain-depts" id="bv-depts"></div>
       <div class="card" style="margin-top:14px" id="bv-recent"></div>`;
     this.root.addEventListener('toggle', (e) => {
@@ -69,6 +71,8 @@ export class BrainView {
       }
       const who = e.target.closest('[data-agent]');
       if (who) this.onSelect(who.dataset.agent, { tab: 'brain' });
+      const copy = e.target.closest('[data-act="vault-copy"]');
+      if (copy) navigator.clipboard?.writeText(copy.dataset.path).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy the folder'; }, 1500); }).catch(() => {});
     });
     this.neural = new NeuralBrain3D(this.store, this.root.querySelector('#bv-neural'), { onSelect: this.onSelect });
     this.memory = new MemoryGraph(this.store, this.root.querySelector('#bv-memory'), { onSelect: this.onSelect });
@@ -82,6 +86,25 @@ export class BrainView {
     this.render(true);
     this.neural.show();
     this.memory.show();
+    this.#vault();
+  }
+
+  // Where the Obsidian vault is and how to open it.
+  async #vault() {
+    const el = this.root.querySelector('#bv-vault');
+    let v;
+    try {
+      v = await api('/api/vault');
+    } catch {
+      return;
+    }
+    const ago = v.lastWrite ? `${Math.max(0, Math.round((Date.now() - v.lastWrite) / 60_000))} min ago` : 'not yet';
+    el.innerHTML = v.enabled ? `<h2>Obsidian vault</h2>
+      <p class="sub">Everything the desks know, written live as linked notes: every trade with why it was taken and how it ended, every idea they took or turned down, their wins and losses, the rules they learned, what works and what loses, and the brains' verdicts. It's the same knowledge they trade on.</p>
+      <p class="vault-path"><code>${escapeHtml(v.dir)}</code> <button class="btn" data-act="vault-copy" data-path="${escapeHtml(v.dir)}">Copy the folder</button></p>
+      <p class="fine">${v.notes.toLocaleString('en-US')} notes · last written ${ago}${v.mode === 'sim' ? ' · demo mode has its own vault' : ''}${v.lastError ? ` · <span class="neg">${escapeHtml(v.lastError.text)}</span>` : ''}</p>
+      <p class="fine">To open it: install Obsidian (obsidian.md), choose <b>Open folder as vault</b> and pick this folder. Start from <b>Home</b>, and try the graph view (wins green, losses red). Anything you write under "Your notes" in a note stays. To keep the vault somewhere else, set <code>VAULT_DIR</code> in <code>.env</code> (for example <code>VAULT_DIR=~/Documents/Meridian Vault</code>).</p>`
+      : `<h2>Obsidian vault</h2><p class="sub">Switched off (VAULT=0 in .env).</p>`;
   }
 
   hide() {

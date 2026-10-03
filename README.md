@@ -138,6 +138,33 @@ The first version was tested on the real 1-minute data available here (QuantConn
 
 In demo mode the clock only runs New York's cash session, so there the London scalpers work its first two hours (09:30–11:30) and the New York scalpers 11:00–13:00. On the FTMO account the scalpers follow the same rules as every desk: they need a proven edge (or **Proven desks only** off for half risk), and one position per correlated group, so Jake and Layla share the FX slot and Ryan and Mia the gold one.
 
+### Weekends: crypto day trading
+
+From Friday 18:00 to Sunday 18:00 New York, forex, gold, oil and the indices are closed, so every trading desk switches to crypto and day-trades it with its own strategy. Bitcoin goes to Marcus, James, Priya, Layla, Ryan and Nico; Ether to Sofia, Amara, Lucas, Jake and Mia. Two desks running the same strategy get different coins, so they don't take the same trade twice. Viktor, Chen, Kenji and Isabella trade crypto all week anyway. Every day still ends flat at 16:50 New York. On Sunday at 18:00 New York each desk goes back to its own market. The desk chips, the floor's screens and the desk's log show the switch ("Weekend: … I'm day trading BTCUSD").
+
+Each desk was first replayed on 98 real Bitcoin weekends (Bitstamp 2017 and Kraken 2018 1-minute bars, `npm run weekend`), and that record ships with the floor (`server/research/weekend.json`):
+
+| Desk | Weekend trades | Per trade (90% range) | Verdict |
+|---|---|---|---|
+| Marcus | 190 | −0.10R (−0.24 to +0.03) | no edge |
+| Sofia | 801 | −0.34R (−0.41 to −0.28) | loses |
+| Amara | 374 | −0.38R (−0.47 to −0.28) | loses |
+| James | 355 | −0.16R (−0.24 to −0.07) | loses |
+| Priya | 343 | −0.27R (−0.37 to −0.17) | loses |
+| Lucas | 1,318 | −0.31R (−0.36 to −0.27) | loses |
+| Jake, Layla | 50 each | +0.14R (−0.12 to +0.39) | too few trades |
+| Ryan | 63 | +0.12R (−0.12 to +0.35) | too few trades |
+| Mia | 62 | −0.11R (−0.33 to +0.13) | too few trades |
+| Nico | 34 | +0.08R (−0.23 to +0.37) | too few trades |
+
+Viktor, who trades Bitcoin all week, lost too on those weekends: −0.54R a trade in 2017 and −0.32R in 2018. Only Bitcoin was tested, because that was the only real crypto history available here. The record stands in for the Ether desks too.
+
+On the account, at the weekend a desk's weekend record counts the way its long-run record counts during the week:
+- **loses:** paper only, unless practice is on (the Free Trial, at 0.25%);
+- **no edge, or too few trades:** half size.
+
+At most **3 crypto positions** are on the account at once, training and practice included, because Bitcoin and Ether move together and every desk on crypto would otherwise add up to one big bet. FTMO's guard, stops and the daily loss limits apply as always. The account only trades crypto at the weekend if your FTMO account offers it then.
+
 ### Institutional risk framework
 
 - A **$100M fund** split evenly across the 20 desks ($5M each). Every trade is sized so that a stop-out costs **0.5% of the desk's allocation**, capped at **4× leverage**.
@@ -282,6 +309,27 @@ npm run brain -- --examples server/research/brain-examples.json.gz   # retrain o
 ```
 
 It writes `server/research/brain.json`, the brain that ships with the floor, with its test on unseen months, and `brain-examples.json.gz`, the trades it learned from.
+
+## The Obsidian vault: everything the desks know
+
+The floor writes everything its desks know into an [Obsidian](https://obsidian.md) vault, live, as linked Markdown notes:
+
+- **Home:** the floor today, desk by desk, and the latest trades.
+- **Desks/** (one note per desk): its strategy and entry rules, where it stands with the FTMO account, its long-run and weekend records, the nightly review, its form and numbers, the rules it learned from its own trades, what its neural brain noticed, the situations it has traded and its recent trades.
+- **Trades/** (one note per closed trade): why it was taken, the committee's grade, the neural brain's chance, how it ended, win or loss, with tags for searching (`#win`, `#loss`, `#desk/marcus`, `#market/XAUUSD`) and front matter that Dataview can query.
+- **Ideas/** (one note per day): every idea each desk had, the ones it took and the ones it turned down, and why, written as it happens.
+- **Daily/** (one note per day): the day per desk, the wins and the losses, the lessons learned, and the FTMO account's day.
+- **Lessons/:** every lesson a desk learned from its own trades, with the evidence and whether it's still in use.
+- **Markets/:** each market, with the situations the floor remembers there and who trades it.
+- **Playbook/:** *What works* and *What loses* (situations with enough trades behind them, recent ones counting most), and *Rules the desks follow* (each desk's learned rules and the account plan).
+- **Brain/:** the neural brain, the long-run record, the nightly review and the FTMO account.
+
+It's the same knowledge the desks trade on (their learners, the floor memory, the neural brain and the evidence), so what you read in Obsidian is what they know. Open it with Obsidian → **Open folder as vault**, choosing `data/vault` in the floor's folder (the Brain tab shows the exact folder, with a copy button). Start from **Home**. In the graph view, wins are green, losses red, desks blue, markets gold and lessons purple.
+
+- **Your notes are kept.** Anything you write under *Your notes* at the bottom of a note stays: the floor only rewrites what's above it.
+- **It's kept tidy.** Unchanged notes aren't rewritten. Trade notes older than 180 days and idea logs older than 60 go, because the desk notes keep the numbers.
+- **It's kept separate and private.** Demo mode writes its own vault (`data/vault-demo`), so made-up prices never mix in. Nothing secret is ever written: no tokens, keys or passwords.
+- **It can live anywhere.** Set `VAULT_DIR` in `.env` (for example `VAULT_DIR=~/Documents/Meridian Vault`). `VAULT=0` turns it off.
 
 ## Protecting the prop account (the account brain)
 
@@ -822,6 +870,8 @@ Copy `.env.example` to `.env`. The most useful settings:
 | `STARTING_CAPITAL` | `100000000` | Fund size, split evenly across the 20 desks |
 | `KEEP_AWAKE` | `1` | macOS: keep the Mac awake while the floor runs (`0` turns it off) |
 | `RISK_PER_TRADE_PCT`, `DESK_DAILY_LOSS_PCT`, `FUND_DAILY_LOSS_PCT`, `MAX_LEVERAGE` | 0.5 / 2 / 1.2 / 4 | Risk framework |
+| `VAULT_DIR` | `data/vault` | Where the Obsidian vault is written, e.g. `~/Documents/Meridian Vault` (demo mode always uses `data/vault-demo`) |
+| `VAULT` | `1` | `0` turns the Obsidian vault off |
 
 Other commands:
 
@@ -837,6 +887,8 @@ npm run backtest -- 5  # fast-forward 5 simulated sessions (news + research lab 
 npm run scalp-test     # replay the Scalping Desk on the real 1-minute bars saved in data/history
 npm run edge           # every desk on your saved history: who has an edge, and the odds of passing a challenge
 npm run baseline -- --dir path/to/history   # every desk on months of real 1-minute bars: the long-run record the floor ships with
+npm run weekend -- --dir path/to/crypto     # every switching desk on real crypto weekends: the weekend record
+npm run brain -- --dir path/to/history      # train and test the neural brain on long history
 npm run reset          # wipe the saved track record (keeps your webhook secret)
 ```
 

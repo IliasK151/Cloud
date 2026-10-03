@@ -14,6 +14,10 @@ export class VolatilitySqueeze extends TraderAgent {
     this.fired = null; // { dir, index, time }
   }
 
+  resetMarket() {
+    this.fired = null;
+  }
+
   evaluate() {
     const bars = this.bars();
     if (bars.length < 40) return this.setStage('Warming up indicators');

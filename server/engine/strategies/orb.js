@@ -25,6 +25,10 @@ export class OpeningRangeBreakout extends TraderAgent {
     this.range = null;
   }
 
+  resetMarket() {
+    this.range = null;
+  }
+
   #activeWindow(now) {
     const candidates = [
       { name: 'New York', start: this.session.nyOpen(now) },

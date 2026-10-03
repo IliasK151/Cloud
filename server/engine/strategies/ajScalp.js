@@ -95,6 +95,12 @@ export class LiquidityScalp extends TraderAgent {
     this.ctx = { pools: [], htf: { bias: 'NEUTRAL', text: '' }, kz: null, last: null };
   }
 
+  resetMarket() {
+    this.pending = null;
+    this.used = new Set();
+    this.ctx = { pools: [], htf: { bias: 'NEUTRAL', text: '' }, kz: null, last: null };
+  }
+
   // ---- the map --------------------------------------------------------------------------
   #killzone(now) {
     const zone = this.profile.scalp?.killzone === 'newyork' ? 'newyork' : 'london';

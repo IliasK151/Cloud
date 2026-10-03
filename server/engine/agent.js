@@ -58,6 +58,22 @@ export class TraderAgent {
   get plan() { return this.plans.get(this.symbol) || null; }
   get firstName() { return this.profile.name.split(' ')[0]; }
 
+  // The market this desk trades: its own, or at the weekend its crypto market (the fund
+  // switches it, see Fund #weekend). Flat at the switch: every day ends flat at 16:50 New York.
+  switchMarket(symbol, { weekend = false } = {}) {
+    if (!SYMBOLS[symbol] || this.symbol === symbol) return false;
+    this.symbols = [symbol];
+    this.symbol = symbol;
+    this.weekend = weekend;
+    this.cooldownBars = 0;
+    this.setup = { bias: 'NEUTRAL', stage: weekend ? `Weekend: day trading ${symbol}` : 'Back on my own market', thesis: '', armed: false, levels: [], checklist: [], confidence: 0, indicators: {} };
+    this.resetMarket?.();
+    this.note(weekend
+      ? `Weekend: FX, gold, oil and the indices are closed, so I'm day trading ${symbol} with my ${this.constructor.strategyName} until Sunday 18:00 New York (flat by 16:50 each day)`
+      : `Weekend over: back on ${symbol}`, 'info');
+    return true;
+  }
+
   bars(symbol = this.symbol) { return this.md.bars(symbol); }
   price(symbol = this.symbol) { return this.md.price(symbol); }
   position(symbol = this.symbol) { return this.broker.position(this.id, symbol); }
@@ -561,6 +577,8 @@ export class TraderAgent {
     const setup = main ? { ...this.setup, bias: main.qty > 0 ? 'LONG' : 'SHORT' } : this.setup;
     return {
       id: this.id,
+      symbol: this.symbol,
+      weekend: !!this.weekend,
       status: this.status(),
       mood: this.mood(),
       paused: this.paused,

@@ -26,11 +26,12 @@ import { VoiceEngine, toWav } from './voices/engine.js';
 import { Mt5Bridge } from './live/bridge.js';
 import { LiveTrader } from './live/liveTrader.js';
 import { EdgeReview, reviewText } from './live/review.js';
-import { Baseline, loadBaseline, BASELINE_FILE } from './live/baseline.js';
+import { Baseline, loadBaseline, BASELINE_FILE, WEEKEND_FILE } from './live/baseline.js';
 import { summarize } from './live/dailyReport.js';
 import { TelegramNotifier } from './notify/telegram.js';
 import { FloorMemory } from './brain/memory.js';
 import { NeuralBrain } from './neural/brain.js';
+import { Vault } from './vault/vault.js';
 import { entryChart } from './notify/chartShot.js';
 
 // As a background service (npm run service) the log files grow forever: start each run
@@ -110,8 +111,12 @@ live.review = review;
 // Each desk's long-run record on many months of real prices (npm run baseline), shipped with
 // the floor: a desk that lost money with confidence there stays off the account.
 live.baseline = new Baseline(loadBaseline(BASELINE_FILE, log));
+// The same for the weekend, when the desks day-trade crypto (npm run weekend).
+live.weekendRecord = new Baseline(loadBaseline(WEEKEND_FILE, log));
 // MT5 pages months of the broker's own bars into the research history (EA 1.3+).
 live.history = history;
+// The Obsidian vault: every desk's trades, ideas, lessons and numbers as linked notes.
+const vault = config.vault ? new Vault({ dir: config.vaultDir, mode: config.feed, fund, memory, live, neural, log }) : null;
 if (config.feed === 'live') {
   setInterval(() => {
     try {
@@ -212,6 +217,7 @@ app.get('/api/news', localOnly, (req, res) => res.json(news.view()));
 app.get('/api/brain', localOnly, (req, res) => res.json(brainView()));
 app.get('/api/memory', localOnly, (req, res) => res.json(memory.graph(fund.agents)));
 app.get('/api/neural', localOnly, (req, res) => res.json(neural.view()));
+app.get('/api/vault', localOnly, (req, res) => res.json(vault ? vault.view() : { enabled: false, dir: config.vaultDir }));
 app.post('/api/neural/learn', localOnly, (req, res) => {
   if (config.feed === 'sim') return res.json({ ok: false, error: 'The brain learns only from real prices: it learns in live mode (npm start), not in demo mode.' });
   res.json(neural.retrain('asked'));
@@ -661,6 +667,8 @@ async function main() {
   if (seeded) log.info(`  Floor memory: started from ${seeded} trades the desks remember`);
   fund.start();
   setInterval(() => store.save(fund.serialize()), 30_000);
+  // The Obsidian vault: everything the desks know, written live (open the folder in Obsidian).
+  if (vault?.start()) log.info(`  Obsidian vault:     ${vault.dir}  (open this folder as a vault in Obsidian)`);
   // The research desks need long history; load it without holding up the floor.
   history.load().then(() => {
     const st = history.status();
@@ -723,6 +731,7 @@ async function shutdown() {
     store.save(fund.serialize());
     memory.flush();
     neural.stop();
+    vault?.stop();
   } catch (err) {
     log.warn('  Save failed:', err.message);
   }

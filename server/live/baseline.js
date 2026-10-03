@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 // nightly review finds a statistically real edge on your own recent prices.
 
 export const BASELINE_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'research', 'baseline.json');
+// The same for the weekend: the desks day-trading crypto (npm run weekend).
+export const WEEKEND_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'research', 'weekend.json');
 // Verdicts that say something (the rest: no history, too few trades, a replay that failed).
 const JUDGED = new Set(['loses', 'no edge', 'unclear', 'edge']);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -59,7 +61,7 @@ export class Baseline {
   // prices (90% range −0.19R to −0.14R)"
   recordText(d) {
     const range = d.ci ? ` (90% range ${fr(d.ci[0])} to ${fr(d.ci[1])})` : '';
-    return `${fr(d.avgR)} a trade over ${d.n.toLocaleString('en-US')} trades on ${spanText(d.from, d.to)} of real 1-minute prices${range}`;
+    return `${fr(d.avgR)} a trade over ${d.n.toLocaleString('en-US')} trades on ${d.label ? String(d.label) : spanText(d.from, d.to)} of real 1-minute prices${range}`;
   }
 
   // For the floor's views: what the long-run record says, desk by desk.

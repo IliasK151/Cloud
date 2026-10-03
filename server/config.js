@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +54,16 @@ const num = (value, fallback) => {
 
 const feed = (process.env.FEED || 'live').toLowerCase() === 'sim' ? 'sim' : 'live';
 
+// The Obsidian vault the floor writes (server/vault/vault.js): data/vault, or VAULT_DIR (for
+// example ~/Documents/Meridian Vault). Demo mode always writes its own, data/vault-demo, so
+// made-up prices never mix with the real vault.
+function resolveVaultDir() {
+  if (feed === 'sim') return path.join(DATA_DIR, 'vault-demo');
+  const v = (process.env.VAULT_DIR || '').trim();
+  if (!v) return path.join(DATA_DIR, 'vault');
+  return path.resolve(ROOT, v.startsWith('~') ? path.join(os.homedir(), v.slice(1)) : v);
+}
+
 export const config = {
   port: num(process.env.PORT, 3000),
   // Webhook-only listener for TradingView (tunnel this port, never the dashboard).
@@ -75,6 +86,8 @@ export const config = {
   // macOS: keep the Mac awake while the floor runs (trades, alerts and MT5 need it).
   keepAwake: process.env.KEEP_AWAKE !== '0',
   dataDir: DATA_DIR,
+  vault: process.env.VAULT !== '0', // VAULT=0 turns the vault off
+  vaultDir: resolveVaultDir(),
   risk: {
     riskPerTradePct: num(process.env.RISK_PER_TRADE_PCT, 0.5) / 100,
     deskDailyLossPct: num(process.env.DESK_DAILY_LOSS_PCT, 2) / 100,

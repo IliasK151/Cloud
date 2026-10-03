@@ -859,3 +859,9 @@ html.eco .review-progress .spinner { animation: none; }
 .tg-msg.bad { color: var(--neg-text, #ff8b8b); }
 .tg-msg.good { color: var(--pos-text); }
 .stay-armed { margin-top: 12px; }
+
+/* ---- Obsidian vault (Brain tab) ----------------------------------------------------------- */
+.vault-card { margin-top: 14px; }
+.vault-path { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vault-path code { padding: 4px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); font-size: 12.5px; word-break: break-all; }
+.vault-path .btn { flex: none; width: auto; }

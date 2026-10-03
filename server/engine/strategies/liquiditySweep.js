@@ -17,6 +17,11 @@ export class LiquiditySweep extends TraderAgent {
     this.pools = { above: [], below: [] };
   }
 
+  resetMarket() {
+    this.used = new Set();
+    this.pools = { above: [], below: [] };
+  }
+
   #pools(bars, a) {
     const n = bars.length;
     const { highs, lows } = swings(bars.slice(0, n - 2), 5, 180);

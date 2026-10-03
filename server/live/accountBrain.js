@@ -44,6 +44,7 @@ export const LIMITS = {
   formWindow: 20, // its most recent real-price trades (paper and account alike)
   labPaperTrades: 10, // a research desk's new strategy: live paper trades before the account
   practiceRiskPct: 0.25, // Free Trial practice: desks the evidence holds back trade at this risk at most
+  weekendCrypto: 3, // at the weekend every desk trades crypto, and crypto moves together: positions at once
 };
 
 const GRADE_RANK = { A: 3, B: 2, C: 1 };
@@ -210,6 +211,7 @@ export class AccountBrain {
           ? { text: `Neural brain has a say: on trades it hadn't seen it ranks winners above losers (skill ${sk.auc}). Ideas it expects to lose stay off the account, a few trade small on paper so it keeps learning. It never sends a trade these rules hold back`, ok: true }
           : { text: `Neural brain is learning: it judges every idea and learns from every trade, but decides nothing for the account until it tells winners from losers on trades it hasn't seen (skill ${sk.auc ?? '—'} now, it needs ${nb.trust.minAuc})`, ok: true };
       })(),
+      lt.fund?.weekendOn && { text: `Weekend: the desks day-trade crypto (Bitcoin and Ether) until Sunday 18:00 New York, flat by 16:50 each day. At most ${LIMITS.weekendCrypto} crypto positions on the account at once, because crypto moves together, and each desk's weekend crypto record counts as its long-run record`, ok: true },
       { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R trades paper only until its record recovers`, ok: true },
       { text: `Proven live first: a research desk's new strategy trades paper on real prices until ${LIMITS.labPaperTrades} live trades haven't lost money in total, then the account`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
@@ -302,6 +304,9 @@ export class AccountBrain {
     if (st.cooloff) return { ok: false, reason: st.cooloff.text };
     const flip = this.#flip(pos);
     if (flip) return { ok: false, reason: flip };
+    // The weekend: all the desks on crypto, which moves as one market.
+    const crowd = this.#weekendCrowd(pos);
+    if (crowd) return { ok: false, reason: crowd };
     // The desk's own loss limit and its record on the account (your own alerts are your call).
     let alloc = { mult: 1 };
     let ev = null;
@@ -374,6 +379,15 @@ export class AccountBrain {
     return `desk loss limit: ${fmtUsd(pnl)} on the account today, ${LIMITS.deskLossR}× its full risk of ${fmtUsd(full)}. Off the account until tomorrow; it keeps trading on paper`;
   }
 
+  // At the weekend every desk day-trades crypto, and Bitcoin, Ether and the rest move together:
+  // a few positions at once on the account, or it's one big bet (training and practice too).
+  #weekendCrowd(pos) {
+    if (!this.live.fund?.weekendOn || GROUPS[pos.symbol] !== 'Crypto') return null;
+    const open = this.#links().filter((l) => !l.previousSession && ['pending', 'open', 'closing'].includes(l.state) && GROUPS[l.floorSymbol] === 'Crypto').length;
+    if (open < LIMITS.weekendCrypto) return null;
+    return `weekend crypto: the account already has ${open} crypto positions, the most at once at the weekend (${LIMITS.weekendCrypto}), because crypto moves together`;
+  }
+
   // No whipsaws: after the account lost on one side of a market, nothing the other way on it
   // for a while (selling oil, getting stopped, then buying it and getting stopped again).
   #flip(pos) {
@@ -400,17 +414,25 @@ export class AccountBrain {
     const d = this.live.review?.verdictFor?.(agent.id);
     const eff = d ? VERDICT_EFFECT[d.verdict] : null;
     const rec = d ? `${d.avgR >= 0 ? '+' : '−'}${Math.abs(d.avgR).toFixed(2)}R a trade over ${d.n} trades` : '';
-    const base = this.live.baseline;
+    // At the weekend a desk day-trades crypto: its weekend record is the long run that counts
+    // (the nightly review replays its own market, so it says nothing about crypto).
+    const weekend = !!agent.weekend;
+    const base = weekend ? this.live.weekendRecord : this.live.baseline;
     const long = base?.forDesk?.(agent.id) || null;
+    const where = weekend ? ' at the weekend' : '';
     if (long?.verdict === 'loses') {
-      if (d?.verdict === 'EDGE') return { mult: 0.5, verdict: 'EDGE', long, text: `${name} has an edge on your recent prices (${rec} in the nightly review) but lost money over the long run (${base.recordText(long)}): half size until the edge lasts` };
-      return { mult: 0, verdict: 'loses', long, text: `${name} lost money over the long run: ${base.recordText(long)}. Paper only until the nightly review finds a real edge on your own prices` };
+      if (d?.verdict === 'EDGE' && !weekend) return { mult: 0.5, verdict: 'EDGE', long, text: `${name} has an edge on your recent prices (${rec} in the nightly review) but lost money over the long run (${base.recordText(long)}): half size until the edge lasts` };
+      return { mult: 0, verdict: 'loses', long, text: weekend
+        ? `${name} lost money day-trading crypto at the weekend over the long run: ${base.recordText(long)}. Paper only at the weekend`
+        : `${name} lost money over the long run: ${base.recordText(long)}. Paper only until the nightly review finds a real edge on your own prices` };
     }
-    if (!eff) {
-      if (long?.verdict === 'no edge') return { mult: 0.5, verdict: 'no edge', long, text: `${name} has no edge over the long run (${base.recordText(long)}): half size` };
+    if (!eff || weekend) {
+      if (long?.verdict === 'no edge') return { mult: 0.5, verdict: 'no edge', long, text: `${name} has no edge${where} over the long run (${base.recordText(long)}): half size` };
       // A hair above zero with a range either side of it isn't an edge either.
-      if (long?.verdict === 'unclear') return { mult: 0.5, verdict: 'unclear', long, text: `${name} has no proven edge over the long run (${base.recordText(long)}): half size` };
-      if (long?.verdict === 'edge') return { mult: 1, verdict: 'edge', long, text: `${name} made money over the long run (${base.recordText(long)})` };
+      if (long?.verdict === 'unclear') return { mult: 0.5, verdict: 'unclear', long, text: `${name} has no proven edge${where} over the long run (${base.recordText(long)}): half size` };
+      if (long?.verdict === 'edge') return { mult: 1, verdict: 'edge', long, text: `${name} made money${where} over the long run (${base.recordText(long)})` };
+      // Too few weekend trades to judge: half size until there's a record.
+      if (weekend) return { mult: 0.5, verdict: 'unclear', long: null, text: `${name} has too short a record day-trading crypto at the weekend to judge: half size` };
       return null;
     }
     if (eff.mult === 0) return { mult: 0, verdict: d.verdict, text: `the nightly review found no edge on your prices (${rec}): paper only until a review finds one` };
@@ -494,7 +516,7 @@ export class AccountBrain {
     const lab = this.labProving(agent);
     if (lab) return held('proving live', lab);
     const ev = this.evidence(agent);
-    if (ev?.mult === 0) return held(ev.verdict === 'loses' ? 'loses long-term' : 'no edge', ev.text);
+    if (ev?.mult === 0) return held(ev.verdict === 'loses' ? (agent.weekend ? 'loses on weekend crypto' : 'loses long-term') : 'no edge', ev.text);
     const form = this.form(agent);
     if (!form.ok) return held('out of form', form.text);
     const alloc = this.allocation(agent);

@@ -1,0 +1,328 @@
+{
+ "v": 1,
+ "at": 1791014631134,
+ "source": "Bitstamp BTC/USD 2017 and Kraken BTC/EUR 2018, 1-minute (FutureSharks/financial-data)",
+ "seed": 1,
+ "symbol": "BTCUSD",
+ "desks": [
+  {
+   "id": "marcus",
+   "name": "Marcus Reid",
+   "symbol": "BTCUSD",
+   "market": "BTCUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 190,
+   "avgR": -0.098,
+   "totalR": -18.5,
+   "winRate": 0.521,
+   "ci": [
+    -0.241,
+    0.032
+   ],
+   "halves": [
+    -0.273,
+    0.078
+   ],
+   "quarters": {
+    "positive": 2,
+    "total": 8
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "no edge"
+  },
+  {
+   "id": "sofia",
+   "name": "Sofia Laurent",
+   "symbol": "BTCUSD",
+   "market": "ETHUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 801,
+   "avgR": -0.341,
+   "totalR": -273.4,
+   "winRate": 0.413,
+   "ci": [
+    -0.405,
+    -0.28
+   ],
+   "halves": [
+    -0.442,
+    -0.24
+   ],
+   "quarters": {
+    "positive": 0,
+    "total": 8
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "loses"
+  },
+  {
+   "id": "amara",
+   "name": "Amara Okafor",
+   "symbol": "BTCUSD",
+   "market": "ETHUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 374,
+   "avgR": -0.377,
+   "totalR": -141.1,
+   "winRate": 0.398,
+   "ci": [
+    -0.47,
+    -0.28
+   ],
+   "halves": [
+    -0.526,
+    -0.228
+   ],
+   "quarters": {
+    "positive": 0,
+    "total": 8
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "loses"
+  },
+  {
+   "id": "james",
+   "name": "James Whitfield",
+   "symbol": "BTCUSD",
+   "market": "BTCUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 355,
+   "avgR": -0.158,
+   "totalR": -56.2,
+   "winRate": 0.527,
+   "ci": [
+    -0.245,
+    -0.071
+   ],
+   "halves": [
+    -0.395,
+    0.077
+   ],
+   "quarters": {
+    "positive": 3,
+    "total": 8
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "loses"
+  },
+  {
+   "id": "priya",
+   "name": "Priya Sharma",
+   "symbol": "BTCUSD",
+   "market": "BTCUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 343,
+   "avgR": -0.274,
+   "totalR": -94.1,
+   "winRate": 0.458,
+   "ci": [
+    -0.372,
+    -0.174
+   ],
+   "halves": [
+    -0.429,
+    -0.121
+   ],
+   "quarters": {
+    "positive": 1,
+    "total": 7
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "loses"
+  },
+  {
+   "id": "lucas",
+   "name": "Lucas Meyer",
+   "symbol": "BTCUSD",
+   "market": "ETHUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 1318,
+   "avgR": -0.314,
+   "totalR": -414.1,
+   "winRate": 0.426,
+   "ci": [
+    -0.362,
+    -0.265
+   ],
+   "halves": [
+    -0.329,
+    -0.299
+   ],
+   "quarters": {
+    "positive": 0,
+    "total": 8
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "loses"
+  },
+  {
+   "id": "jake",
+   "name": "Jake Morrison",
+   "symbol": "BTCUSD",
+   "market": "ETHUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 50,
+   "avgR": 0.144,
+   "totalR": 7.2,
+   "winRate": 0.68,
+   "ci": [
+    -0.119,
+    0.39
+   ],
+   "halves": [
+    0.129,
+    0.16
+   ],
+   "quarters": {
+    "positive": 4,
+    "total": 7
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "layla",
+   "name": "Layla Nasser",
+   "symbol": "BTCUSD",
+   "market": "BTCUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 50,
+   "avgR": 0.144,
+   "totalR": 7.2,
+   "winRate": 0.68,
+   "ci": [
+    -0.119,
+    0.39
+   ],
+   "halves": [
+    0.129,
+    0.16
+   ],
+   "quarters": {
+    "positive": 4,
+    "total": 7
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "ryan",
+   "name": "Ryan Cole",
+   "symbol": "BTCUSD",
+   "market": "BTCUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 63,
+   "avgR": 0.122,
+   "totalR": 7.7,
+   "winRate": 0.667,
+   "ci": [
+    -0.12,
+    0.353
+   ],
+   "halves": [
+    0.059,
+    0.182
+   ],
+   "quarters": {
+    "positive": 4,
+    "total": 7
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "mia",
+   "name": "Mia Torres",
+   "symbol": "BTCUSD",
+   "market": "ETHUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 62,
+   "avgR": -0.106,
+   "totalR": -6.5,
+   "winRate": 0.516,
+   "ci": [
+    -0.334,
+    0.133
+   ],
+   "halves": [
+    -0.048,
+    -0.163
+   ],
+   "quarters": {
+    "positive": 2,
+    "total": 6
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "nico",
+   "name": "Nico Rossi",
+   "symbol": "BTCUSD",
+   "market": "BTCUSD",
+   "from": 1483228800,
+   "to": 1543842000,
+   "weekends": 98,
+   "label": "98 Bitcoin weekends (Jan 2017 – Dec 2018)",
+   "n": 34,
+   "avgR": 0.079,
+   "totalR": 2.7,
+   "winRate": 0.647,
+   "ci": [
+    -0.231,
+    0.369
+   ],
+   "halves": [
+    -0.284,
+    0.441
+   ],
+   "quarters": {
+    "positive": 1,
+    "total": 5
+   },
+   "grossR": null,
+   "costR": null,
+   "verdict": "too few trades"
+  }
+ ]
+}
