@@ -77,7 +77,9 @@ const feeds = new FeedManager({ md, clock, mode: config.feed, log, calendar: new
 // FTMO / MT5 live execution (idle until the MeridianBridge EA connects and you arm it).
 const bridge = new Mt5Bridge();
 // FTMO only, unless switched off in the FTMO tab: the desks trade nothing but the FTMO account.
-const live = new LiveTrader({ fund, md, bridge, clock, mode: config.feed, dataDir: config.dataDir, token: config.bridgeToken, log, ftmoOnly: true });
+// Their own way, unless switched off there too: each desk trades its own strategy, with only
+// FTMO's own rules around it.
+const live = new LiveTrader({ fund, md, bridge, clock, mode: config.feed, dataDir: config.dataDir, token: config.bridgeToken, log, ftmoOnly: true, ownWay: true });
 // Alerts on the boss's phone (Telegram), from the live trader's big moments.
 const notifier = new TelegramNotifier({ dataDir: config.dataDir, log });
 // A trade's entry comes with its setup drawn as a chart: saved in data/charts (the FTMO tab
@@ -316,6 +318,7 @@ app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
     'install-ea': () => live.installEa(),
     'stay-armed': () => live.setStayArmed(b.on),
     'ftmo-only': () => live.setFtmoOnly(b.on),
+    'own-way': () => live.setOwnWay(b.on),
     review: () => (config.feed === 'live' ? review.run('asked') : { ok: false, error: 'The review replays real prices: it runs in live mode (npm start), not in demo mode.' }),
     risk: () => live.setRisk(b.riskPct),
   };

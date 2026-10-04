@@ -135,16 +135,24 @@ export class Fund extends EventEmitter {
     this.#newsGuard(now);
     if (this.trading) for (const a of this.agents) a.labTick?.();
 
-    for (const a of this.agents) {
-      if (this.risk.checkDesk(a, a.dayPnl())) {
-        this.#event({ agentId: a.id, kind: 'risk', text: `Risk desk halted ${a.profile.name}: loss limit ${fmtUsd(this.risk.deskLossLimit(a))}` });
+    // The risk desk's loss limits (not when the desks trade their own way: then a halt from
+    // earlier, saved before a restart, doesn't bench a desk either).
+    const ownWay = !!this.env.ownWay?.();
+    if (ownWay) {
+      for (const a of this.agents) if (a.halted) a.halted = null;
+      this.risk.riskOff = null;
+    } else {
+      for (const a of this.agents) {
+        if (this.risk.checkDesk(a, a.dayPnl())) {
+          this.#event({ agentId: a.id, kind: 'risk', text: `Risk desk halted ${a.profile.name}: loss limit ${fmtUsd(this.risk.deskLossLimit(a))}` });
+        }
+      }
+      if (this.risk.checkFund(this.dayPnl(), this.dayStartNav)) {
+        for (const a of this.agents) if (!a.halted) a.halt(this.risk.riskOff.reason);
+        this.#event({ kind: 'risk', text: `FUND RISK-OFF: ${this.risk.riskOff.reason}. All desks halted.` });
       }
     }
     const nav = this.nav();
-    if (this.risk.checkFund(this.dayPnl(), this.dayStartNav)) {
-      for (const a of this.agents) if (!a.halted) a.halt(this.risk.riskOff.reason);
-      this.#event({ kind: 'risk', text: `FUND RISK-OFF: ${this.risk.riskOff.reason}. All desks halted.` });
-    }
 
     const minute = Math.floor(now / 60_000);
     if (minute !== this.lastSampleMinute) {
@@ -194,6 +202,8 @@ export class Fund extends EventEmitter {
     const news = this.news;
     if (!news || !this.trading) return;
     news.tick(now);
+    // Their own way: no flattening for news, except where FTMO requires it (a funded account).
+    if (this.env.newsRules?.() === false) return;
     for (const a of this.agents) {
       if (!a.book.positions.size) continue;
       const close = [];

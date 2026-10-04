@@ -17,7 +17,7 @@ import { autoMap } from '../server/live/symbolMap.js';
 const GOLD = { bid: 3800, ask: 3800.2, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
 const tick = () => new Promise((r) => setImmediate(r));
 
-function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], dataDir = null, ftmoOnly = false } = {}) {
+function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], dataDir = null, ftmoOnly = false, ownWay = false } = {}) {
   const clock = new MarketClock('live');
   const session = new Session(clock);
   session.isFlattenWindow = () => false; // tests must not depend on the time of day
@@ -28,7 +28,7 @@ function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], da
   const fund = new Fund({ config: { startingCapital: 100_000_000, feed: mode, fundName: 'Test' }, md, clock, session, broker, risk, committee });
   const bridge = new Mt5Bridge();
   dataDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
-  const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} }, ftmoOnly });
+  const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} }, ftmoOnly, ownWay });
   clearInterval(live.timer);
   md.applyTick('XAUUSD', 3800.1, 1, clock.now());
 
@@ -1912,5 +1912,67 @@ test('FTMO only: a trade the account turns down is never taken, a test alert sti
   assert.equal(demo.chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
   assert.ok(demo.chen.position('XAUUSD'));
   assert.equal(fund.byId.get('chen'), chen);
+});
+
+// ---- their own way ---------------------------------------------------------------------------
+test('their own way: a desk trades its own signal, only FTMO\'s own rules around it', async () => {
+  const { fund, live, sync, chen } = setup({ ftmoOnly: true, ownWay: true, committee: 'on' });
+  sync();
+  // A paid challenge: the institutional plan would only take proven desks' A-grade trades.
+  live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
+  live.setDesk('chen', true);
+  assert.equal(live.arm({ confirm: '555' }).ok, true);
+  // Nobody outside the desk decides: the committee isn't asked.
+  fund.committee.review = () => { throw new Error('the committee was asked'); };
+  // The risk desk's halts and the fund's risk-off from earlier don't bench it.
+  chen.halted = 'Risk desk halted Chen: loss limit $100,000';
+  fund.risk.riskOff = { reason: 'Fund down 1.2% on the day', time: Date.now() };
+  assert.equal(fund.risk.canOpen(chen, 'XAUUSD').ok, true);
+  // News on a challenge: FTMO allows it, so no blackout.
+  assert.equal(fund.env.newsRules(), false);
+  fund.risk.news = { blackout: () => ({ phase: 'before', event: { title: 'NFP', time: Date.now() + 60_000 }, impact: 'high', until: Date.now() + 120_000 }) };
+  assert.equal(fund.risk.canOpen(chen, 'XAUUSD').ok, true);
+  fund.risk.news = null;
+
+  assert.equal(chen.openTrade({ side: 'LONG', stop: 3795, target: 3810, reason: 'own signal', symbol: 'XAUUSD' }), true, chen.lastReject);
+  const plan = chen.plans.get('XAUUSD');
+  assert.equal(plan.initialStop, 3795, 'its own stop: the cost rules don\'t move it');
+  assert.equal(plan.grade, null);
+  await tick();
+  live.reconcile();
+  const open = sync().find((c) => c[0] === 'open');
+  assert.ok(open, 'on a challenge, an unproven desk\'s own trade goes to FTMO');
+  // 0.25% of $100k at full size, nothing cut.
+  const link = [...live.links.values()].find((l) => l.agentId === 'chen');
+  assert.equal(link.riskMult, 1);
+  assert.ok(Math.abs(link.risk - 250) < 30, `risk ${link.risk}`);
+
+  // The plan and the desk list say so.
+  const st = live.brain.state();
+  assert.equal(st.ownWay, true);
+  assert.equal(st.mult, 1);
+  assert.match(st.rules[0].text, /^The desks trade their own way/);
+  assert.ok(!st.rules.some((r) => /committee|Desk loss limit|No flipping|Desks earn their place|Capital follows/i.test(r.text) && !/^The desks trade their own way/.test(r.text)));
+  assert.equal(live.brain.deskStatus(fund.byId.get('chen')).label, 'LIVE');
+  live.setDesk('marcus', true);
+  assert.equal(live.brain.deskStatus(fund.byId.get('marcus')).label, 'Own way');
+  // FTMO's own rules still hold a trade back: Best Day here (the loss guard halts the account).
+  const real = live.brain.state.bind(live.brain);
+  live.brain.state = () => ({ ruleStop: 'Best Day rule: done for today' });
+  assert.equal(live.brain.ownWayAllow(chen, { symbol: 'XAUUSD', qty: 1 }, {}).ok, false);
+  live.brain.state = real;
+  // A funded account: FTMO's news rule applies again.
+  live.setup({ program: '2-step', type: 'funded', size: 100_000 });
+  assert.equal(fund.env.newsRules(), true);
+
+  // Back to the institutional way: the unproven desk's own trade doesn't reach a challenge.
+  live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
+  assert.equal(live.setOwnWay(false).ok, true);
+  assert.equal(fund.env.ownWay(), false);
+  const gate = live.gate(fund.byId.get('marcus'), { symbol: 'XAUUSD', side: 'LONG', entry: 3800, stop: 3795, target: 3810 });
+  assert.ok(gate, 'held back by the institutional plan');
+  live.setOwnWay(true);
+  await new Promise((r) => setTimeout(r, 250));
+  assert.equal(JSON.parse(fs.readFileSync(live.file, 'utf8')).ownWay, true);
 });
 

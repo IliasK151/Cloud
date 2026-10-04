@@ -65,7 +65,42 @@ export class AccountBrain {
   }
 
   // Where the account stands and what the plan says, right now.
+  // Their own way (live/liveTrader.js): the plan keeps only FTMO's own rules. No size cuts, no
+  // daily stop, trade cap or cool-off: each desk trades its strategy at the risk per trade.
   state() {
+    const st = this.#planState();
+    const lt = this.live;
+    if (!st || !lt.ownWay) return st;
+    const p = lt.profile;
+    const base = p.riskPerTradePct;
+    const riskMoney = lt.account.balance * (base / 100);
+    return {
+      ...st,
+      ownWay: true,
+      status: lt.halt ? 'HALTED' : st.ruleStop ? 'STOPPED FOR TODAY' : 'NORMAL',
+      blocked: st.ruleStop || null,
+      cooloff: null,
+      reasons: [],
+      riskPct: base,
+      riskMoney,
+      mult: 1,
+      winsToTarget: st.remaining != null && st.remaining > 0 && riskMoney > 0 ? Math.ceil(st.remaining / (riskMoney * 2)) : null,
+      rules: [
+        { text: 'The desks trade their own way: each takes its strategy\'s signals as it sees them, with its own stops, targets and what it learned from its own trades. No committee, no account-plan holds, no size cuts, no cost, news or loss-limit rules from outside', ok: true },
+        { text: `Risk ${base}% of the balance on every trade (${fmtUsd(riskMoney)})`, ok: true },
+        { text: 'Every order carries its stop-loss', ok: true },
+        { text: 'Real prices only: a market whose live feed is down is not traded, never simulated', ok: true },
+        { text: `FTMO guard closes everything at ${p.guardPct}% of a limit, and no trade goes in that could breach it`, ok: !lt.halt },
+        p.type === 'funded'
+          ? { text: 'Funded account: FTMO\'s news rule applies, so no new trades around high-impact news, and flat before it', ok: true }
+          : { text: 'News: FTMO allows trading through it on the Free Trial and challenges, so the desks do', ok: true },
+        lt.fund?.weekendOn && { text: 'Weekend: the desks day-trade crypto (Bitcoin and Ether) until Sunday 18:00 New York, flat by 16:50 each day', ok: true },
+        ...st.ftmoRules,
+      ].filter(Boolean),
+    };
+  }
+
+  #planState() {
     const lt = this.live;
     const p = lt.profile;
     const acc = lt.account;
@@ -229,7 +264,7 @@ export class AccountBrain {
     ].filter(Boolean);
     const minGrade = p.minGrade;
     return {
-      phase, goal, status, blocked: blocked || ruleStop || cooloff?.text || null, ruleStop, cooloff, reasons,
+      phase, goal, status, blocked: blocked || ruleStop || cooloff?.text || null, ruleStop, cooloff, reasons, ftmoRules,
       program: rules.program, programLabel: rules.label, trailing: m.trailing, maxFloor: m.maxFloor, dailyFloor: m.dailyFloor, peakBalance: m.peakBalance,
       bestDay: best, bestDayPending,
       baseRiskPct: base, riskPct: Math.round(riskPct * 1000) / 1000, riskMoney, mult: Math.round(mult * 100) / 100,
@@ -291,6 +326,14 @@ export class AccountBrain {
     if (ed.n < 10) return { ok: false, n: ed.n, text: `it needs 10 or more paper trades on real market prices before it risks real money (${ed.n} so far)` };
     if (ed.e <= 0) return { ok: false, text: `its measured edge is negative (${ed.text}); it earns its way back on paper first` };
     return { ok: true, text: ed.text };
+  }
+
+  // Their own way: only FTMO's own rules hold a desk's trade back (the loss guard halts the
+  // account before this; 1-Step's Best Day rule ends a day), at the full risk per trade.
+  ownWayAllow(agent, pos, plan) {
+    const st = this.state();
+    if (st?.ruleStop) return { ok: false, reason: st.ruleStop };
+    return { ok: true, riskMult: 1, reasons: ['Its own trade, at the full risk per trade'], boss: plan.tag === 'TV', ownWay: true };
   }
 
   // May this desk's trade go to the account, and at what size?
@@ -506,6 +549,11 @@ export class AccountBrain {
     if (open) return { state: 'live', label: 'LIVE', text: `Live on MT5: ${open.side} ${open.volumeNow ?? open.volume0} ${open.brokerSymbol}` };
     if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };
     if (st?.ruleStop && lt.armed) return { state: 'stopped', label: 'Stopped today', text: st.ruleStop };
+    if (lt.ownWay) {
+      const pct = p.riskPerTradePct;
+      if (!lt.armed) return { state: 'ready', label: 'Own way · not armed', text: `Trades its own way once you arm live trading: every trade its strategy takes goes to your FTMO account at ${pct}% risk.` };
+      return { state: 'training', label: 'Own way', text: `Trades its own way: every trade its strategy takes goes to your FTMO account at ${pct}% risk. Only FTMO's own rules can hold one back.` };
+    }
     if (st?.cooloff && lt.armed) return { state: 'stopped', label: 'Cooling off', text: st.cooloff.text };
     const limit = this.deskLimit(agent);
     if (limit && lt.armed) return { state: 'stopped', label: 'Desk limit', text: limit };

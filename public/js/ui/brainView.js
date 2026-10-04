@@ -120,6 +120,12 @@ export class BrainView {
     if (!force && now - this.lastRender < 900) return;
     this.lastRender = now;
     this.rendering = true;
+    // Their own way (FTMO tab): no committee argues the desks' ideas.
+    const lede = this.root.querySelector('.dash-head .lede');
+    const text = this.store.live?.ownWay
+      ? 'How the floor thinks. The desks trade their own way: each takes its own strategy\'s signals, and no committee argues them. Below: what each desk reads in its market, the neural brain learning from every trade, and the floor\'s memory.'
+      : 'How the floor thinks. No desk trades on its own say-so: every idea is argued by its department, graded, and only the best reach your account.';
+    if (lede && lede.textContent !== text) lede.textContent = text;
     this.#renderAccount();
     this.#renderCleared();
     this.#renderDepts();
@@ -131,6 +137,17 @@ export class BrainView {
   #renderAccount() {
     const el = this.root.querySelector('#bv-account');
     const plan = this.store.live?.plan;
+    if (!plan && this.store.live?.ownWay) {
+      el.innerHTML = `<h2>Account brain</h2>
+        <p class="sub">The desks trade their own way. It switches on when MT5 connects and the account is set up in the FTMO tab.</p>
+        <ul class="plan-rules">
+          <li class="ok">Each desk takes its own strategy's signals, with its own stops and targets</li>
+          <li class="ok">Your risk per trade on every trade</li>
+          <li class="ok">Every order carries its stop-loss</li>
+          <li class="ok">FTMO's loss guard closes everything near FTMO's limits</li>
+        </ul>`;
+      return;
+    }
     if (!plan) {
       el.innerHTML = `<h2>Account brain</h2>
         <p class="sub">The plan that protects your prop account. It switches on when MT5 connects and the account is set up in the FTMO tab.</p>
@@ -290,7 +307,9 @@ export class BrainView {
     const s = this.store;
     const who = (id) => s.profileById[id]?.name ?? id;
     this.root.querySelector('#bv-recent').innerHTML = `<h2>Latest decisions across the floor</h2>
-      <p class="sub">A: full size, can reach your account. B: smaller, paper only. C: tiny, paper only, to keep measuring. Vetoed: never traded.</p>
+      <p class="sub">${s.live?.ownWay
+        ? 'The desks trade their own way, so no committee decides on new ideas. These are its last decisions from before.'
+        : 'A: full size. B: smaller. C: the smallest size (paper only, or the Free Trial while training). Vetoed: never traded.'}</p>
       <div class="table-wrap"><table class="table compact"><thead><tr><th>Time</th><th>Desk</th><th>Idea</th><th>Decision</th><th class="r">Score</th><th>Why</th></tr></thead><tbody>${
         (b.recent || []).map((x) => `<tr class="clickable" data-agent="${x.proposer}"><td>${nyTime(x.time)}</td><td>${escapeHtml(who(x.proposer))}</td><td>${x.side === 'LONG' ? 'Buy' : 'Sell'} ${x.symbol}</td><td><span class="verdict ${verdictCls(x.verdict)}">${escapeHtml(x.verdict)}${x.grade && x.grade !== '—' ? ` · ${x.grade}` : ''}</span></td><td class="r num">${x.score.toFixed(2)}</td><td class="muted">${escapeHtml(x.why)}</td></tr>`).join('') ||
         '<tr><td colspan="6" class="muted">No trade ideas yet.</td></tr>'

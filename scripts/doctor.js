@@ -177,6 +177,8 @@ async function main() {
     fixes.push('Load the new code: npm run service -- restart   (without the service: Ctrl+C in the floor window, then npm start)');
   }
   if (live?.mode === 'live' && live.connected && live.profile) {
+    if (live.ownWay) good('The desks trade their own way: each takes its own strategy\'s signals, with only FTMO\'s own rules around it.');
+    else if (live.ownWay === false) good('The desks trade the institutional way: the committee and the account plan decide what reaches the account (FTMO tab → Desks trade their own way).');
     if (live.ftmoOnly) good('FTMO only is on: every trade the desks take goes to the FTMO account, nothing trades on paper.');
     else if (live.ftmoOnly === false) warn('FTMO only is off: the desks trade on paper too, and only some of their trades go to FTMO (FTMO tab → FTMO only).');
     if (live.ftmoOnlyBlock) {

@@ -59,6 +59,11 @@ const SWITCHES = [
 
 export function planSwitches(plan) {
   if (!plan) return '';
+  if (plan.ownWay) {
+    return `<div class="plan-switches"><div class="plan-switch training on">
+      <div><b>The desks trade their own way</b><small>The account plan's switches (training, practice, daily stop, trade cap, losing-streak stop, proven desks only) don't apply: each desk takes its own strategy's signals at your risk per trade. Switch "Desks trade their own way" off in the FTMO tab's Connection card to use them again.</small></div>
+    </div></div>`;
+  }
   return `<div class="plan-switches">${SWITCHES.filter((sw) => !sw.only || sw.only(plan)).map((sw) => {
     const on = plan[sw.key] !== false;
     // While training on FTMO the plan's holds are paused: their switches wait. Practice only

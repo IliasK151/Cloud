@@ -1,6 +1,6 @@
 # Meridian Trading Floor
 
-A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. A five-person **Scalping Desk** only takes fast trades, scalping the London and New York sessions the way AJ Currency trades: liquidity first, tight stops. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. No desk trades on its own say-so: every trade idea is **argued by its department** and graded, and an **account brain** decides what, if anything, reaches your prop account. You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
+A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. A five-person **Scalping Desk** only takes fast trades, scalping the London and New York sessions the way AJ Currency trades: liquidity first, tight stops. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. Each desk **trades its own way**: its own strategy's signals, with its own stops and targets, and every trade goes to your FTMO account with only FTMO's own rules around it. (The institutional way, where a **committee** argues every idea and an **account brain** decides what reaches your prop account, is one switch away.) You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
 
 ![The trading floor](docs/floor.jpg)
 
@@ -165,7 +165,9 @@ On the account, at the weekend a desk's weekend record counts the way its long-r
 
 At most **3 crypto positions** are on the account at once, training and practice included, because Bitcoin and Ether move together and every desk on crypto would otherwise add up to one big bet. FTMO's guard, stops and the daily loss limits apply as always. The account only trades crypto at the weekend if your FTMO account offers it then.
 
-### Institutional risk framework
+### Risk framework
+
+With the desks trading their own way (the default, below), the desk and fund daily loss limits and the news rules are off; trade management, cooldowns, trade caps and the close are each desk's own way of trading, so they stay.
 
 - A **$100M fund** split evenly across the 20 desks ($5M each). Every trade is sized so that a stop-out costs **0.5% of the desk's allocation**, capped at **4× leverage**.
 - **Trade management:** half the position is taken off at +1R and the stop moves to breakeven. After that the runner is trailed with an ATR chandelier stop, and some strategies use time stops. The scalpers don't trail: the runner goes for the liquidity target, with a 30-minute time stop and a 45-minute limit.
@@ -219,7 +221,9 @@ Only a strategy that passes every gate trades. If nothing passes, the researcher
 
 ---
 
-## The Brain: every trade is argued before it's taken
+## The Brain: every trade is argued before it's taken (the institutional way)
+
+*With the desks trading their own way (the default), no committee argues their ideas: the departments, grades and vetoes below apply only with "Desks trade their own way" switched off. The Brain tab still shows each desk's read of its market, the neural brain learning from every trade and the floor's memory.*
 
 ![The Brain](docs/brain.jpg)
 
@@ -347,7 +351,9 @@ Obsidian picks up the changes as they're written, so you can keep it open next t
 - **It's kept separate and private.** Demo mode writes its own vault (`data/vault-demo`), so made-up prices never mix in. Nothing secret is ever written: no tokens, keys or passwords.
 - **It can live anywhere you like, except Desktop, Documents, Downloads and iCloud Drive.** Set `VAULT_DIR` in `.env` (for example `VAULT_DIR=~/Meridian Vault`). macOS doesn't let the non-stop service write in those four folders, so a vault there would stop updating (`npm run service -- status` and the Brain tab say so if it happens). `VAULT=0` turns it off.
 
-## Protecting the prop account (the account brain)
+## Protecting the prop account (the account brain, the institutional way)
+
+*With the desks trading their own way (the default), none of this decides anything: every desk trade goes to the account at your risk per trade, with only FTMO's own rules around it (see [The desks trade their own way](#the-desks-trade-their-own-way)). Switch "Desks trade their own way" off in the FTMO tab to use the plan below.*
 
 The paper desks can experiment; the account only gets the best ideas, sized by where the account stands. This is the plan a professional prop trader follows to pass a challenge and keep getting paid:
 
@@ -391,7 +397,7 @@ The paper desks can experiment; the account only gets the best ideas, sized by w
 - **Near the target, smaller risk**, so one loss can't undo the progress. **Funded accounts trade 20% lighter** to protect the payouts.
 - The FTMO rule guard, news blackouts and stop-losses on every order still apply underneath.
 
-### Run like an institutional trading desk
+### Run like an institutional trading desk (off while the desks trade their own way)
 
 Bank trading floors and multi-manager funds don't rely on a trader's judgement alone. Risk limits, costs and capital allocation are set from outside the trade. These are well-known industry practices, not any one bank's internal playbook. The floor runs them on the account, during training too. None of them stops the paper trading the desks learn from.
 
@@ -533,6 +539,27 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 7. Switch on the desks that may trade the account, then press **Arm live trading**.
 
 ![New FTMO account detected](docs/ftmo-connect.jpg)
+
+### The desks trade their own way
+
+On by default (a switch in the FTMO tab's Connection card). Each desk takes its own strategy's signals as it sees them: its own entries, stops and targets, its own trade management, its own cool-down after a loss and trade cap, and what it learned from its own trades. Every trade goes to your FTMO account at your risk per trade.
+
+What doesn't stand between a desk and its trade any more:
+- the **committee** (no grades, vetoes or smaller sizes);
+- the **account brain** (no evidence or form holds, no practice size, no size cuts in drawdown or after losses, no cool-off, desk loss limit, no-flipping rule or weekend crypto cap, no daily stop or trade cap on the account);
+- the **cost rules** (no stop widening, no refusing a trade for its costs);
+- the **risk desk's** desk and fund daily loss limits;
+- the **news rules** on the Free Trial and challenges, where FTMO allows trading the news;
+- the **neural brain's** say (it still senses every idea and learns from every trade).
+
+What stays, because FTMO requires it or it protects the account from FTMO's own limits:
+- the **FTMO loss guard**: everything closes at 80% of the daily or max loss limit, and no trade goes in that could breach one;
+- a **stop-loss on every order**;
+- **1-Step's Best Day rule** (the desks call it a day at half the target's profit);
+- the **news rule on a funded FTMO account**;
+- **real prices only**, the EA's own caps, and FTMO's order-action limit.
+
+**Honestly:** over 22 months of real 1-minute prices most desks lost money, and the institutional rules were what kept those losses off the account. Trading their own way, expect more trades and a trial that drifts down unless the desks' strategies find an edge. The Free Trial is the place to see it. Switch it off to bring every rule back.
 
 ### FTMO only: every trade is an FTMO trade
 

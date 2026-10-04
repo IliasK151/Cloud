@@ -156,9 +156,11 @@ export function todaySummary(store, now = Date.now()) {
   const training = !!v.plan?.training;
   // FTMO only: a trade FTMO can't take isn't taken at all, so nothing "stays on paper".
   const ftmoOnly = !!v.ftmoOnly && v.mode === 'live';
-  const working = training
-    ? 'Everything is connected and armed, and the desks are training on FTMO: every trade they take goes to the account'
-    : 'Everything is connected and armed, and the desks are working';
+  const working = v.ownWay
+    ? 'Everything is connected and armed, and the desks trade their own way: every trade they take goes to the account'
+    : training
+      ? 'Everything is connected and armed, and the desks are training on FTMO: every trade they take goes to the account'
+      : 'Everything is connected and armed, and the desks are working';
   let headline;
   let tone = 'info';
   if (!v.connected) { headline = 'MT5 isn\'t connected, so nothing can reach the account. See Connection below.'; tone = 'bad'; }
@@ -171,6 +173,7 @@ export function todaySummary(store, now = Date.now()) {
     tone = 'good';
   } else if (t.held) headline = `No trades on FTMO yet today. ${working}: ${plural(t.held, 'trade')} ${t.held === 1 ? 'was' : 'were'} held back from the account, mostly: ${lc(top)}.`;
   else if (paper && !training) headline = `No trades on FTMO yet today. ${working}: ${plural(paper, 'paper trade')} so far, none of ${paper === 1 ? 'it' : 'them'} qualified for the account.`;
+  else if (ideas && v.ownWay) headline = `No trades on FTMO yet today. ${working}. They found ${plural(ideas, 'setup')}, none taken yet (see why below).`;
   else if (ideas) headline = `No trades on FTMO yet today. ${working}. They found ${plural(ideas, 'setup')} and the committee turned ${vetoed >= ideas ? (ideas === 1 ? 'it' : 'all of them') : vetoed} down (no reward worth the risk, news due, or a dead or wild market).`;
   else headline = `No trades yet today. ${working}, but the market hasn't given them a setup that meets their rules yet.`;
 

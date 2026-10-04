@@ -130,17 +130,23 @@ export class TraderAgent {
     if (!Number.isFinite(entry) || !Number.isFinite(stop) || (long ? stop >= entry : stop <= entry)) return false;
     if (target != null && (long ? target <= entry : target >= entry)) target = null;
 
+    // Their own way (live/liveTrader.js, on by default): the desk trades its strategy's signal
+    // as it sees it. The floor's outside layers (the cost rules, the committee, the neural
+    // brain's veto) stay out of it; what the desk learned from its own trades still counts.
+    const ownWay = !!this.env.ownWay?.();
+
     // Costs first, as on a professional desk: a stop too tight for the market's spread,
     // slippage and commission is widened (smaller size, same money at risk), or the trade is
     // refused if it would have to move too far. (Your own TradingView alerts are your call.)
-    if (tag !== 'TV') {
+    if (tag !== 'TV' && !ownWay) {
       const fit = this.#fitToCosts(symbol, side, entry, stop, target);
       if (!fit) return false;
       ({ stop, target } = fit);
     }
 
-    // No trade on the desk's say-so alone: the department committee reviews the idea.
-    const review = this.env.committee?.review({ agent: this, symbol, side, entry, stop, target, reason, external: tag === 'TV' }) ?? null;
+    // No trade on the desk's say-so alone: the department committee reviews the idea (not when
+    // the desks trade their own way).
+    const review = ownWay ? null : this.env.committee?.review({ agent: this, symbol, side, entry, stop, target, reason, external: tag === 'TV' }) ?? null;
     if (review && !review.ok) {
       this.lastReject = `the committee said no (${review.reason})`;
       this.setStage(`Committee said no: ${review.reason}`, review.silent ? 'quiet' : 'setup');
@@ -167,7 +173,7 @@ export class TraderAgent {
     }
     ({ stop, target, partialAt, trail } = learn);
     riskMultiplier *= learn.sizeMult;
-    if (tag !== 'TV') {
+    if (tag !== 'TV' && !ownWay) {
       // The learner may have moved the stop: the same check on where it ended up.
       const fit = this.#fitToCosts(symbol, side, entry, stop, target);
       if (!fit) return false;
@@ -179,7 +185,9 @@ export class TraderAgent {
     // the desk passes, except now and then on paper at small size (an exploration), so the
     // brain also learns how the ideas it passed on turn out. Your own TradingView alerts are
     // always taken.
-    const nb = this.env.neural?.judge?.(this, { symbol, side, entry, stop, target, reason, external: tag === 'TV' }) ?? null;
+    let nb = this.env.neural?.judge?.(this, { symbol, side, entry, stop, target, reason, external: tag === 'TV' }) ?? null;
+    // Their own way: the brain still senses the idea and learns from the trade, but has no say.
+    if (ownWay && nb) nb = { ...nb, take: true, explore: false, sizeMult: null };
     if (nb && !nb.take) {
       this.lastReject = nb.reason;
       this.day.skipped++;

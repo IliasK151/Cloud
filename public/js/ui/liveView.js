@@ -74,6 +74,7 @@ export class LiveView {
       if (t.matches('[data-plan-switch]')) onPlanSwitch(t, this.store.live?.plan);
       if (t.matches('[data-stay-armed]')) this.#onStayArmed(t);
       if (t.matches('[data-ftmo-only]')) this.#post('ftmo-only', { on: t.checked }).then((r) => { if (!r.ok) t.checked = !t.checked; });
+      if (t.matches('[data-own-way]')) this.#onOwnWay(t);
       if (t.id === 'tg-enabled') this.#alertsPost('settings', { enabled: t.checked }).then((r) => this.#afterAlerts(r));
       if (t.matches('[data-tg-kind]')) this.#alertsPost('settings', { kinds: { [t.dataset.tgKind]: t.checked } }).then((r) => this.#afterAlerts(r));
     });
@@ -89,6 +90,18 @@ export class LiveView {
       alert(`Could not reach the floor: ${err.message}`);
       return { ok: false };
     }
+  }
+
+  // Back to the institutional way is a protection coming back: no confirmation. Their own way
+  // takes the protections off, so it asks first.
+  async #onOwnWay(input) {
+    const on = input.checked;
+    if (on && !confirm('Let the desks trade their own way?\n\nEvery desk takes its own strategy\'s signals and every trade goes to your FTMO account at your risk per trade: no committee, no account-plan holds or size cuts, no cost, news or loss-limit rules.\n\nOver 22 months of real prices most desks lost money, and these rules were what kept those losses off the account. FTMO\'s own rules still apply: the loss guard closes everything near FTMO\'s limits, and every order carries its stop-loss.')) {
+      input.checked = false;
+      return;
+    }
+    const res = await this.#post('own-way', { on });
+    if (!res.ok) input.checked = !on;
   }
 
   async #onStayArmed(input) {
@@ -476,6 +489,12 @@ export class LiveView {
       </div>` : ''}
       ${v.mode === 'live' && v.ftmoOnly === undefined ? `<div class="plan-switch stay-armed">
         <div><b>FTMO only: needs a restart of the floor</b><small>The floor is still running its code from before your last git pull, so it doesn't have this switch yet. In Terminal: <code>cd ~/trading-floor && npm run service -- restart</code>, then reload this page.</small></div>
+      </div>` : ''}
+      ${v.mode === 'live' && v.ownWay !== undefined ? `<div class="plan-switch stay-armed">
+        <label class="switch"><input type="checkbox" data-own-way ${v.ownWay ? 'checked' : ''} aria-label="Desks trade their own way"><span></span></label>
+        <div><b>Desks trade their own way: ${v.ownWay ? 'ON' : 'OFF'}</b><small>${v.ownWay
+          ? 'Each desk takes its own strategy\'s signals as it sees them, at your risk per trade. No committee, no account-plan holds or size cuts, no cost, news or loss-limit rules from outside. FTMO\'s own rules stay: the loss guard, a stop-loss on every order, Best Day, news on a funded account.'
+          : 'The institutional way: the committee grades every idea, and the account plan below decides what reaches the account and at what size.'}</small></div>
       </div>` : ''}
       ${v.mode === 'live' && v.ftmoOnly !== undefined ? `<div class="plan-switch stay-armed">
         <label class="switch"><input type="checkbox" data-ftmo-only ${v.ftmoOnly ? 'checked' : ''} aria-label="FTMO only"><span></span></label>

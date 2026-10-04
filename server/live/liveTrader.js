@@ -60,7 +60,7 @@ const INELIGIBLE = {
 // Paper stays the "brain": when an enabled desk opens, scales out, trails or closes a trade,
 // the same action is sent to MT5 with lots sized for the prop account's risk rules.
 export class LiveTrader extends EventEmitter {
-  constructor({ fund, md, bridge, clock, mode, dataDir, token, log = console, ftmoOnly = false }) {
+  constructor({ fund, md, bridge, clock, mode, dataDir, token, log = console, ftmoOnly = false, ownWay = false }) {
     super();
     this.fund = fund;
     this.md = md;
@@ -79,6 +79,13 @@ export class LiveTrader extends EventEmitter {
     this.ftmoOnly = typeof this.state.ftmoOnly === 'boolean' ? this.state.ftmoOnly : !!ftmoOnly;
     fund.env.tradeGate = (agent, intent) => this.gate(agent, intent);
     fund.env.ftmoOnly = () => this.ftmoOnly && this.mode === 'live';
+    // Their own way (on unless the boss switched it off; server/index.js): each desk trades its
+    // strategy's signals as it sees them. The committee, the account plan's holds and size cuts,
+    // the cost and news rules and the risk desk's loss limits stay out of it. FTMO's own rules
+    // (the loss guard, a stop-loss on every order, Best Day, news on a funded account) stay.
+    this.ownWay = typeof this.state.ownWay === 'boolean' ? this.state.ownWay : !!ownWay;
+    fund.env.ownWay = () => this.ownWay;
+    fund.env.newsRules = () => !this.ownWay || this.profile?.type === 'funded';
     this.events = [];
     // Orders from an earlier run that MT5 never confirmed didn't happen.
     this.links = new Map((this.state.links || []).map((l) => [l.key, { ...l, previousSession: true, ...(l.state === 'pending' ? { state: 'failed', reason: 'never confirmed by MT5 before the floor restarted' } : {}) }]));
@@ -140,7 +147,7 @@ export class LiveTrader extends EventEmitter {
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       const links = [...this.links.values()].slice(-200).map(({ previousSession, ...l }) => l);
-      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, ftmoOnly: this.ftmoOnly, peaks: this.state.peaks || {}, costs: this.state.costs || {}, backfill: this.state.backfill || {}, actions: this.bridge.actions, links };
+      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, ftmoOnly: this.ftmoOnly, ownWay: this.ownWay, peaks: this.state.peaks || {}, costs: this.state.costs || {}, backfill: this.state.backfill || {}, actions: this.bridge.actions, links };
       try {
         fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(data, null, 1));
         fs.renameSync(`${this.file}.tmp`, this.file);
@@ -921,6 +928,23 @@ export class LiveTrader extends EventEmitter {
     return true;
   }
 
+  setOwnWay(on) {
+    const v = on === true || on === 'true';
+    if (v === this.ownWay) return { ok: true };
+    this.ownWay = v;
+    this.state.ownWay = v;
+    // The risk desk's halts from earlier today don't apply to desks trading their own way.
+    if (v) {
+      for (const a of this.fund.agents) if (a.halted) a.halted = null;
+      this.fund.risk.riskOff = null;
+    }
+    this.save();
+    this.#note(v
+      ? 'The desks trade their own way: each takes its strategy\'s signals as it sees them. No committee, no account-plan holds or size cuts, no cost, news or loss-limit rules from outside. FTMO\'s own rules stay: the loss guard, a stop-loss on every order, Best Day, news on a funded account'
+      : 'The desks trade the institutional way again: the committee, the account plan, the cost and news rules and the risk desk\'s loss limits are back', 'risk');
+    return { ok: true };
+  }
+
   setFtmoOnly(on) {
     const v = on === true || on === 'true';
     if (v === this.ftmoOnly) return { ok: true };
@@ -1150,7 +1174,7 @@ export class LiveTrader extends EventEmitter {
     // Transaction costs: a trade that gives most of its edge to the spread and commission
     // before it starts doesn't go (your own TradingView alerts are your call).
     const cost = this.costOf(brokerSymbol, plan.risk);
-    if (cost && cost.totalR > COST_MAX_R && plan.tag !== 'TV') {
+    if (cost && cost.totalR > COST_MAX_R && plan.tag !== 'TV' && !this.ownWay) {
       return { skip: `costs would eat ${cost.totalR.toFixed(2)}R before it starts (spread ${cost.spreadR.toFixed(2)}R + commission ${cost.commissionR.toFixed(2)}R), over the ${COST_MAX_R}R limit: the stop is too tight for ${brokerSymbol}'s costs right now` };
     }
     if (!acc.algoAllowed || !acc.tradeAllowed) return { skip: 'Algo Trading is switched off in MT5' };
@@ -1160,14 +1184,15 @@ export class LiveTrader extends EventEmitter {
       + [...this.links.values()].filter((l) => l.state === 'pending').length;
     // Training on FTMO: as many positions as the EA allows (its own cap, 8 unless changed).
     const training = trainingOn(p);
-    const maxPositions = training ? Math.max(p.maxPositions, this.bridge.caps?.maxPositions || 8) : p.maxPositions;
+    const maxPositions = training || this.ownWay ? Math.max(p.maxPositions, this.bridge.caps?.maxPositions || 8) : p.maxPositions;
     if (ours >= maxPositions) return { skip: `already ${ours} live positions (max ${maxPositions})` };
 
     // Learning (or a new strategy on probation) may size a desk's trade down on the account, never up.
-    const news = this.fund.env.news?.blackout(pos.symbol);
+    const news = this.fund.env.newsRules?.() === false ? null : this.fund.env.news?.blackout(pos.symbol);
     if (news) return { skip: `news blackout (${news.event.title})` };
     // The account brain: only proven desks' A-grade trades, sized by where the account stands.
-    const verdict = this.brain.allow(agent, pos, plan);
+    // Their own way: only FTMO's own rules hold a trade back, at the full risk per trade.
+    const verdict = this.ownWay ? this.brain.ownWayAllow(agent, pos, plan) : this.brain.allow(agent, pos, plan);
     if (!verdict.ok) return { skip: verdict.reason };
     // The boss's own alerts go at the account plan's risk; a desk's own trades may be sized
     // down further by its committee grade and what it has learned (never up).
@@ -1191,7 +1216,7 @@ export class LiveTrader extends EventEmitter {
     if (actualRisk > m.maxRoom) return { skip: `not enough room under the max loss guard (${fmtUsd(Math.max(0, m.maxRoom))} left)` };
     // Training on FTMO leaves out the open-risk budget: the loss-guard room above already
     // makes sure every open stop together can't breach FTMO's limits.
-    if (!training && openRisk + actualRisk > acc.balance * (p.maxOpenRiskPct / 100)) {
+    if (!training && !this.ownWay && openRisk + actualRisk > acc.balance * (p.maxOpenRiskPct / 100)) {
       return { skip: `open-risk budget of ${p.maxOpenRiskPct}% is full` };
     }
     return { brokerSymbol, spec, cost, verdict, lots, actualRisk };
@@ -1402,6 +1427,7 @@ export class LiveTrader extends EventEmitter {
       rememberedArmed: !!this.state.armed?.[this.login],
       ftmoOnly: this.ftmoOnly,
       ftmoOnlyBlock,
+      ownWay: this.ownWay,
       halt: this.halt,
       metrics: this.metrics(),
       openRisk: this.openRisk(),

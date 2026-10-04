@@ -34,11 +34,15 @@ export class RiskManager {
   }
 
   canOpen(agent, symbol = agent.symbol) {
+    // Their own way (live/liveTrader.js): no desk or fund loss limits from outside, and the news
+    // rules only where FTMO has them (a funded account). The desk's own trade cap and cool-down
+    // after a loss are its own way of trading, so they stay.
+    const own = !!agent.env?.ownWay?.();
     if (agent.paused) return { ok: false, reason: 'Desk paused by the boss' };
-    if (agent.halted) return { ok: false, reason: agent.halted };
-    if (this.riskOff) return { ok: false, reason: `Fund risk-off: ${this.riskOff.reason}` };
+    if (agent.halted && !own) return { ok: false, reason: agent.halted };
+    if (this.riskOff && !own) return { ok: false, reason: `Fund risk-off: ${this.riskOff.reason}` };
     if (this.session.isFlattenWindow()) return { ok: false, reason: 'Flat into the close' };
-    const news = this.news?.blackout(symbol);
+    const news = agent.env?.newsRules?.() === false ? null : this.news?.blackout(symbol);
     if (news) {
       const when = news.phase === 'before' ? `at ${fmtNyTime(news.event.time)}` : 'just released';
       return { ok: false, news: true, reason: `News blackout: ${eventLabel(news.event)} ${when} (${news.impact} impact), no new ${symbol} trades until ${fmtNyTime(news.until)}` };
