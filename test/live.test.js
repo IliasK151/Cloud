@@ -1987,6 +1987,8 @@ test('every desk trades the FTMO account: no one is off, and a setup saved befor
   const v = live.view();
   assert.equal(v.dayDeskOnly, undefined, 'no "Day Trading Desk only" switch: every desk is a day trader');
   assert.ok(v.desks.every((d) => d.enabled), 'every desk is on the account');
+  // No desk is refused as one a prop account can't trade (the old pairs and market-making desks).
+  assert.ok(fund.agents.every((a) => live.eligible(a.id) && !live.ineligibleReason?.(a.id)));
   const amara = fund.byId.get('amara');
   const theo = fund.byId.get('theo');
   assert.equal(live.brain.deskStatus(amara).label, 'Own way');
