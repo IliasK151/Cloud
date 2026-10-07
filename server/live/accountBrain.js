@@ -43,7 +43,6 @@ export const LIMITS = {
   allocWindow: 12, // its most recent account trades
   formMin: 3, // real-price trades before a desk's form counts
   formWindow: 20, // its most recent real-price trades (paper and account alike)
-  labPaperTrades: 10, // a research desk's new strategy: live paper trades before the account
   practiceRiskPct: 0.25, // Free Trial practice: desks the evidence holds back trade at this risk at most
   together: 3, // the most trades open on the account at once: the desks don't all trade together
 };
@@ -101,7 +100,6 @@ export class AccountBrain {
         p.type === 'funded'
           ? { text: 'Funded account: FTMO\'s news rule applies, so no new trades around high-impact news, and flat before it', ok: true }
           : { text: 'News: FTMO allows trading through it on the Free Trial and challenges, so the desks do', ok: true },
-        lt.fund?.weekendOn && { text: 'Weekend: the desks day-trade crypto (Bitcoin and Ether) until Sunday 18:00 New York, flat by 16:50 each day', ok: true },
         ...st.ftmoRules,
       ].filter(Boolean),
     };
@@ -256,11 +254,9 @@ export class AccountBrain {
           ? { text: `Neural brain has a say: on trades it hadn't seen it ranks winners above losers (skill ${sk.auc}). Ideas it expects to lose stay off the account${noPaper(this.live) ? ' and, with FTMO only on, aren\'t traded at all' : ', a few trade small on paper so it keeps learning'}. It never sends a trade these rules hold back`, ok: true }
           : { text: `Neural brain is learning: it judges every idea and learns from every trade, but decides nothing for the account until it tells winners from losers on trades it hasn't seen (skill ${sk.auc ?? '—'} now, it needs ${nb.trust.minAuc})`, ok: true };
       })(),
-      lt.fund?.weekendOn && { text: 'Weekend: the desks day-trade crypto (Bitcoin and Ether) until Sunday 18:00 New York, flat by 16:50 each day, one crypto trade at a time because crypto moves together; each desk\'s weekend crypto record counts as its long-run record', ok: true },
       { text: 'Top-down first: every desk trades with its market\'s weekly, daily and 4-hour bias, never against it', ok: true },
       { text: CROWD_RULE, ok: true },
       { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R ${noPaper(this.live) ? 'stays off the account' : 'trades paper only'} until its record recovers`, ok: true },
-      { text: `Proven live first: a research desk's new strategy trades paper on real prices until ${LIMITS.labPaperTrades} live trades haven't lost money in total, then the account`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
     ].filter(Boolean);
     // FTMO's rules for this account, in the plan's list (any program).
@@ -318,18 +314,10 @@ export class AccountBrain {
     };
   }
 
-  // Has this desk earned real money with its own trades? (Its measured edge on real prices,
-  // or for a research desk a strategy validated on real data.)
+  // Has this desk earned real money with its own trades? (Its measured edge on real prices.)
   clearance(agent) {
     const committee = agent.env.committee;
     if (!committee) return { ok: true, text: 'cleared' };
-    if (agent.profile.lab) {
-      const act = agent.active;
-      if (!act) return { ok: false, text: 'no validated strategy yet, so it researches on paper first' };
-      const ed = committee.edge(agent, act.symbol, 'LONG');
-      if (ed.e <= 0) return { ok: false, text: ed.text };
-      return { ok: true, text: ed.text };
-    }
     const ed = committee.edge(agent, agent.symbol, 'LONG');
     if (ed.n < 10) return { ok: false, n: ed.n, text: `it needs 10 or more paper trades on real market prices before it risks real money (${ed.n} so far)` };
     if (ed.e <= 0) return { ok: false, text: `its measured edge is negative (${ed.text}); it earns its way back on paper first` };
@@ -375,9 +363,6 @@ export class AccountBrain {
     if (!boss) {
       const limit = this.deskLimit(agent);
       if (limit) return { ok: false, reason: limit };
-      // A research desk's new strategy proves itself live on paper before it risks the account.
-      const lab = this.labProving(agent);
-      if (lab) { const no = hold(lab); if (no) return no; }
       // The evidence decides next: the nightly review on your own prices, and the long run.
       ev = this.evidence(agent);
       if (ev?.mult === 0) { const no = hold(ev.text); if (no) return no; }
@@ -474,51 +459,23 @@ export class AccountBrain {
     const d = this.live.review?.verdictFor?.(agent.id);
     const eff = d ? VERDICT_EFFECT[d.verdict] : null;
     const rec = d ? `${d.avgR >= 0 ? '+' : '−'}${Math.abs(d.avgR).toFixed(2)}R a trade over ${d.n} trades` : '';
-    // At the weekend a desk day-trades crypto: its weekend record is the long run that counts
-    // (the nightly review replays its own market, so it says nothing about crypto).
-    const weekend = !!agent.weekend;
-    const base = weekend ? this.live.weekendRecord : this.live.baseline;
+    const base = this.live.baseline;
     const long = base?.forDesk?.(agent.id) || null;
-    const where = weekend ? ' at the weekend' : '';
     const off = noPaper(this.live) ? 'Off the account' : 'Paper only';
     if (long?.verdict === 'loses') {
-      if (d?.verdict === 'EDGE' && !weekend) return { mult: 0.5, verdict: 'EDGE', long, text: `${name} has an edge on your recent prices (${rec} in the nightly review) but lost money over the long run (${base.recordText(long)}): half size until the edge lasts` };
-      return { mult: 0, verdict: 'loses', long, text: weekend
-        ? `${name} lost money day-trading crypto at the weekend over the long run: ${base.recordText(long)}. ${off} at the weekend`
-        : `${name} lost money over the long run: ${base.recordText(long)}. ${off} until the nightly review finds a real edge on your own prices` };
+      if (d?.verdict === 'EDGE') return { mult: 0.5, verdict: 'EDGE', long, text: `${name} has an edge on your recent prices (${rec} in the nightly review) but lost money over the long run (${base.recordText(long)}): half size until the edge lasts` };
+      return { mult: 0, verdict: 'loses', long, text: `${name} lost money over the long run: ${base.recordText(long)}. ${off} until the nightly review finds a real edge on your own prices` };
     }
-    if (!eff || weekend) {
-      if (long?.verdict === 'no edge') return { mult: 0.5, verdict: 'no edge', long, text: `${name} has no edge${where} over the long run (${base.recordText(long)}): half size` };
+    if (!eff) {
+      if (long?.verdict === 'no edge') return { mult: 0.5, verdict: 'no edge', long, text: `${name} has no edge over the long run (${base.recordText(long)}): half size` };
       // A hair above zero with a range either side of it isn't an edge either.
-      if (long?.verdict === 'unclear') return { mult: 0.5, verdict: 'unclear', long, text: `${name} has no proven edge${where} over the long run (${base.recordText(long)}): half size` };
-      if (long?.verdict === 'edge') return { mult: 1, verdict: 'edge', long, text: `${name} made money${where} over the long run (${base.recordText(long)})` };
-      // Too few weekend trades to judge: half size until there's a record.
-      if (weekend) return { mult: 0.5, verdict: 'unclear', long: null, text: `${name} has too short a record day-trading crypto at the weekend to judge: half size` };
+      if (long?.verdict === 'unclear') return { mult: 0.5, verdict: 'unclear', long, text: `${name} has no proven edge over the long run (${base.recordText(long)}): half size` };
+      if (long?.verdict === 'edge') return { mult: 1, verdict: 'edge', long, text: `${name} made money over the long run (${base.recordText(long)})` };
       return null;
     }
     if (eff.mult === 0) return { mult: 0, verdict: d.verdict, text: `the nightly review found no edge on your prices (${rec}): ${off.toLowerCase()} until a review finds one` };
     if (eff.mult < 1) return { mult: eff.mult, verdict: d.verdict, text: `${name} is unproven on your prices (${rec} in the nightly review): half size` };
     return { mult: 1, verdict: d.verdict, text: `${name} has an edge on your prices (${rec} in the nightly review)` };
-  }
-
-  // A research desk's strategy passed its validation on history, but a strategy found by
-  // searching hundreds of ideas can pass by luck: the lab, run week after week on two weeks of
-  // real 1-minute history (as the floor keeps), deployed strategies validated at +0.3R to
-  // +0.4R a trade that then lost in the weeks after. So a new strategy trades paper first, on
-  // real prices, and reaches the account once it has LIMITS.labPaperTrades live trades that
-  // didn't lose money in total. null when it may go to the account.
-  labProving(agent) {
-    if (!agent.profile.lab || !agent.active) return null;
-    const l = agent.active.live || {};
-    const realOnly = agent.env?.clock?.mode === 'live';
-    const n = realOnly ? l.realTrades || 0 : l.trades || 0;
-    const sum = realOnly ? l.realSumR || 0 : l.sumR || 0;
-    if (n >= LIMITS.labPaperTrades && sum >= 0) return null;
-    const name = agent.profile.name.split(' ')[0];
-    const so = n ? `, ${sum >= 0 ? '+' : '−'}${Math.abs(sum).toFixed(2)}R in total` : '';
-    return n >= LIMITS.labPaperTrades
-      ? `${name}'s strategy (${agent.active.name}) trades paper first and is down ${Math.abs(sum).toFixed(2)}R over its ${n} live trades: it reaches the account once that's back to 0R or better`
-      : `${name}'s new strategy (${agent.active.name}) trades paper first: ${n} of ${LIMITS.labPaperTrades} live trades on real prices so far${so}. Validated on history isn't proven live`;
   }
 
   // A desk earns its place on the account with its current form: once it has LIMITS.formMin
@@ -557,12 +514,10 @@ export class AccountBrain {
   deskStatus(agent, st = this.state()) {
     const lt = this.live;
     const p = lt.profile;
-    if (lt.dayDeskOnly && !agent.profile.dayTrader && !(agent.profile.tvDesk && p?.desks?.[agent.id])) return { state: 'off', label: 'Off · Day Trading Desk only', text: `Only the Day Trading Desk trades the FTMO account (the "Day Trading Desk only" switch, Connection card): ${noPaper(lt) ? 'with FTMO only on, this desk doesn\'t trade' : 'this desk trades paper only'}` };
-    if (!(lt.deskOn ? lt.deskOn(agent.id, agent.profile.tvDesk ? 'TV' : '') : p?.desks?.[agent.id])) return { state: 'off', label: 'Off', text: `Not switched on for the FTMO account: ${noPaper(lt) ? 'with FTMO only on, it doesn\'t trade' : 'paper only'}` };
+    if (!(lt.deskOn ? lt.deskOn(agent.id) : p?.desks?.[agent.id])) return { state: 'off', label: 'Off', text: `Switched off for the FTMO account in the desk table: ${noPaper(lt) ? 'with FTMO only on, it doesn\'t trade' : 'paper only'}` };
     if (!lt.eligible(agent.id)) return noPaper(lt) ? { state: 'paper', label: 'Not trading', text: `${lt.ineligibleReason(agent.id).replace(/ — paper only\.?$/, '')}. With FTMO only on, it doesn't trade.` } : { state: 'paper', label: 'Paper only', text: lt.ineligibleReason(agent.id) };
     const open = this.#links().find((l) => l.agentId === agent.id && !l.previousSession && ['open', 'closing', 'pending'].includes(l.state));
     if (open) return { state: 'live', label: 'LIVE', text: `Live on MT5: ${open.side} ${open.volumeNow ?? open.volume0} ${open.brokerSymbol}` };
-    if (lt.dayDeskOnly && agent.profile.tvDesk) return { state: 'ready', label: 'Your alerts only', text: `Day Trading Desk only: your own TradingView alerts go to the FTMO account through ${agent.profile.name.split(' ')[0]}; ${noPaper(lt) ? 'her own Supertrend trades don\'t trade' : 'her own Supertrend trades stay on paper'}.` };
     if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };
     if (st?.ruleStop && lt.armed) return { state: 'stopped', label: 'Stopped today', text: st.ruleStop };
     if (lt.ownWay) {
@@ -586,10 +541,8 @@ export class AccountBrain {
       if (!lt.armed) return { state: 'ready', label: `Practice · ${what} · not armed`, text: `Practises on the Free Trial at ${pct}% a trade once you arm live trading. ${verdict}` };
       return { state: 'training', label: `Practice · ${what}`, text: `Practises on the Free Trial at ${pct}% a trade (practice is on). ${verdict}` };
     };
-    const lab = this.labProving(agent);
-    if (lab) return held('proving live', lab);
     const ev = this.evidence(agent);
-    if (ev?.mult === 0) return held(ev.verdict === 'loses' ? (agent.weekend ? 'loses on weekend crypto' : 'loses long-term') : 'no edge', ev.text);
+    if (ev?.mult === 0) return held(ev.verdict === 'loses' ? 'loses long-term' : 'no edge', ev.text);
     const form = this.form(agent);
     if (!form.ok) return held('out of form', form.text);
     const alloc = this.allocation(agent);

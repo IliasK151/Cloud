@@ -6,9 +6,9 @@ import { floorTexture, rugTexture, skylineTexture, canvasTexture } from './textu
 // Room dimensions (metres). The trading rows face the video wall at -Z.
 export const ROOM = { x0: -17, x1: 17, z0: -15, z1: 17, height: 6.5 };
 export const PLATFORM = { z0: 0.1, z1: 4.9, height: 0.32 };
-// The Quant Research Lab: a third, higher tier behind the trading rows.
+// A third, higher tier behind the front rows: New York open desks.
 export const LAB = { z0: 6.3, z1: 11.5, height: 0.64 };
-// The Day Trading Desk: a fourth tier at the very back, a step above the lab.
+// A fourth tier at the very back, a step above the third: more New York desks, and Asia.
 export const DAY = { z0: 12.3, z1: 16.9, height: 0.96, width: 26 };
 export const DESK_XS = [-10, -5, 0, 5, 10];
 export const FRONT_ROW_Z = -5.4;
@@ -59,7 +59,7 @@ export function buildRoom(scene) {
   stepLight.position.set(cx, PLATFORM.height - 0.07, PLATFORM.z0 - 0.045);
   scene.add(stepLight);
 
-  // --- research lab tier: higher again, set off by a low glass balustrade and teal light ---
+  // --- third tier: higher again, set off by a low glass balustrade and teal light ---
   const lab = new THREE.Mesh(new THREE.BoxGeometry(W - 3, LAB.height, LAB.z1 - LAB.z0), platMat);
   lab.position.set(cx, LAB.height / 2, (LAB.z0 + LAB.z1) / 2);
   lab.receiveShadow = lab.castShadow = true;
@@ -84,7 +84,7 @@ export function buildRoom(scene) {
     post.position.set(x, LAB.height + 0.45, LAB.z0 + 0.12);
     scene.add(post);
   }
-  // Etched into the glass, facing the room: the lab's name.
+  // Etched into the glass, facing the room: the session its desks trade.
   const sign = canvasTexture(1024, 96);
   sign.ctx.clearRect(0, 0, 1024, 96);
   sign.ctx.font = '700 58px -apple-system, "Helvetica Neue", Arial, sans-serif';
@@ -92,13 +92,13 @@ export function buildRoom(scene) {
   sign.ctx.textBaseline = 'middle';
   sign.ctx.fillStyle = '#8ff0e0';
   if ('letterSpacing' in sign.ctx) sign.ctx.letterSpacing = '14px';
-  sign.ctx.fillText('QUANT RESEARCH LAB', 512, 50);
+  sign.ctx.fillText('NEW YORK OPEN', 512, 50);
   sign.texture.needsUpdate = true;
   const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.34), new THREE.MeshBasicMaterial({ map: sign.texture, transparent: true, opacity: 0.85, toneMapped: false, depthWrite: false }));
   signMesh.position.set(-2.5, LAB.height + 0.52, LAB.z0 + 0.14);
   scene.add(signMesh);
 
-  // --- day trading desk tier: the highest, behind its own glass rail with a warm red light ---
+  // --- back tier: the highest, behind its own glass rail with a warm red light ---
   const dayTier = new THREE.Mesh(new THREE.BoxGeometry(DAY.width, DAY.height, DAY.z1 - DAY.z0), platMat);
   dayTier.position.set(0, DAY.height / 2, (DAY.z0 + DAY.z1) / 2);
   dayTier.receiveShadow = dayTier.castShadow = true;
@@ -132,7 +132,7 @@ export function buildRoom(scene) {
   daySign.ctx.textBaseline = 'middle';
   daySign.ctx.fillStyle = '#ffb3a6';
   if ('letterSpacing' in daySign.ctx) daySign.ctx.letterSpacing = '14px';
-  daySign.ctx.fillText('DAY TRADING DESK', 512, 50);
+  daySign.ctx.fillText('NEW YORK · ASIA OPEN', 512, 50);
   daySign.texture.needsUpdate = true;
   const daySignMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.34), new THREE.MeshBasicMaterial({ map: daySign.texture, transparent: true, opacity: 0.85, toneMapped: false, depthWrite: false }));
   daySignMesh.position.set(-2.5, DAY.height + 0.52, DAY.z0 + 0.14);

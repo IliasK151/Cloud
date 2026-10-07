@@ -1,4 +1,4 @@
-import { money, nyTime, signClass, escapeHtml, STATUS_COLORS, deskKey, isDayDesk } from '../format.js';
+import { money, nyTime, signClass, escapeHtml, STATUS_COLORS, deskKey, sessionOf, SESSIONS } from '../format.js';
 import { fundBook, deskBook, hasFtmo, bookMode, setBookPref } from '../book.js';
 import { provingNote, setPlanSwitch } from './planSwitch.js';
 import { todayRailNote } from './todayCard.js';
@@ -54,21 +54,17 @@ export class Hud {
     this.el.list.innerHTML = '';
     this.rows.clear();
     s.profiles.forEach((p, i) => {
-      if (p.lab && !s.profiles[i - 1]?.lab) {
+      // The desks by the session they trade.
+      const ses = sessionOf(p);
+      if (!i || sessionOf(s.profiles[i - 1]) !== ses) {
         const h = document.createElement('li');
-        h.className = 'desk-group';
-        h.innerHTML = 'Quant Research Lab <small>trades only validated strategies</small>';
-        this.el.list.appendChild(h);
-      }
-      if (isDayDesk(p) && !(s.profiles[i - 1] && isDayDesk(s.profiles[i - 1]))) {
-        const h = document.createElement('li');
-        h.className = 'desk-group daytrade';
-        h.innerHTML = 'Day Trading Desk <small>TJR style: top-down bias, liquidity sweeps, 3R+ trades</small>';
+        h.className = `desk-group ${ses}`;
+        h.innerHTML = `${SESSIONS[ses].label} <small>${SESSIONS[ses].hours} · top-down day trades, 3R+</small>`;
         this.el.list.appendChild(h);
       }
       const li = document.createElement('li');
-      li.className = `desk-item${p.lab ? ' lab' : isDayDesk(p) ? ' daytrade' : ''}`;
-      const markets = p.research?.markets || p.symbols;
+      li.className = `desk-item ${ses}`;
+      const markets = p.symbols;
       li.innerHTML = `
         <span class="key" style="--accent:${p.accent}">${deskKey(p, i)}</span>
         <span class="nm">${escapeHtml(p.name)}</span>
@@ -77,7 +73,7 @@ export class Hud {
         <span class="st">—</span>`;
       li.addEventListener('click', () => this.onSelect(p.id));
       this.el.list.appendChild(li);
-      this.rows.set(p.id, { li, pnl: li.querySelector('.pnl'), st: li.querySelector('.st'), subt: li.querySelector('.subt'), lab: !!p.lab, p });
+      this.rows.set(p.id, { li, pnl: li.querySelector('.pnl'), st: li.querySelector('.st'), subt: li.querySelector('.subt'), p });
     });
     this.renderTape();
     this.update();
@@ -143,11 +139,6 @@ export class Hud {
         row.stKey = stKey;
         row.st.innerHTML = `<i class="st-dot" style="background:${color}"></i>${escapeHtml(stText)}`;
         row.st.title = a.news?.hold ? `Standing aside for ${a.news.hold.label}` : paperTrade ? 'This trade is on paper only, not on your FTMO account' : '';
-      }
-      if (row.lab) {
-        const act = a.research?.active;
-        const txt = act ? `${act.name} · ${act.symbol}` : `${row.p.desk} · ${(row.p.research?.markets || []).length > 3 ? 'all markets' : (row.p.research?.markets || []).join('/')}`;
-        if (row.subt.textContent !== txt) row.subt.textContent = txt;
       }
       row.li.classList.toggle('active', s.selected === id);
     }

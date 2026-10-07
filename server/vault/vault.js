@@ -458,13 +458,13 @@ ${t.grade ? `- Committee grade: **${t.grade}**\n` : ''}${Number.isFinite(n?.p) ?
       const pos = (a.positionsView?.() || []).map((p) => `${p.side === 'LONG' ? 'long' : 'short'} ${p.symbol}${Number.isFinite(p.r) ? ` ${fmtR(p.r)}` : ''} (${fmtUsd(p.unrealized)})`).join(', ');
       const td = this.#stats(this.#today(this.#trades(a)));
       const state = a.halted ? `⛔ ${a.halted}` : a.paused ? 'paused by you' : a.setup?.stage || '—';
-      return `| [[${a.profile.name}]] | ${a.symbol}${a.weekend ? ' 🪙' : ''} | ${cell(state)} | ${pos || '—'} | ${td.n} · ${fmtR(td.sumR)} | [[Journal/${safeName(a.profile.name)}/${this.fund.session.tradingDay(now)}|journal]] |`;
+      return `| [[${a.profile.name}]] | ${a.symbol} | ${cell(state)} | ${pos || '—'} | ${td.n} · ${fmtR(td.sumR)} | [[Journal/${safeName(a.profile.name)}/${this.fund.session.tradingDay(now)}|journal]] |`;
     });
     const open = this.fund.agents.reduce((n, a) => n + (a.book?.positions?.size || 0), 0);
     const body = `${yaml({ tags: ['now'] })}
 # The floor right now
 
-**Live**: ${s.day} ${s.time} New York (rewritten every minute while the floor runs)${this.fund.weekendOn ? ' · weekend: the desks day-trade crypto 🪙' : ''} · ${open} position${open === 1 ? '' : 's'} open
+**Live**: ${s.day} ${s.time} New York (rewritten every minute while the floor runs) · ${open} position${open === 1 ? '' : 's'} open
 
 | Desk | Market | Doing now | Open | Today | Notes |
 |---|---|---|---|---|---|
@@ -504,7 +504,7 @@ ${rows.join('\n')}
       const td = this.#stats(this.#today(this.#trades(a)));
       const all = this.#stats(this.#trades(a));
       const st = this.#status(a);
-      return `| [[${a.profile.name}]] | ${a.symbol}${a.weekend ? ' (weekend)' : ''} | ${td.n} | ${td.wins} | ${fmtR(td.sumR)} | ${a.day?.ideas ?? 0} | ${all.n} | ${pct(all.winRate)} | ${fmtR(all.avgR)} | ${cell(st?.label || '—')} |`;
+      return `| [[${a.profile.name}]] | ${a.symbol} | ${td.n} | ${td.wins} | ${fmtR(td.sumR)} | ${a.day?.ideas ?? 0} | ${all.n} | ${pct(all.winRate)} | ${fmtR(all.avgR)} | ${cell(st?.label || '—')} |`;
     });
     const recent = f.agents.flatMap((a) => this.#trades(a).map((t) => ({ a, t }))).sort((x, y) => (y.t.closeTime ?? 0) - (x.t.closeTime ?? 0)).slice(0, 20);
     const sk = this.neural?.ready ? this.neural.skill() : null;
@@ -544,7 +544,7 @@ ${recent.map(({ a, t }) => `- [[${this.#tradeName(a, t)}]] ${fmtR(t.r)} ${t.r > 
     const rev = this.live?.review?.verdictFor?.(a.id) || null;
     const ins = this.neural?.view?.().insights?.[a.id] || null;
     const learn = a.learner?.view?.() || null;
-    const rules = Object.entries(a.rules || {}).map(([k, v]) => `${k} ${v}`).join(' · ');
+    const rules = Object.entries(a.rules || {}).filter(([, v]) => v != null).map(([k, v]) => `${k} ${v}`).join(' · ');
     const sits = [];
     for (const [key, s] of Object.entries(this.memory?.state?.situations || {})) {
       const d = s.byDesk?.[a.id];
@@ -558,7 +558,7 @@ ${recent.map(({ a, t }) => `- [[${this.#tradeName(a, t)}]] ${fmtR(t.r)} ${t.r > 
     })}
 # ${p.name} · ${p.desk}
 
-**${a.constructor.strategyName}** on [[${p.symbols?.[0]}]]${p.weekendSymbol ? `, and [[${p.weekendSymbol}]] at the weekend (crypto day trading)` : ''}. ${a.constructor.strategyBlurb || ''}
+**${a.constructor.strategyName}** on [[${p.symbols?.[0]}]]. ${a.constructor.strategyBlurb || ''}
 ${rules ? `\nEntry rules: ${rules}\n` : ''}
 ## Where I stand
 - On the FTMO account: **${cell(st?.label || 'not set up')}**${st?.text ? `: ${cell(st.text)}` : ''}
@@ -624,7 +624,6 @@ ${cell(l.text)}
     const set = new Set();
     for (const a of this.fund.agents) {
       if (!a.profile.lab) set.add(a.profile.symbols?.[0]);
-      if (a.profile.weekendSymbol) set.add(a.profile.weekendSymbol);
     }
     for (const key of Object.keys(this.memory?.state?.situations || {})) set.add(key.split('|')[0]);
     return [...set].filter((s) => SYMBOLS[s]).sort();
@@ -634,11 +633,10 @@ ${cell(l.text)}
     if (!SYMBOLS[sym]) return;
     const sits = Object.entries(this.memory?.state?.situations || {}).filter(([k]) => k.startsWith(`${sym}|`)).map(([key, s]) => ({ key, ...s, avg: s.sum / Math.max(1e-9, s.n) })).sort((x, y) => y.avg - x.avg);
     const desks = this.fund.agents.filter((a) => a.profile.symbols?.[0] === sym && !a.profile.lab);
-    const weekend = this.fund.agents.filter((a) => a.profile.weekendSymbol === sym);
     const body = `${yaml({ symbol: sym, name: SYMBOLS[sym].name, tags: ['market'] })}
 # ${sym} · ${SYMBOLS[sym].name}
 
-- Traded by: ${desks.map((a) => `[[${a.profile.name}]]`).join(' · ') || '—'}${weekend.length ? `\n- At the weekend also: ${weekend.map((a) => `[[${a.profile.name}]]`).join(' · ')}` : ''}
+- Traded by: ${desks.map((a) => `[[${a.profile.name}]]`).join(' · ') || '—'}
 
 ## Situations the floor remembers here
 Recent trades count more; a situation is trusted from about 6 trades.

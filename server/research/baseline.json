@@ -1,7 +1,7 @@
 {
  "v": 1,
- "at": 1791364336125,
- "source": "Oanda 1-minute bars (FutureSharks/financial-data)",
+ "at": 1791397737080,
+ "source": "Oanda and Bitstamp 1-minute bars (FutureSharks/financial-data)",
  "seed": 1,
  "topDown": true,
  "desks": [
@@ -12,38 +12,31 @@
    "bars": 644154,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 6.5,
-   "n": 635,
+   "tradesPerWeek": 0.3,
+   "n": 26,
    "avgR": -0.04,
-   "totalR": -25.1,
-   "winRate": 0.515,
+   "totalR": -1,
+   "winRate": 0.231,
    "ci": [
-    -0.124,
-    0.044
+    -0.62,
+    0.646
    ],
    "halves": [
-    0.017,
-    -0.096
+    -0.387,
+    0.308
    ],
    "quarters": {
-    "positive": 3,
-    "total": 8
+    "positive": 2,
+    "total": 7
    },
    "grossR": -0.04,
    "costR": 0,
-   "verdict": "no edge"
+   "verdict": "too few trades"
   },
   {
    "id": "sofia",
    "name": "Sofia Laurent",
    "symbol": "USDJPY",
-   "verdict": "no history",
-   "n": 0
-  },
-  {
-   "id": "kenji",
-   "name": "Kenji Tanaka",
-   "symbol": "ETHUSD",
    "verdict": "no history",
    "n": 0
   },
@@ -54,26 +47,187 @@
    "bars": 640681,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 20.4,
-   "n": 1987,
-   "avgR": -0.216,
-   "totalR": -429.5,
-   "winRate": 0.468,
+   "tradesPerWeek": 0.2,
+   "n": 19,
+   "avgR": 0.137,
+   "totalR": 2.6,
+   "winRate": 0.263,
    "ci": [
-    -0.26,
-    -0.171
+    -0.599,
+    0.948
    ],
    "halves": [
-    -0.259,
-    -0.173
+    0.626,
+    -0.303
    ],
    "quarters": {
-    "positive": 0,
+    "positive": 4,
     "total": 8
    },
-   "grossR": -0.177,
-   "costR": 0.039,
-   "verdict": "loses"
+   "grossR": 0.156,
+   "costR": 0.018,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "james",
+   "name": "James Whitfield",
+   "symbol": "SPX500",
+   "bars": 552524,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 0.3,
+   "n": 28,
+   "avgR": 0.465,
+   "totalR": 13,
+   "winRate": 0.286,
+   "ci": [
+    -0.384,
+    1.359
+   ],
+   "halves": [
+    0.436,
+    0.493
+   ],
+   "quarters": {
+    "positive": 6,
+    "total": 8
+   },
+   "grossR": 0.465,
+   "costR": 0,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "priya",
+   "name": "Priya Sharma",
+   "symbol": "EURUSD",
+   "bars": 826801,
+   "from": 1514844000,
+   "to": 1589443140,
+   "tradesPerWeek": 0.4,
+   "n": 49,
+   "avgR": 0.024,
+   "totalR": 1.2,
+   "winRate": 0.286,
+   "ci": [
+    -0.435,
+    0.517
+   ],
+   "halves": [
+    0.068,
+    -0.019
+   ],
+   "quarters": {
+    "positive": 5,
+    "total": 10
+   },
+   "grossR": 0.102,
+   "costR": 0.079,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "lucas",
+   "name": "Lucas Meyer",
+   "symbol": "USOIL",
+   "bars": 623198,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 0.2,
+   "n": 21,
+   "avgR": 0.034,
+   "totalR": 0.7,
+   "winRate": 0.238,
+   "ci": [
+    -0.729,
+    0.932
+   ],
+   "halves": [
+    -0.698,
+    0.698
+   ],
+   "quarters": {
+    "positive": 4,
+    "total": 8
+   },
+   "grossR": 0.076,
+   "costR": 0.043,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "chen",
+   "name": "Chen Wei",
+   "symbol": "ETHUSD",
+   "verdict": "no history",
+   "n": 0
+  },
+  {
+   "id": "hannah",
+   "name": "Hannah Berg",
+   "symbol": "GBPUSD",
+   "bars": 817359,
+   "from": 1514844000,
+   "to": 1589443140,
+   "tradesPerWeek": 0.5,
+   "n": 57,
+   "avgR": -0.194,
+   "totalR": -11.1,
+   "winRate": 0.246,
+   "ci": [
+    -0.611,
+    0.274
+   ],
+   "halves": [
+    -0.483,
+    0.085
+   ],
+   "quarters": {
+    "positive": 5,
+    "total": 10
+   },
+   "grossR": -0.129,
+   "costR": 0.065,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "omar",
+   "name": "Omar Haddad",
+   "symbol": "SOLUSD",
+   "verdict": "no history",
+   "n": 0
+  },
+  {
+   "id": "mei",
+   "name": "Mei Lin",
+   "symbol": "BTCUSD",
+   "bars": 971424,
+   "from": 1483228800,
+   "to": 1543842000,
+   "tradesPerWeek": 0.2,
+   "n": 18,
+   "avgR": 0.188,
+   "totalR": 3.4,
+   "winRate": 0.278,
+   "ci": [
+    -0.712,
+    1.183
+   ],
+   "halves": [
+    0.618,
+    -0.243
+   ],
+   "quarters": {
+    "positive": 4,
+    "total": 7
+   },
+   "grossR": 0.259,
+   "costR": 0.072,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "kenji",
+   "name": "Kenji Tanaka",
+   "symbol": "ETHUSD",
+   "verdict": "no history",
+   "n": 0
   },
   {
    "id": "viktor",
@@ -82,27 +236,26 @@
    "bars": 971424,
    "from": 1483228800,
    "to": 1543842000,
-   "tradesPerWeek": 0.6,
-   "n": 56,
-   "avgR": 0.245,
-   "totalR": 13.7,
-   "winRate": 0.357,
+   "tradesPerWeek": 0.4,
+   "n": 36,
+   "avgR": 0.123,
+   "totalR": 4.4,
+   "winRate": 0.417,
    "ci": [
-    -0.235,
-    0.759
+    -0.364,
+    0.691
    ],
    "halves": [
-    0.461,
-    0.029
+    0.21,
+    0.036
    ],
    "quarters": {
-    "positive": 4,
+    "positive": 3,
     "total": 8
    },
-   "grossR": 0.333,
-   "costR": 0.088,
-   "verdict": "too few trades",
-   "source": "Bitstamp 2017 and Kraken 2018 1-minute bars"
+   "grossR": 0.216,
+   "costR": 0.093,
+   "verdict": "too few trades"
   },
   {
    "id": "isabella",
@@ -112,93 +265,9 @@
    "n": 0
   },
   {
-   "id": "james",
-   "name": "James Whitfield",
-   "symbol": "SPX500",
-   "bars": 552524,
-   "from": 1530482400,
-   "to": 1589443140,
-   "tradesPerWeek": 22.1,
-   "n": 2155,
-   "avgR": -0.218,
-   "totalR": -468.8,
-   "winRate": 0.504,
-   "ci": [
-    -0.258,
-    -0.178
-   ],
-   "halves": [
-    -0.244,
-    -0.191
-   ],
-   "quarters": {
-    "positive": 0,
-    "total": 8
-   },
-   "grossR": -0.219,
-   "costR": 0,
-   "verdict": "loses"
-  },
-  {
-   "id": "priya",
-   "name": "Priya Sharma",
-   "symbol": "EURUSD",
-   "bars": 826801,
-   "from": 1514844000,
-   "to": 1589443140,
-   "tradesPerWeek": 19.7,
-   "n": 2425,
-   "avgR": -0.409,
-   "totalR": -991.6,
-   "winRate": 0.439,
-   "ci": [
-    -0.447,
-    -0.371
-   ],
-   "halves": [
-    -0.395,
-    -0.422
-   ],
-   "quarters": {
-    "positive": 0,
-    "total": 10
-   },
-   "grossR": -0.202,
-   "costR": 0.207,
-   "verdict": "loses"
-  },
-  {
-   "id": "lucas",
-   "name": "Lucas Meyer",
-   "symbol": "USOIL",
-   "bars": 623198,
-   "from": 1530482400,
-   "to": 1589443140,
-   "tradesPerWeek": 42.1,
-   "n": 4099,
-   "avgR": -0.292,
-   "totalR": -1198.2,
-   "winRate": 0.453,
-   "ci": [
-    -0.323,
-    -0.262
-   ],
-   "halves": [
-    -0.376,
-    -0.208
-   ],
-   "quarters": {
-    "positive": 0,
-    "total": 8
-   },
-   "grossR": -0.22,
-   "costR": 0.072,
-   "verdict": "loses"
-  },
-  {
-   "id": "chen",
-   "name": "Chen Wei",
-   "symbol": "ETHUSD",
+   "id": "arjun",
+   "name": "Arjun Mehta",
+   "symbol": "USDJPY",
    "verdict": "no history",
    "n": 0
   },
@@ -265,25 +334,25 @@
    "bars": 640681,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 0.5,
-   "n": 49,
-   "avgR": 0.002,
-   "totalR": 0.1,
-   "winRate": 0.306,
+   "tradesPerWeek": 0.3,
+   "n": 33,
+   "avgR": -0.174,
+   "totalR": -5.7,
+   "winRate": 0.303,
    "ci": [
-    -0.411,
-    0.454
+    -0.591,
+    0.262
    ],
    "halves": [
-    0.079,
-    -0.072
+    -0.084,
+    -0.259
    ],
    "quarters": {
     "positive": 4,
     "total": 8
    },
-   "grossR": 0.019,
-   "costR": 0.017,
+   "grossR": -0.159,
+   "costR": 0.015,
    "verdict": "too few trades"
   },
   {
@@ -293,25 +362,25 @@
    "bars": 826801,
    "from": 1514844000,
    "to": 1589443140,
-   "tradesPerWeek": 0.8,
-   "n": 95,
-   "avgR": 0.077,
-   "totalR": 7.3,
-   "winRate": 0.326,
+   "tradesPerWeek": 0.5,
+   "n": 57,
+   "avgR": 0.01,
+   "totalR": 0.6,
+   "winRate": 0.351,
    "ci": [
-    -0.229,
-    0.412
+    -0.355,
+    0.429
    ],
    "halves": [
-    -0.096,
-    0.246
+    0.194,
+    -0.167
    ],
    "quarters": {
     "positive": 4,
     "total": 10
    },
-   "grossR": 0.149,
-   "costR": 0.072,
+   "grossR": 0.076,
+   "costR": 0.066,
    "verdict": "too few trades"
   },
   {
@@ -321,25 +390,53 @@
    "bars": 623198,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 0.6,
-   "n": 62,
-   "avgR": -0.159,
-   "totalR": -9.8,
-   "winRate": 0.258,
+   "tradesPerWeek": 0.5,
+   "n": 46,
+   "avgR": -0.027,
+   "totalR": -1.3,
+   "winRate": 0.304,
    "ci": [
-    -0.543,
-    0.254
+    -0.464,
+    0.446
    ],
    "halves": [
-    -0.445,
-    0.128
+    -0.41,
+    0.356
    ],
    "quarters": {
     "positive": 4,
     "total": 8
    },
-   "grossR": -0.126,
-   "costR": 0.033,
+   "grossR": 0.001,
+   "costR": 0.028,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "elena",
+   "name": "Elena Vasquez",
+   "symbol": "BTCUSD",
+   "bars": 971424,
+   "from": 1483228800,
+   "to": 1543842000,
+   "tradesPerWeek": 0.1,
+   "n": 13,
+   "avgR": 0.296,
+   "totalR": 3.8,
+   "winRate": 0.308,
+   "ci": [
+    -0.636,
+    1.372
+   ],
+   "halves": [
+    -0.033,
+    0.578
+   ],
+   "quarters": {
+    "positive": 2,
+    "total": 6
+   },
+   "grossR": 0.371,
+   "costR": 0.076,
    "verdict": "too few trades"
   }
  ]

@@ -12,7 +12,7 @@ import { Broker } from '../server/engine/broker.js';
 import { RiskManager } from '../server/engine/risk.js';
 import { Fund } from '../server/engine/fund.js';
 import { config } from '../server/config.js';
-import { runBacktest } from '../scripts/backtest.js';
+import { runFloor } from '../scripts/backtest.js';
 
 // A market read we control completely: every factor at `v` (in the trade's favour).
 function stubBrain({ v = 0.5, news = null, volPct = 0.5, rr = 2 } = {}) {
@@ -47,13 +47,14 @@ test('every market is covered by a department of at least two agents that debate
 });
 
 test('agents have their own brains: the same evidence gets different opinions', () => {
-  const chasingInTrend = { htf: { value: 0.9, text: 'trend up' }, trend: { value: 0.9, text: '15m up' }, structure: { value: 1, text: 'HH/HL' }, momentum: { value: 0.8, text: 'strong' }, stretch: { value: -1, text: '2.8σ above VWAP, chasing' }, location: { value: -0.3, text: 'nothing behind' } };
-  const trend = opinion('marcus', chasingInTrend);
-  const reverter = opinion('james', chasingInTrend);
-  assert.ok(trend.score > reverter.score, 'the trend follower likes it more than the mean-reversion trader');
-  assert.equal(trend.stance, 'agree');
-  assert.notEqual(reverter.stance, 'agree');
-  assert.ok(reverter.cons.some((c) => /chasing/.test(c.text)));
+  // A clean sweep into liquidity with the higher timeframes, from a desk with no record yet.
+  const sweep = { htf: { value: 0.5, text: 'the higher timeframes are with it' }, structure: { value: 0.6, text: 'the 5-minute structure shifted' }, location: { value: 0.6, text: 'it swept the Asia low' }, stretch: { value: -0.5, text: 'it has run a long way' }, edge: { value: -0.8, text: 'no track record yet' } };
+  const dayTrader = opinion('marcus', sweep);
+  const riskManager = opinion('elena', sweep);
+  assert.ok(dayTrader.score > riskManager.score, 'the day trader likes the setup more than the risk manager, who weighs the missing record');
+  assert.equal(dayTrader.stance, 'agree');
+  assert.notEqual(riskManager.stance, 'agree');
+  assert.ok(riskManager.cons.some((c) => /no track record/.test(c.text)));
   assert.ok(FACTORS.includes('edge'));
 });
 
@@ -96,8 +97,10 @@ test('the committee debates every idea and grades it: A full size, weak ideas pa
   assert.equal(a.sizeMult, 1);
   const who = a.debate.messages.map((m) => m.from);
   assert.equal(who[0], 'marcus', 'the desk pitches first');
-  assert.ok(who.includes('arjun') && who.includes('james'), 'its department reviews it');
-  assert.equal(who.at(-1), 'elena', 'the head of research signs off on risk');
+  // Its department reviews it: Tyler, the other Nasdaq desk, first.
+  assert.equal(who[1], 'tyler');
+  assert.ok(['james', 'sienna'].includes(who[2]), who.join());
+  assert.equal(who.at(-1), 'elena', 'the head trader signs off on risk');
   assert.match(a.thesis, /Opening range breakout\. Why:/);
 
   // Same evidence, but the desk has been losing: the committee doesn't trust it with real money.
@@ -108,13 +111,17 @@ test('the committee debates every idea and grades it: A full size, weak ideas pa
   assert.match(b.debate.messages.find((m) => m.from !== 'marcus').text, /record is −0\.35R per trade over 40 trades/);
 });
 
-test('hard vetoes: news, extreme or dead volatility, and a target smaller than the risk', () => {
+test('hard vetoes: news, dead volatility, and a target smaller than the risk', () => {
   const { fund } = floor('off');
   const lucas = fund.byId.get('lucas');
   Object.assign(lucas.lifetime, { countR: 40, sumR: 12 });
+  // Every desk day trades: a sweep of liquidity is a volatility burst, so extreme volatility
+  // doesn't veto it.
+  const hot = new Committee({ brain: stubBrain({ v: 0.9, volPct: 0.97 }), agents: fund.byId, clock: fund.clock });
+  const h = hot.review({ agent: lucas, symbol: 'USOIL', side: 'LONG', entry: 100, stop: 99, target: 103, reason: 'swept the Asia low' });
+  assert.equal(h.ok, true, h.reason);
   const cases = [
     [{ news: { label: 'US Crude Oil Inventories', impact: 'high', minutes: 20 } }, /Crude Oil Inventories is due in 20 minutes/],
-    [{ volPct: 0.97 }, /volatility is extreme/],
     [{ volPct: 0.03 }, /dead quiet/],
     [{ rr: 0.6 }, /target is only 0\.6R/],
   ];
@@ -265,12 +272,14 @@ test('account brain: only proven desks, A-grade, one position per correlated gro
   assert.match(funded.goal, /Payouts/);
 });
 
-test('with the committee on, a simulated session runs and every desk trade has a thesis and grade', () => {
-  const fund = runBacktest({ sessions: 1, seed: 6, quiet: true, committee: 'on' });
+test('with the committee on, a simulated session runs and every desk trade has a thesis and grade', async () => {
+  // The day traders need weeks behind them for their top-down read: the whole floor, history
+  // included, over a few demo days.
+  const fund = await runFloor({ sessions: 6, seed: 11, quiet: true, committee: 'on' });
   const errors = fund.agents.flatMap((a) => a.log.filter((l) => l.kind === 'error').map((l) => l.text));
   assert.deepEqual(errors, []);
-  assert.ok(fund.committee.stats.reviewed > 5);
-  const reviewed = fund.agents.filter((a) => !['kenji', 'isabella'].includes(a.id)).flatMap((a) => fund.broker.book(a.id).trades);
+  assert.ok(fund.committee.stats.reviewed > 0);
+  const reviewed = fund.agents.flatMap((a) => fund.broker.book(a.id).trades);
   assert.ok(reviewed.length > 0);
   for (const t of reviewed) {
     assert.ok(['A', 'B', 'C'].includes(t.grade), `${t.agentId} ${t.symbol} graded`);

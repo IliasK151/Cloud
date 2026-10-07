@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 
 import { toColumns, minuteContext, TfContext, nyMinutes, classifyRegime } from '../server/research/context.js';
 import { FAMILIES, signalAt, describe, strategyName } from '../server/research/families.js';
@@ -9,13 +8,7 @@ import { research, neighbours } from '../server/research/search.js';
 import { liveSignal, closesTimeframe } from '../server/research/live.js';
 import { syntheticHistory } from '../server/research/history.js';
 import { NewsCalendar } from '../server/market/calendar.js';
-import { MarketClock, Session, nyWallToMs } from '../server/market/session.js';
-import { MarketData } from '../server/market/marketData.js';
-import { SimFeed } from '../server/market/simFeed.js';
-import { Broker } from '../server/engine/broker.js';
-import { RiskManager } from '../server/engine/risk.js';
-import { Fund } from '../server/engine/fund.js';
-import { config } from '../server/config.js';
+import { nyWallToMs } from '../server/market/session.js';
 import { mulberry32, gaussian } from '../server/util/random.js';
 import { runFloor } from '../scripts/backtest.js';
 
@@ -182,119 +175,12 @@ test('metrics, Monte Carlo and parameter neighbours', () => {
 });
 
 // ---- the research desks ----------------------------------------------------------------------
-function floorWithFakeLab() {
-  const clock = new MarketClock('sim', 1);
-  const session = new Session(clock);
-  const md = new MarketData(clock);
-  const broker = new Broker(md, clock);
-  const risk = new RiskManager(config.risk, session);
-  const requests = [];
-  const lab = Object.assign(new EventEmitter(), {
-    history: { ready: true, recent: () => [], bars: () => [] },
-    running: null, queue: [],
-    isBusy: () => false,
-    request: (agentId, symbol) => { requests.push({ agentId, symbol }); return true; },
-  });
-  const fund = new Fund({ config: { ...config, feed: 'sim' }, md, clock, session, broker, risk, lab });
-  const sim = new SimFeed(md, clock, ['NAS100', 'SPX500', 'XAUUSD', 'SOLUSD'], { seed: 5 });
-  sim.warmup(120);
-  fund.trading = true;
-  return { fund, lab, requests, clock };
-}
-
-function passing(symbol, t = 3, avgR = 0.4) {
-  const genome = { ...breakout, tf: 5 };
-  const s = { n: 40, winRate: 0.5, avgR, sumR: avgR * 40, pf: 1.9, maxDD: 3, t };
-  return {
-    ok: true, outcome: 'deploy', symbol, tested: 360, bars: 11_700, regime: { key: 'range', label: 'Ranging' },
-    funnel: { tested: 360, inSample: 90, outOfSample: 3, robust: 2, holdout: 1 },
-    strategy: {
-      genome, key: `k-${symbol}`, name: strategyName(genome), rules: describe(genome), is: s, oos: s, holdout: s, unseen: s, all: s,
-      robust: { neighbours: 0.8, doubleCostsAvgR: 0.25, mc: { pPositive: 0.99, ddP95: 4 } },
-      expectation: { avgR, sd: 1.1, ddP95: 4 }, tradesPerDay: 3, curve: [], splits: {},
-    },
-  };
-}
-const failing = (symbol) => ({ ok: false, outcome: 'no-edge', symbol, tested: 360, bars: 11_700, regime: { key: 'trend-up', label: 'Trending up' }, funnel: { tested: 360, inSample: 40, outOfSample: 0, robust: 0, holdout: 0 }, reasons: { 'edge disappeared out-of-sample': 4 }, nearMiss: { stage: 'oos', why: 'edge disappeared out-of-sample', name: '5m Trend pullback' } });
-
-test('a research desk deploys only a validated strategy, on probation, and says so', () => {
-  const { fund, requests } = floorWithFakeLab();
-  const arjun = fund.byId.get('arjun');
-  assert.equal(arjun.requestResearch('test').ok, true);
-  assert.deepEqual(requests.map((r) => r.symbol), ['NAS100', 'SPX500']);
-  assert.equal(arjun.status(), 'RESEARCHING');
-  assert.equal(arjun.requestResearch('again').ok, false, 'one research round at a time');
-  arjun.onResearch({ symbol: 'NAS100', result: failing('NAS100') });
-  assert.equal(arjun.active, null, 'waits for every market before choosing');
-  arjun.onResearch({ symbol: 'SPX500', result: passing('SPX500') });
-  assert.equal(arjun.active.symbol, 'SPX500');
-  assert.equal(arjun.symbol, 'SPX500', 'the desk moves to where the edge is');
-  assert.equal(arjun.probation, true, 'new strategies start at half size');
-  assert.match(arjun.briefing().text, /on probation at half size/);
-  assert.ok(arjun.log.some((l) => l.kind === 'research' && /Deployed 5m Channel breakout on SPX500/.test(l.text)));
-  // Five winning live trades end probation.
-  for (let i = 0; i < 5; i++) arjun.onTradeClosed({ symbol: 'SPX500', pnl: 1000, r: 0.6, exitReason: 'Target hit' });
-  assert.equal(arjun.probation, false);
-});
-
-test('a research desk retires a strategy that stops working, then researches again', () => {
-  const { fund, requests } = floorWithFakeLab();
-  const omar = fund.byId.get('omar');
-  omar.requestResearch('test');
-  omar.onResearch({ symbol: 'XAUUSD', result: passing('XAUUSD') });
-  omar.onResearch({ symbol: 'USOIL', result: failing('USOIL') });
-  assert.equal(omar.active.symbol, 'XAUUSD');
-  for (let i = 0; i < 5; i++) omar.onTradeClosed({ symbol: 'XAUUSD', pnl: -1000, r: -1.1, exitReason: 'Stop loss' });
-  assert.equal(omar.active, null, 'retired after results far below validation');
-  assert.ok(omar.log.some((l) => /Retiring 5m Channel breakout: live results/.test(l.text)));
-  requests.length = 0;
-  omar.labTick();
-  assert.equal(requests.length, 2, 'research starts again straight away');
-});
-
-test('no validated edge means no trading, and the desk explains why', () => {
-  const { fund } = floorWithFakeLab();
-  const mei = fund.byId.get('mei');
-  mei.requestResearch('test');
-  for (const s of ['BTCUSD', 'ETHUSD', 'SOLUSD']) mei.onResearch({ symbol: s, result: failing(s) });
-  assert.equal(mei.active, null);
-  assert.equal(mei.status(), 'NO EDGE');
-  assert.match(mei.pitch(), /none passed validation.*So I'm not trading/);
-  mei.evaluate('BTCUSD', { time: T0 });
-  assert.equal(mei.book.positions.size, 0);
-});
-
-test('the head of research diversifies away from markets the team already trades, and state survives a restart', () => {
-  const { fund } = floorWithFakeLab();
-  const mei = fund.byId.get('mei');
-  mei.requestResearch('test');
-  mei.onResearch({ symbol: 'BTCUSD', result: failing('BTCUSD') });
-  mei.onResearch({ symbol: 'ETHUSD', result: failing('ETHUSD') });
-  mei.onResearch({ symbol: 'SOLUSD', result: passing('SOLUSD', 5) });
-  const elena = fund.byId.get('elena');
-  elena.requestResearch('test');
-  for (const s of elena.markets) elena.onResearch({ symbol: s, result: s === 'SOLUSD' ? passing(s, 5) : s === 'XAUUSD' ? passing(s, 3) : failing(s) });
-  assert.equal(elena.active.symbol, 'XAUUSD', 'SOLUSD is already traded by the crypto researcher');
-  // Save and restore.
-  const saved = JSON.parse(JSON.stringify(fund.serialize()));
-  const { fund: fresh } = floorWithFakeLab();
-  fresh.restore(saved);
-  const e2 = fresh.byId.get('elena');
-  assert.equal(e2.active.name, elena.active.name);
-  assert.equal(e2.symbol, 'XAUUSD');
-  assert.ok(e2.events.length > 0);
-});
-
-test('the whole floor runs a session with the economic calendar and the research lab', { timeout: 120_000 }, async () => {
+test('the whole floor runs a session with the economic calendar and the research history', { timeout: 120_000 }, async () => {
   const fund = await runFloor({ sessions: 1, seed: 42 });
   const errors = fund.agents.flatMap((a) => a.log.filter((l) => l.kind === 'error').map((l) => `${a.id}: ${l.text}`));
   assert.deepEqual(errors, []);
-  const lab = fund.agents.filter((a) => a.profile.lab);
-  assert.equal(lab.length, 5);
-  for (const a of lab) assert.ok(a.lastRun, `${a.id} researched`);
-  assert.ok(lab.filter((a) => a.active).length >= 2, 'validated strategies were deployed');
-  for (const a of lab) {
-    for (const t of fund.broker.book(a.id).trades) assert.ok(a.events.some((e) => e.event === 'deployed' && e.symbol === t.symbol), `${a.id} only traded a deployed strategy`);
-  }
-  assert.ok(fund.events.some((e) => e.kind === 'research'));
+  // No research desks any more: every desk day trades, reading its market from the history.
+  assert.equal(fund.agents.filter((a) => a.profile.lab).length, 0);
+  for (const a of fund.agents) assert.ok(a.topDownView()?.ready, `${a.id} has a top-down read`);
+  for (const a of fund.agents) assert.equal(fund.broker.book(a.id).positions.size, 0, `${a.id} flat after the close`);
 });

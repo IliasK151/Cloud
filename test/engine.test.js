@@ -8,7 +8,7 @@ import { MarketData } from '../server/market/marketData.js';
 import { Broker } from '../server/engine/broker.js';
 import { RiskManager } from '../server/engine/risk.js';
 import { parseBody, normalizeAlert, secretMatches } from '../server/tradingview/webhook.js';
-import { runBacktest } from '../scripts/backtest.js';
+import { runFloor } from '../scripts/backtest.js';
 
 const bar = (time, o, h, l, c, v = 100) => ({ time, open: o, high: h, low: l, close: c, volume: v });
 
@@ -152,11 +152,18 @@ test('TradingView alert parsing', () => {
   assert.equal(secretMatches('', ''), false);
 });
 
-test('a simulated session runs every desk without errors', () => {
-  const fund = runBacktest({ sessions: 1, seed: 7, quiet: true });
+// Every desk day trades top-down, so it needs weeks of prices behind it: the whole floor with
+// its (simulated) history, over a few demo days. One trade a day at most per desk, and only
+// when liquidity is swept: a quiet floor most days.
+let demoFloor = null;
+const demo = () => (demoFloor ||= runFloor({ sessions: 6, seed: 11, quiet: true }));
+
+test('a simulated session runs every desk without errors', async () => {
+  const fund = await demo();
   assert.ok(Number.isFinite(fund.nav()));
   const totalTrades = fund.agents.reduce((s, a) => s + a.lifetime.trades, 0);
-  assert.ok(totalTrades > 10, `expected trading activity, got ${totalTrades}`);
+  assert.ok(totalTrades > 0, `expected trading activity, got ${totalTrades}`);
+  assert.ok(fund.agents.every((a) => a.pb?.stats.days >= 5), 'every desk reads its market every day');
   for (const a of fund.agents) {
     const snap = a.snapshot();
     assert.ok(Number.isFinite(snap.pnl.total), `${a.id} P&L`);
@@ -168,8 +175,8 @@ test('a simulated session runs every desk without errors', () => {
   }
 });
 
-test('paper P&L can be reset to zero', () => {
-  const fund = runBacktest({ sessions: 1, seed: 3, quiet: true });
+test('paper P&L can be reset to zero', async () => {
+  const fund = await demo();
   assert.ok(fund.agents.some((a) => a.lifetime.trades > 0));
   fund.resetPaper();
   for (const a of fund.agents) {

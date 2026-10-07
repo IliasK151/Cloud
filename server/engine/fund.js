@@ -12,11 +12,8 @@ const EVENT_BUFFER = 150;
 const EQUITY_POINTS = 3000;
 const DAY_CURVE_POINTS = 1500;
 
-// The fund: owns the desks (and the research lab desks), routes market data to them, enforces fund-level
+// The fund: owns the desks, routes market data to them, enforces fund-level
 // risk, samples the equity curve and produces the snapshots the UI renders.
-// A trading day that falls on a Saturday or Sunday (the floor's day starts at 18:00 New York
-// the evening before): the weekend, from Friday 18:00 to Sunday 18:00 New York.
-export const isWeekendDay = (dayKey) => [0, 6].includes(new Date(`${dayKey}T12:00:00Z`).getUTCDay());
 
 export class Fund extends EventEmitter {
   // committee: 'on' (every trade is reviewed), 'shadow' (reviewed but never blocked) or 'off'.
@@ -129,7 +126,6 @@ export class Fund extends EventEmitter {
     const now = this.clock.now();
     const key = this.session.tradingDay(now);
     if (key !== this.dayKey) this.rollDay(key);
-    this.#weekend(now);
 
     if (this.session.isFlattenWindow(now) && this.flattenedFor !== key) {
       this.flattenedFor = key;
@@ -179,24 +175,6 @@ export class Fund extends EventEmitter {
       }
       this.emit('equity', sample);
     }
-  }
-
-  // Crypto day trading at the weekend: from Friday 18:00 to Sunday 18:00 New York (the trading
-  // days of Saturday and Sunday, when FX, gold, oil and the indices are closed) every trading
-  // desk with a weekend market (profile.weekendSymbol) trades it, flat by 16:50 each day like
-  // any other day. Live mode only: the demo clock never runs at the weekend.
-  #weekend(now) {
-    if (this.clock.mode !== 'live') return;
-    const on = isWeekendDay(this.session.tradingDay(now));
-    if (on === this.weekendOn) return;
-    this.weekendOn = on;
-    let n = 0;
-    for (const a of this.agents) {
-      const w = a.profile.weekendSymbol;
-      if (!w) continue;
-      if (a.switchMarket(on ? w : a.profile.symbols[0], { weekend: on })) n++;
-    }
-    if (n) this.#event({ kind: 'session', text: on ? `Weekend: ${n} desks day-trade crypto until Sunday 18:00 New York` : 'Weekend over: every desk is back on its own market' });
   }
 
   // Real traders are flat before tier-one news: close every trade in a market with

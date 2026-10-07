@@ -57,9 +57,9 @@ export function marketClock(ms, timeZone) {
     ny: `${String(p.h).padStart(2, '0')}:${String(p.m).padStart(2, '0')}`,
     local: localTime(ms, timeZone),
     session, quiet, weekend, windows,
-    // The Day Trading Desk's killzones: the London open 02:00–05:00 New York, the New York open
-    // 07:00–11:00 (engine/daytrade.js).
-    killzones: [kz('London open', 2 * 60, 5 * 60), kz('New York open', 7 * 60, 11 * 60)],
+    // The desks' killzones: the London open 02:00–05:00 New York, the New York open 07:00–11:00
+    // and, for Bitcoin's Asia desk, the Asia open 20:00–23:00 (engine/daytrade.js).
+    killzones: [kz('London open', 2 * 60, 5 * 60), kz('New York open', 7 * 60, 11 * 60), kz('Asia open (Bitcoin)', 20 * 60, 23 * 60)],
   };
 }
 
@@ -75,7 +75,7 @@ const MEANING = {
   'Committee grade too low': 'The committee grades every idea A, B or C. Only A and B-grade trades go to the account; a C ("not convinced") stays on paper so the desk keeps measuring.',
   'Desk not proven yet': 'The desk needs 10+ trades on real prices with a positive edge first, or switch off "Proven desks only" below.',
   'Correlated position already open': 'One position per correlated group: both US indices are one bet, so are the coins and the FX pairs.',
-  'Day Trading Desk only': 'Only the five day traders trade the FTMO account (the switch in the Connection card). The other desks stay off it.',
+  'Day Trading Desk only': 'Before every desk became a day trader, only the Day Trading Desk traded the FTMO account. Every desk trades it now.',
   'Against the top-down bias': 'Every desk reads the weekly, daily and 4-hour structure first and only trades with that bias.',
   'Another desk is in that market': 'One desk per market at a time: the desks don\'t pile into the same move.',
   'Enough trades open at once': 'At most three trades open on the account at once: the desks don\'t all trade together.',

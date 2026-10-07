@@ -51,13 +51,18 @@ export function initials(name) {
   return name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
-// The back tier's Day Trading Desk (the crypto day traders keep their seats on the trading rows).
-export const isDayDesk = (p) => !!p.dayTrader && !p.crypto;
+// Every desk day trades one session: the London open, the New York open or the Asia open.
+export const SESSIONS = {
+  london: { label: 'London open', key: 'L', hours: '02:00–05:00 New York' },
+  ny: { label: 'New York open', key: 'N', hours: '07:00–11:00 New York' },
+  asia: { label: 'Asia open', key: 'A', hours: '20:00–23:00 New York' },
+};
+export const sessionOf = (p) => (SESSIONS[p?.session] ? p.session : 'london');
 
-// The key shown on a desk's badge: 1–0 for the ten trading desks, Q for the research lab,
-// D for the day trading desk.
+// The key shown on a desk's badge: 1–0 for the first ten desks (the London desks; the number
+// keys select them), then the session's letter.
 export function deskKey(p, i) {
-  return p.lab ? 'Q' : isDayDesk(p) ? 'D' : (i + 1) % 10;
+  return i < 10 ? (i + 1) % 10 : SESSIONS[sessionOf(p)].key;
 }
 
 export function escapeHtml(s) {

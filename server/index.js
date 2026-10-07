@@ -27,7 +27,7 @@ import { VoiceEngine, toWav } from './voices/engine.js';
 import { Mt5Bridge } from './live/bridge.js';
 import { LiveTrader } from './live/liveTrader.js';
 import { EdgeReview, reviewText } from './live/review.js';
-import { Baseline, loadBaseline, BASELINE_FILE, WEEKEND_FILE } from './live/baseline.js';
+import { Baseline, loadBaseline, BASELINE_FILE } from './live/baseline.js';
 import { summarize } from './live/dailyReport.js';
 import { TelegramNotifier } from './notify/telegram.js';
 import { FloorMemory } from './brain/memory.js';
@@ -79,7 +79,7 @@ const bridge = new Mt5Bridge();
 // FTMO only, unless switched off in the FTMO tab: the desks trade nothing but the FTMO account.
 // Their own way, unless switched off there too: each desk trades its own strategy, with only
 // FTMO's own rules around it.
-const live = new LiveTrader({ fund, md, bridge, clock, mode: config.feed, dataDir: config.dataDir, token: config.bridgeToken, log, ftmoOnly: true, ownWay: true, dayDeskOnly: true });
+const live = new LiveTrader({ fund, md, bridge, clock, mode: config.feed, dataDir: config.dataDir, token: config.bridgeToken, log, ftmoOnly: true, ownWay: true });
 // Alerts on the boss's phone (Telegram), from the live trader's big moments.
 const notifier = new TelegramNotifier({ dataDir: config.dataDir, log });
 // A trade's entry comes with its setup drawn as a chart: saved in data/charts (the FTMO tab
@@ -115,8 +115,6 @@ live.review = review;
 // Each desk's long-run record on many months of real prices (npm run baseline), shipped with
 // the floor: a desk that lost money with confidence there stays off the account.
 live.baseline = new Baseline(loadBaseline(BASELINE_FILE, log));
-// The same for the weekend, when the desks day-trade crypto (npm run weekend).
-live.weekendRecord = new Baseline(loadBaseline(WEEKEND_FILE, log));
 // MT5 pages months of the broker's own bars into the research history (EA 1.3+).
 live.history = history;
 // The Obsidian vault: every desk's trades, ideas, lessons and numbers as linked notes.
@@ -318,7 +316,6 @@ app.post('/api/live/:action', localOnly, express.json(), (req, res) => {
     'install-ea': () => live.installEa(),
     'stay-armed': () => live.setStayArmed(b.on),
     'ftmo-only': () => live.setFtmoOnly(b.on),
-    'day-desk-only': () => live.setDayDeskOnly(b.on),
     'own-way': () => live.setOwnWay(b.on),
     review: () => (config.feed === 'live' ? review.run('asked') : { ok: false, error: 'The review replays real prices: it runs in live mode (npm start), not in demo mode.' }),
     risk: () => live.setRisk(b.riskPct),

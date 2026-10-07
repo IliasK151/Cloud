@@ -12,10 +12,10 @@ import { opinion, say, thesisLine, researchFactor, styleKey, styleOf, FACTORS } 
 // Only A-grade trades go to the prop account (see live/accountBrain.js).
 
 export const DEPARTMENTS = [
-  { id: 'indices', name: 'Equity Indices', markets: ['NAS100', 'SPX500'], members: ['marcus', 'james', 'arjun', 'tyler', 'sienna'] },
-  { id: 'fx', name: 'FX & Macro', markets: ['EURUSD', 'GBPUSD', 'USDJPY'], members: ['sofia', 'priya', 'hannah', 'zara'] },
-  { id: 'commodities', name: 'Metals & Energy', markets: ['XAUUSD', 'USOIL'], members: ['amara', 'lucas', 'omar', 'theo', 'diego'] },
-  { id: 'crypto', name: 'Digital Assets', markets: ['BTCUSD', 'ETHUSD', 'SOLUSD'], members: ['viktor', 'isabella', 'kenji', 'chen', 'mei'] },
+  { id: 'indices', name: 'Equity Indices', markets: ['NAS100', 'SPX500'], members: ['marcus', 'james', 'tyler', 'sienna'] },
+  { id: 'fx', name: 'FX & Macro', markets: ['EURUSD', 'GBPUSD', 'USDJPY'], members: ['sofia', 'priya', 'hannah', 'arjun', 'zara'] },
+  { id: 'commodities', name: 'Metals & Energy', markets: ['XAUUSD', 'USOIL'], members: ['amara', 'lucas', 'theo', 'diego'] },
+  { id: 'crypto', name: 'Digital Assets', markets: ['BTCUSD', 'ETHUSD', 'SOLUSD'], members: ['mei', 'chen', 'omar', 'viktor', 'kenji', 'isabella', 'elena'] },
 ];
 export const CHAIR = 'elena';
 
@@ -97,9 +97,10 @@ export class Committee extends EventEmitter {
   #factors(symbol, side, levels, proposerId) {
     const a = this.brain.assess(symbol, side, levels);
     if (!a) return null;
-    const style = styleKey(proposerId);
-    // Only a research desk's own trade can cite its validated strategy.
     const ag = this.agents.get(proposerId);
+    // A day trader's idea is judged as a day trade (the chair too, when she proposes one).
+    const style = ag?.profile.dayTrader ? 'daytrader' : styleKey(proposerId);
+    // Only a research desk's own trade can cite its validated strategy.
     const validated = ag?.profile.lab && ag.active?.symbol === symbol && (this.clock?.mode !== 'live' || ag.active.real) ? ag.active.name : null;
     a.f.research = researchFactor(a.read.regime, a.dir, style, validated);
     const ed = this.edge(ag, symbol, side);
@@ -149,7 +150,7 @@ export class Committee extends EventEmitter {
     const out = [];
     const r = a.read;
     if (r.news && r.news.minutes <= (r.news.impact === 'high' ? 45 : 20)) out.push(`${r.news.label} is due in ${r.news.minutes} minutes`);
-    if (r.volPct >= 0.93 && styleKey(proposerId) !== 'daytrader') out.push(`volatility is extreme (${volText(r)})`);
+    if (r.volPct >= 0.93 && styleKey(proposerId) !== 'daytrader' && !this.agents.get(proposerId)?.profile.dayTrader) out.push(`volatility is extreme (${volText(r)})`);
     if (r.volPct <= 0.07) out.push('the market is dead quiet, costs eat small moves');
     if (a.rr != null && a.rr < 0.9) out.push(`the target is only ${a.rr.toFixed(1)}R, less than the risk`);
     return out;

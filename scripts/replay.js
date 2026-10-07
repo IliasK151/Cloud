@@ -1,7 +1,7 @@
 // The floor's own code on real history: replays one desk, minute by minute, through the exact
 // code the floor runs (strategy, top-down read, broker, risk manager and committee) on real
-// 1-minute bars. npm run daytrade-test, npm run edge, npm run baseline, npm run brain and
-// npm run weekend all replay desks with it. It only reads: nothing is sent to MT5 and your
+// 1-minute bars. npm run daytrade-test, npm run edge, npm run baseline and npm run brain
+// all replay desks with it. It only reads: nothing is sent to MT5 and your
 // floor's paper book isn't touched.
 
 import fs from 'node:fs';

@@ -57,7 +57,7 @@ export const KILLZONES = {
   nypm: { id: 'nypm', label: 'New York afternoon', from: 13 * 60 + 30, to: 15 * 60 },
   asia: { id: 'asia', label: 'Asia open', from: 20 * 60, to: 23 * 60 },
   // Demo mode's clock only runs 09:30–16:00 New York: its morning is the killzone.
-  demo: { id: 'demo', label: 'Demo session open', from: 9 * 60 + 30, to: 12 * 60 },
+  demo: { id: 'demo', label: 'Demo session', from: 9 * 60 + 30, to: 15 * 60 },
 };
 
 // "02:00–05:00 New York" for a killzone list.
@@ -140,7 +140,7 @@ export class DayPlaybook {
 
     // The liquidity on the chart, as it forms. A level already traded through when it first
     // shows up isn't resting liquidity any more.
-    for (const lv of book.liquidity(ms)) {
+    for (const lv of book.liquidity(ms, { openingRange: /\bdemo\b/.test(R.zones) })) {
       const key = `${lv.label}|${lv.price}`;
       if (!this.levels.has(key)) this.levels.set(key, { label: lv.label, price: lv.price, side: lv.side, dead: lv.taken, swept: false });
     }

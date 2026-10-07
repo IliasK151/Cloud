@@ -27,13 +27,12 @@ export const STYLES = {
 };
 
 const BY_AGENT = {
-  marcus: 'trend', lucas: 'trend', priya: 'trend',
-  james: 'reversion', amara: 'reversion',
-  sofia: 'structure',
-  arjun: 'quant', hannah: 'quant', omar: 'quant', mei: 'quant',
-  chen: 'signals', elena: 'risk',
+  // Every desk day trades top-down now. Elena chairs the committee as its risk manager.
+  marcus: 'daytrader', sofia: 'daytrader', amara: 'daytrader', james: 'daytrader', priya: 'daytrader',
+  lucas: 'daytrader', chen: 'daytrader', hannah: 'daytrader', omar: 'daytrader', mei: 'daytrader',
+  kenji: 'daytrader', viktor: 'daytrader', isabella: 'daytrader', arjun: 'daytrader',
   tyler: 'daytrader', sienna: 'daytrader', theo: 'daytrader', zara: 'daytrader', diego: 'daytrader',
-  viktor: 'daytrader', kenji: 'daytrader', isabella: 'daytrader',
+  elena: 'risk',
 };
 
 export function styleOf(agentId) {

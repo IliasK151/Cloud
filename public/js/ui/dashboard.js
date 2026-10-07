@@ -199,6 +199,8 @@ export class Dashboard {
   #renderLabAndNews() {
     const s = this.store;
     const $ = (id) => this.root.querySelector(id);
+    // The research lab card, only while the floor has research desks (every desk day trades now).
+    $('#dash-lab-card').hidden = !s.profiles.some((p) => p.lab);
     const lab = labRows(s);
     if (lab !== this.labHtml) {
       this.labHtml = lab;

@@ -20,31 +20,41 @@ import { config } from '../server/config.js';
 const sec = (day, h, m) => Math.floor(nyWallToMs(2026, 10, day, h, m) / 1000);
 const bar = (time, o, h, l, c) => ({ time, open: o, high: h, low: l, close: c, volume: 100 });
 
-test('the day trading desk: five TJR-style day traders take the scalpers\' place, every seat keeps its magic number', () => {
+test('every desk is a day trader: a London and a New York desk on every market, and every seat keeps its magic number', () => {
   const first = ['marcus', 'sofia', 'kenji', 'amara', 'viktor', 'isabella', 'james', 'priya', 'lucas', 'chen', 'elena', 'arjun', 'hannah', 'omar', 'mei'];
-  // A desk's place in SEATS is its MT5 magic number: the old desks keep theirs, the retired
-  // scalpers keep their seats (16–20), the day traders come after them.
+  // A desk's place in SEATS is its MT5 magic number: the first desks keep theirs, the retired
+  // scalpers keep their seats (16–20), the first five day traders come after them.
   assert.deepEqual(SEATS.slice(0, 15).map((p) => p.id), first);
   assert.deepEqual(SEATS.slice(15, 20).map((p) => p.id), ['jake', 'layla', 'ryan', 'mia', 'nico']);
   assert.ok(SEATS.slice(15, 20).every((p) => p.retired && !p.Strategy), 'no scalping any more');
-  const day = SEATS.slice(20);
-  assert.deepEqual(day.map((p) => p.id), ['tyler', 'sienna', 'theo', 'zara', 'diego']);
-  assert.deepEqual(day.map((p) => p.symbols[0]), ['NAS100', 'SPX500', 'XAUUSD', 'EURUSD', 'USOIL']);
-  // On the floor: the twenty active desks, no retired ones.
+  assert.deepEqual(SEATS.slice(20).map((p) => p.id), ['tyler', 'sienna', 'theo', 'zara', 'diego']);
+  // On the floor: the twenty active desks, every one a day trader.
   assert.equal(ROSTER.length, 20);
-  assert.ok(!ROSTER.some((p) => p.retired));
-  for (const p of day) {
+  assert.ok(!ROSTER.some((p) => p.retired || p.lab));
+  for (const p of ROSTER) {
     assert.equal(p.Strategy, DayTrader, p.id);
     assert.ok(p.dayTrader, p.id);
-    assert.ok(killzoneAt(p.rules.zones, 8 * 60), `${p.id} trades the New York open`);
-    assert.equal(styleKey(p.id), 'daytrader');
+    assert.equal(styleKey(p.id), p.id === 'elena' ? 'risk' : 'daytrader', 'Elena chairs the committee as its risk manager');
     assert.ok(departmentFor(p.symbols[0])?.members.includes(p.id), `${p.id} sits in its market's department`);
     assert.ok(!p.weekendSymbol, 'the playbook was tested on its own markets, not weekend crypto');
+    assert.equal(p.rules.zones.split(',').length, 1, `${p.id} works one session`);
   }
+  // Every market: one desk for the London open, one for the New York open, so the two never
+  // take the same setup. Bitcoin has a third, for the Asia open.
+  const bySession = (zone) => ROSTER.filter((p) => p.rules.zones === zone).map((p) => p.symbols[0]).sort();
+  const markets = ['BTCUSD', 'ETHUSD', 'EURUSD', 'GBPUSD', 'NAS100', 'SOLUSD', 'SPX500', 'USDJPY', 'USOIL', 'XAUUSD'];
+  assert.deepEqual(bySession('london'), markets);
+  assert.deepEqual(bySession('ny'), markets.filter((m) => m !== 'GBPUSD'), 'Cable lost in both halves of the New York test: no desk there');
+  assert.deepEqual(bySession('asia'), ['BTCUSD']);
+  // Seated by session: the London desks first (the front rows, keys 1–0), then New York, then Asia.
+  assert.deepEqual(ROSTER.map((p) => p.rules.zones), [...Array(10).fill('london'), ...Array(9).fill('ny'), 'asia']);
   // The FTMO tab says when each one trades.
-  assert.equal(publicProfile(day[0]).sessions, 'New York open 07:00–11:00');
-  assert.equal(publicProfile(day[2]).sessions, 'London open 02:00–05:00, New York open 07:00–11:00');
-  assert.equal(zonesText('demo'), 'Demo session open 09:30–12:00');
+  const byId = (id) => publicProfile(ROSTER.find((p) => p.id === id));
+  assert.equal(byId('marcus').sessions, 'London open 02:00–05:00');
+  assert.equal(byId('tyler').sessions, 'New York open 07:00–11:00');
+  assert.equal(byId('elena').sessions, 'Asia open 20:00–23:00');
+  assert.equal(byId('tyler').session, 'ny');
+  assert.equal(zonesText('demo'), 'Demo session 09:30–15:00');
 });
 
 test('market structure on candle bodies: break of structure, then a close through the higher low shifts the trend', () => {
@@ -237,10 +247,11 @@ function deskEnv(profile, book) {
 }
 
 test('a day trader on the floor: waits for the pullback, takes it with its stop and 3R+ target, then is done for the day', () => {
-  const theo = ROSTER.find((p) => p.id === 'theo');
+  // Amara, gold's London desk: the gold day's setup comes in the London open.
+  const amara = ROSTER.find((p) => p.id === 'amara');
   const book = biasedBook('LONG');
-  const { env, md, clock, notes } = deskEnv(theo, book);
-  const agent = new DayTrader(theo, env);
+  const { env, md, clock, notes } = deskEnv(amara, book);
+  const agent = new DayTrader(amara, env);
   const seen = [];
   for (const b of goldDay()) {
     seen.push(b);
@@ -269,7 +280,8 @@ test('a day trader on the floor: waits for the pullback, takes it with its stop 
 });
 
 test('top-down first: every desk trades with its market\'s bias, never against it (your own alerts are your call)', () => {
-  const marcus = ROSTER.find((p) => p.id === 'marcus');
+  // The rule every desk keeps (engine/agent.js), shown on a desk that isn't running the playbook.
+  const marcus = { ...ROSTER.find((p) => p.id === 'marcus'), dayTrader: false };
   const read = { ready: true, bias: 'SHORT', strength: 2, of: 3, short: 'W ↓ · D ↓ · 4H ↑', text: 'W ↓ · D ↓ · 4H ↑: bearish bias', tfs: {} };
   const book = { read: () => read };
   const { env, md, clock } = deskEnv(marcus, book);
@@ -316,22 +328,27 @@ test('no pile-ups on the account: one desk per market, one per correlated group,
   assert.equal(skipCategory(crowd([{ agentId: 'tyler', floorSymbol: 'NAS100' }], 'SPX500')), 'Correlated position already open');
 });
 
-test('the crypto day traders: Viktor, Kenji and Isabella run the same playbook on crypto, safer', async () => {
+test('the crypto day traders run the same playbook on crypto, safer; the floor keys each desk by its session', async () => {
   const crypto = ROSTER.filter((p) => p.crypto);
-  assert.deepEqual(crypto.map((p) => `${p.id}:${p.symbols[0]}`), ['kenji:ETHUSD', 'viktor:BTCUSD', 'isabella:SOLUSD']);
+  assert.deepEqual(crypto.map((p) => `${p.id}:${p.symbols[0]}:${p.rules.zones}`), [
+    'chen:ETHUSD:london', 'omar:SOLUSD:london', 'mei:BTCUSD:london',
+    'kenji:ETHUSD:ny', 'viktor:BTCUSD:ny', 'isabella:SOLUSD:ny', 'elena:BTCUSD:asia',
+  ]);
   for (const p of crypto) {
     assert.equal(p.Strategy, DayTrader, p.id);
     assert.ok(p.dayTrader);
     assert.equal(p.riskScale, 0.5, 'half the risk per trade');
     assert.equal(p.rules.maxCostR, 0.4, 'no setup its costs would eat');
-    assert.equal(styleKey(p.id), 'daytrader');
     assert.ok(!p.weekendSymbol, 'crypto trades all week');
   }
-  // They keep their seats on the trading rows (the back tier is the Day Trading Desk).
-  const { isDayDesk, deskKey } = await import('../public/js/format.js');
-  assert.equal(isDayDesk(crypto[1]), false);
-  assert.equal(deskKey(crypto[1], ROSTER.indexOf(crypto[1])), 5);
-  assert.equal(isDayDesk(ROSTER.find((p) => p.id === 'tyler')), true);
+  assert.ok(!ROSTER.filter((p) => !p.crypto).some((p) => p.riskScale), 'everything else at the full risk per trade');
+  // Chen still runs your TradingView alerts.
+  assert.ok(ROSTER.find((p) => p.id === 'chen').tvDesk);
+  // Number keys for the ten London desks in front, then the session's letter.
+  const { deskKey, sessionOf } = await import('../public/js/format.js');
+  const pub = ROSTER.map(publicProfile);
+  assert.deepEqual(pub.map((p, i) => deskKey(p, i)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'A']);
+  assert.equal(sessionOf(pub[19]), 'asia');
 
   // The cost cap: the same setup as the gold test, but too expensive for its stop.
   const book = biasedBook('LONG');

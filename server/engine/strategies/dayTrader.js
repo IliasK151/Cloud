@@ -112,7 +112,7 @@ export class DayTrader extends TraderAgent {
         ...(p ? [{ label: 'Entry (fair value gap)', price: p.entry }, { label: 'Stop (beyond the sweep)', price: p.stop }, { label: `Target · ${p.targetLabel}`, price: p.target }] : []),
         ...(read.aois || []).slice(0, 2).map((a) => ({ label: `${a.both ? 'W+D' : a.tf} AOI`, price: a.level })),
       ],
-      thesis: `${read.text}. ${v.bias ? `I only ${long ? 'buy' : 'sell'} today, and only after price runs ${long ? 'sell-side liquidity (a low)' : 'buy-side liquidity (a high)'}: ${long ? (below[0] ? `the ${lcLabel(below[0].label)} at ${this.px(below[0].price)}` : 'no low left untouched below') : (above[0] ? `the ${lcLabel(above[0].label)} at ${this.px(above[0].price)}` : 'no high left untouched above')}.` : 'No clear bias: no trade until the higher timeframes agree.'} Then a 5-minute break of structure with displacement, the entry back in the fair value gap, the stop beyond the sweep and the target at the liquidity on the other side, 3R or more. My windows: ${zones} (New York time).`,
+      thesis: `${read.text}. ${v.bias ? `I only ${long ? 'buy' : 'sell'} today, and only after price runs ${long ? 'sell-side liquidity (a low)' : 'buy-side liquidity (a high)'}: ${long ? (below[0] ? `the ${lcLabel(below[0].label)} at ${this.px(below[0].price)}` : 'no low left untouched below') : (above[0] ? `the ${lcLabel(above[0].label)} at ${this.px(above[0].price)}` : 'no high left untouched above')}.` : 'No clear bias: no trade until the higher timeframes agree.'} Then a 5-minute break of structure with displacement, the entry back in the fair value gap, the stop beyond the sweep and the target at the liquidity on the other side, 3R or more. My windows: ${zones} (New York time).${this.#alertsLine()}`,
       checklist: [
         { label: `Top-down bias: ${read.short}${v.bias ? ` → ${long ? 'bullish' : 'bearish'}` : ' → none'}`, ok: !!v.bias },
         { label: `Inside a killzone (${zones})`, ok: !!v.kz },
@@ -124,14 +124,27 @@ export class DayTrader extends TraderAgent {
       confidence: Math.round(Math.min(90, (v.bias ? 25 + 8 * (read.strength || 0) : 0) + (v.kz ? 15 : 0) + (sweep ? 15 : 0) + (p ? 20 : 0))),
       indicators: { 'ATR 5m': pb.atr ?? null, 'ATR daily': read.atrD ?? null, 'Range position': read.zone ? Math.round(read.zone.pos * 100) : null, 'Liquidity above': above.length, 'Liquidity below': below.length },
     };
-    if (pos) this.setStage(`In a ${pos.qty > 0 ? 'long' : 'short'} day trade, working toward the liquidity`);
+    if (pos && this.plan?.tag === 'TV') this.setStage('Managing your TradingView alert trade');
+    else if (pos) this.setStage(`In a ${pos.qty > 0 ? 'long' : 'short'} day trade, working toward the liquidity`);
     else if (p) this.setStage(`Waiting for the pullback to ${this.px(p.entry)} to ${p.side === 'LONG' ? 'buy' : 'sell'} (stop ${this.px(p.stop)}, target ${this.px(p.target)})`);
     else this.setStage(v.why, /^Setup cancelled|^Price swept/.test(v.why) ? 'setup' : 'quiet');
   }
 
+  // The desk your TradingView alerts go to (Chen) says so.
+  #alertsLine() {
+    if (!this.profile.tvDesk) return '';
+    const a = this.lastAlert;
+    return ` Your TradingView alerts come through me too, at any hour${a ? ` (the last: ${a.action.toUpperCase()} ${a.symbol}, ${Math.max(0, Math.round((Date.now() - a.at) / 60_000))} min ago)` : ''}.`;
+  }
+
   pitch() {
+    return this.#pitch() + this.#alertsLine();
+  }
+
+  #pitch() {
     const pb = this.pb;
     const read = pb.read;
+    if (this.position() && this.plan?.tag === 'TV') return `I'm managing your TradingView alert trade on ${this.symbol}.`;
     if (!read) return `I day trade ${this.symbol} top-down: the weekly, daily and 4-hour bias first, then a liquidity sweep and a 5-minute shift, 3R or more.`;
     if (this.position()) return `I'm in a day trade on ${this.symbol} (${read.text}). The liquidity got swept, structure shifted, and I'm holding for the liquidity on the other side.`;
     if (pb.pending) return `I have a ${pb.pending.side === 'LONG' ? 'buy' : 'sell'} setup on ${this.symbol}: ${pb.pending.reason}. I'm waiting for the pullback to ${this.px(pb.pending.entry)}.`;

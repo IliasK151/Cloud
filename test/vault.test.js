@@ -6,16 +6,12 @@ import path from 'node:path';
 
 import { Vault, VAULT, NOTES_MARK, safeName, nyStamp } from '../server/vault/vault.js';
 import { FloorMemory } from '../server/brain/memory.js';
-import { Fund, isWeekendDay } from '../server/engine/fund.js';
+import { Fund } from '../server/engine/fund.js';
 import { ROSTER } from '../server/engine/roster.js';
-import { MarketClock, Session, nyWallToMs } from '../server/market/session.js';
+import { MarketClock, Session } from '../server/market/session.js';
 import { MarketData } from '../server/market/marketData.js';
 import { Broker } from '../server/engine/broker.js';
 import { RiskManager } from '../server/engine/risk.js';
-import { AccountBrain, LIMITS } from '../server/live/accountBrain.js';
-import { normalizeProfile, guardMetrics } from '../server/live/rules.js';
-import { Baseline, loadBaseline, WEEKEND_FILE } from '../server/live/baseline.js';
-import { skipCategory } from '../server/live/dailyReport.js';
 import { config } from '../server/config.js';
 import { protectedFolder, folderName } from '../server/util/macFolders.js';
 
@@ -84,12 +80,12 @@ test('the vault: a note per desk, trade, day, market and lesson, linked for Obsi
 
   // The desk note: numbers, the rules it learned, its trades.
   const desk = read(dir, path.join('Desks', 'Marcus Reid.md'));
-  assert.match(desk, /# Marcus Reid · Index Futures/);
-  assert.match(desk, /\*\*Opening Range Breakout\*\* on \[\[NAS100\]\], and \[\[BTCUSD\]\] at the weekend/);
+  assert.match(desk, /# Marcus Reid · Nasdaq · London/);
+  assert.match(desk, /\*\*Top-Down Day Trading \(TJR style\)\*\* on \[\[NAS100\]\]\. Top-down first/);
   assert.match(desk, /\| Kept in the book \| 2 \| 1 \| 50% \|/);
   assert.match(desk, /\[\[Marcus - Sit out the Asian session\]\] · active/);
   assert.match(desk, /## Recent trades\n- \[\[/);
-  assert.match(desk, /Entry rules: minWidth 1 · maxWidth 12 · volume 0/);
+  assert.match(desk, /Entry rules: bias majority · .* · minRR 3 · .* · zones london · sweepKz 0\n/);
   const home = read(dir, 'Home.md');
   assert.match(home, /\| \[\[Marcus Reid\]\] \| NAS100 \| 2 \| 1 \|/);
   assert.match(home, /\[\[What works\]\] · \[\[What loses\]\]/);
@@ -229,119 +225,4 @@ test('a vault in a folder macOS keeps the non-stop service out of says so, in pl
   assert.match(vault.view().lastError.text, /can't be written in your Documents: macOS doesn't let the floor's background service write there\. Set VAULT_DIR in \.env to a folder outside it \(e\.g\. VAULT_DIR=~\/Meridian Vault\)/);
   assert.equal(warned.length, 1);
   assert.equal(vault.view().live, false);
-});
-
-// ---- the weekend ---------------------------------------------------------------------------
-test('at the weekend the desks day-trade crypto, Friday 18:00 to Sunday 18:00 New York, then go back', () => {
-  assert.equal(isWeekendDay('2026-10-17'), true); // Saturday
-  assert.equal(isWeekendDay('2026-10-18'), true); // Sunday
-  assert.equal(isWeekendDay('2026-10-16'), false); // Friday
-  const { fund } = floor('live');
-  let now = nyWallToMs(2026, 10, 16, 12, 0); // Friday noon
-  fund.clock.now = () => now;
-  fund.housekeeping();
-  const marcus = fund.byId.get('marcus');
-  const viktor = fund.byId.get('viktor');
-  assert.equal(marcus.symbol, 'NAS100');
-  now = nyWallToMs(2026, 10, 16, 18, 5); // Friday 18:05: Saturday's trading day
-  fund.housekeeping();
-  assert.equal(marcus.symbol, 'BTCUSD');
-  assert.equal(marcus.weekend, true);
-  assert.deepEqual(marcus.symbols, ['BTCUSD']);
-  assert.equal(marcus.snapshot().symbol, 'BTCUSD');
-  assert.match(marcus.log.at(-1).text, /Weekend: .* day trading BTCUSD with my Opening Range Breakout until Sunday 18:00 New York/);
-  assert.equal(fund.byId.get('amara').symbol, 'ETHUSD');
-  assert.equal(viktor.symbol, 'BTCUSD', 'a crypto desk stays where it is');
-  assert.ok(fund.events.some((e) => /Weekend: 6 desks day-trade crypto/.test(e.text)));
-  for (const a of fund.agents.filter((x) => x.profile.weekendSymbol)) assert.ok(['BTCUSD', 'ETHUSD'].includes(a.symbol), a.id);
-  // The day traders rest at the weekend: their playbook was tested on their own markets.
-  assert.equal(fund.agents.filter((x) => !x.profile.lab && !x.profile.dayTrader && !x.profile.weekendSymbol && !/USD$/.test(x.symbol)).length, 0, 'no desk left on a closed market');
-  now = nyWallToMs(2026, 10, 18, 17, 0); // Sunday 17:00: still the weekend
-  fund.housekeeping();
-  assert.equal(marcus.symbol, 'BTCUSD');
-  now = nyWallToMs(2026, 10, 18, 18, 1); // Sunday 18:01: Monday's trading day
-  fund.housekeeping();
-  assert.equal(marcus.symbol, 'NAS100');
-  assert.equal(marcus.weekend, false);
-  assert.ok(fund.events.some((e) => /Weekend over/.test(e.text)));
-  // The demo clock never runs at the weekend: nothing switches there.
-  const demo = floor('sim').fund;
-  demo.clock.now = () => nyWallToMs(2026, 10, 17, 12, 0);
-  demo.housekeeping();
-  assert.equal(demo.byId.get('marcus').symbol, 'NAS100');
-});
-
-function account({ weekendOn = true, links = [], weekendRecord = null, practice = false } = {}) {
-  const p = { ...normalizeProfile({ program: '2-step', type: 'trial', size: 10_000, practiceAll: practice }, {}), symbolMap: {} };
-  const live = {
-    login: '1', profile: p, account: { equity: 10_000, balance: 10_000 }, halt: null, bridge: { serverDay: '2026.10.17' },
-    links: new Map(links.map((l, i) => [String(i), { login: '1', createdAt: Date.now(), ...l }])),
-    metrics: () => guardMetrics(p, { balance: 10_000, equity: 10_000, closedToday: 0 }, 0, {}),
-    consistency: () => null,
-    weekendRecord: weekendRecord ? new Baseline(weekendRecord) : null,
-    fund: { weekendOn, agents: [], env: {} },
-  };
-  return { brain: new AccountBrain(live), live };
-}
-
-test('the account at the weekend: each desk\'s weekend crypto record decides, and one crypto trade at a time', () => {
-  const { fund } = floor('live');
-  const marcus = fund.byId.get('marcus');
-  marcus.switchMarket('BTCUSD', { weekend: true });
-  const pos = { symbol: 'BTCUSD', qty: 1 };
-  const rec = { v: 1, desks: [{ id: 'marcus', name: 'Marcus Reid', symbol: 'BTCUSD', verdict: 'loses', n: 190, avgR: -0.3, ci: [-0.4, -0.2], from: 1483228800, to: 1543842000, label: '90 Bitcoin weekends (Jan 2017 – Dec 2018)' }] };
-  const no = account({ weekendRecord: rec }).brain.allow(marcus, pos, {});
-  assert.equal(no.ok, false);
-  assert.match(no.reason, /^Marcus lost money day-trading crypto at the weekend over the long run: −0\.30R a trade over 190 trades on 90 Bitcoin weekends \(Jan 2017 – Dec 2018\) of real 1-minute prices/);
-  assert.equal(skipCategory(no.reason), 'Loses over the long run');
-  // Practice on the Free Trial: it trades anyway, small.
-  assert.equal(account({ weekendRecord: rec, practice: true }).brain.allow(marcus, pos, {}).practice, true);
-  // What the desk list says matches what happens: practice trades the trial (no "paper only"),
-  // and with FTMO only on there's no paper at all.
-  const status = (practice) => {
-    const a = account({ weekendRecord: rec, practice });
-    Object.assign(a.live, { eligible: () => true, armed: true, ftmoOnly: true, mode: 'live' });
-    a.live.profile.desks = { marcus: true };
-    return a.brain.deskStatus(marcus);
-  };
-  const practising = status(true);
-  assert.match(practising.text, /^Practises on the Free Trial at 0\.25% a trade \(practice is on\)\. Marcus lost money day-trading crypto at the weekend over the long run: −0\.30R a trade over 190 trades on 90 Bitcoin weekends \(Jan 2017 – Dec 2018\) of real 1-minute prices \(90% range −0\.40R to −0\.20R\)\.$/);
-  assert.doesNotMatch(practising.text, /paper only|off the account/i);
-  const held = status(false);
-  assert.equal(held.label, 'Off · loses on weekend crypto');
-  assert.match(held.text, /Off the account at the weekend\.$/);
-  assert.match(account({ weekendRecord: rec }).brain.allow(marcus, pos, {}).reason, /Paper only at the weekend$/, 'paper when FTMO only is off');
-  // Too short a weekend record: half size.
-  const short = account({ weekendRecord: { v: 1, desks: [] } }).brain.allow(marcus, pos, {});
-  assert.equal(short.ok, true);
-  assert.ok(short.reasons.some((r) => /too short a record day-trading crypto at the weekend/.test(r)));
-  // Crypto moves together: one crypto trade on the account at a time (no pile-ups).
-  const open = (sym, i) => ({ floorSymbol: sym, state: 'open', ticket: i, agentId: 'chen' });
-  const full = account({ weekendRecord: { v: 1, desks: [] }, links: [open('ETHUSD', 1)] }).brain.allow(marcus, pos, {});
-  assert.equal(full.ok, false);
-  assert.match(full.reason, /^one trade per correlated group: chen's ETHUSD trade is already on, and the coins move together/);
-  assert.equal(skipCategory(full.reason), 'Correlated position already open');
-  assert.equal(LIMITS.together, 3);
-  // The same during the week.
-  assert.match(account({ weekendOn: false, links: [open('ETHUSD', 1)] }).brain.allow(fund.byId.get('viktor'), pos, {}).reason, /one trade per correlated group/);
-  // The plan says so.
-  const st = account({ weekendRecord: { v: 1, desks: [] } }).brain.state();
-  assert.ok(st.rules.some((r) => /^Weekend: the desks day-trade crypto \(Bitcoin and Ether\) until Sunday 18:00 New York/.test(r.text)));
-});
-
-test('the weekend record ships with the floor: every desk that switches, replayed on real Bitcoin weekends', () => {
-  const data = loadBaseline(WEEKEND_FILE, { warn: (m) => assert.fail(m) });
-  assert.ok(data);
-  const b = new Baseline(data);
-  const switching = ROSTER.filter((p) => p.weekendSymbol);
-  assert.equal(switching.length, 6);
-  for (const p of switching) {
-    const d = data.desks.find((x) => x.id === p.id);
-    assert.ok(d, p.id);
-    assert.equal(d.market, p.weekendSymbol);
-    assert.match(d.label, /^\d+ Bitcoin weekends \(Jan 2017 – (Nov|Dec) 2018\)$/);
-  }
-  const judged = switching.map((p) => b.forDesk(p.id)).filter(Boolean);
-  assert.ok(judged.length >= 6);
-  assert.match(b.recordText(judged[0]), /Bitcoin weekends/);
 });

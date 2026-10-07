@@ -19,13 +19,14 @@ export class RiskManager {
     return agent.allocation * this.deskDailyLossPct;
   }
 
-  // Units to trade so that a stop-out loses `riskPerTradePct` of the desk allocation,
-  // capped by the desk's leverage limit.
-  size(agent, symbol, entry, stop, { riskMultiplier = 1 } = {}) {
+  // Units to trade so that a stop-out loses `riskPerTradePct` of the desk allocation (a crypto
+  // day trader's half of it on its own trades; your TradingView alerts, `boss`, at the full
+  // risk), capped by the desk's leverage limit.
+  size(agent, symbol, entry, stop, { riskMultiplier = 1, boss = false } = {}) {
     const dist = Math.abs(entry - stop);
     if (!(dist > 0) || !Number.isFinite(entry)) return 0;
     const fx = usdPerQuote(symbol, entry);
-    const riskUsd = agent.allocation * this.riskPerTradePct * (agent.profile.riskScale ?? 1) * riskMultiplier;
+    const riskUsd = agent.allocation * this.riskPerTradePct * (boss ? 1 : agent.profile.riskScale ?? 1) * riskMultiplier;
     let qty = riskUsd / (dist * fx);
     const maxNotional = agent.allocation * this.maxLeverage;
     qty = Math.min(qty, maxNotional / (entry * fx));

@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { ROSTER } from '../server/engine/roster.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,7 +18,7 @@ import { autoMap } from '../server/live/symbolMap.js';
 const GOLD = { bid: 3800, ask: 3800.2, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
 const tick = () => new Promise((r) => setImmediate(r));
 
-function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], dataDir = null, ftmoOnly = false, ownWay = false, dayDeskOnly = false } = {}) {
+function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], dataDir = null, ftmoOnly = false, ownWay = false } = {}) {
   const clock = new MarketClock('live');
   const session = new Session(clock);
   session.isFlattenWindow = () => false; // tests must not depend on the time of day
@@ -28,7 +29,7 @@ function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], da
   const fund = new Fund({ config: { startingCapital: 100_000_000, feed: mode, fundName: 'Test' }, md, clock, session, broker, risk, committee });
   const bridge = new Mt5Bridge();
   dataDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
-  const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} }, ftmoOnly, ownWay, dayDeskOnly });
+  const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} }, ftmoOnly, ownWay });
   clearInterval(live.timer);
   md.applyTick('XAUUSD', 3800.1, 1, clock.now());
 
@@ -100,6 +101,9 @@ test('arming rules: live mode, desks enabled, confirmation for paid accounts', (
   sync();
   assert.equal(live.arm().ok, false); // no setup yet
   live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
+  // Every desk trades the account unless you switch it off.
+  assert.ok(live.fund.agents.every((a) => live.deskOn(a.id)));
+  for (const a of live.fund.agents) live.setDesk(a.id, false);
   assert.match(live.arm().error, /at least one desk/);
   assert.equal(live.setDesk('kenji', true).ok, true); // the crypto day trader can trade the account
   live.setDesk('kenji', false);
@@ -240,6 +244,8 @@ test('briefings talk about the FTMO account once it is connected', () => {
   assert.match(text, /FTMO/);
   assert.match(text, /No trades on your FTMO account yet today/);
   assert.doesNotMatch(text, /Since inception the desk/);
+  // A desk you switched off says so.
+  live.setDesk('kenji', false);
   assert.match(fund.byId.get('kenji').briefing().text, /paper trading only/);
 });
 
@@ -692,7 +698,8 @@ test('Today on the account: ideas, what the committee turned down, what stayed o
   assert.deepEqual(c.windows.map((w) => w.label), ['London open', 'New York open']);
   assert.match(c.windows[0].local, /^10:00/);
   assert.match(c.windows[1].local, /^(16:30|04:30 PM)/);
-  assert.deepEqual(c.killzones.map((k) => k.open), [true, false], 'the London open killzone');
+  assert.deepEqual(c.killzones.map((k) => k.open), [true, false, false], 'the London open killzone');
+  assert.deepEqual(c.killzones.map((k) => k.name), ['London open', 'New York open', 'Asia open (Bitcoin)']);
   assert.equal(marketClock(Date.UTC(2026, 9, 3, 12, 0), 'Europe/Athens').weekend, true, 'Saturday');
   assert.match(marketClock(Date.UTC(2026, 9, 1, 14, 0), 'Europe/Athens').session, /New York session/);
 });
@@ -773,6 +780,8 @@ test('training on FTMO: an account saved before it existed trains, and switching
   delete live.state.profiles[live.login].training; // saved by an older version
   assert.equal(live.profile.training, true);
   live.setPlan({ training: false });
+  assert.equal(live.view().desks.filter((d) => d.enabled).length, live.fund.agents.length, 'every desk is on the account, training or not');
+  for (const a of live.fund.agents) live.setDesk(a.id, false);
   assert.equal(live.view().desks.filter((d) => d.enabled).length, 0);
   live.setPlan({ training: true });
   const desks = live.view().desks;
@@ -1588,18 +1597,20 @@ test('practice on the Free Trial: desks the evidence holds back still trade it, 
   live.baseline = null;
 });
 
-test('the shipped long-run record is complete and judged on thousands of real trades', async () => {
+test('the shipped long-run record covers every desk, and holds none of them off the account', async () => {
   const { loadBaseline, Baseline } = await import('../server/live/baseline.js');
   const data = loadBaseline(undefined, { warn: (m) => assert.fail(m) });
   assert.ok(data, 'server/research/baseline.json is valid');
   const b = new Baseline(data);
-  const judged = data.desks.filter((d) => b.forDesk(d.id));
-  assert.ok(judged.length >= 5, `${judged.length} desks judged`);
-  // The day traders were replayed too: one trade a day at most is too few for a verdict yet.
-  for (const id of ['tyler', 'sienna', 'theo', 'zara', 'diego']) {
-    const d = data.desks.find((x) => x.id === id);
-    assert.ok(d && d.n > 30 && d.verdict === 'too few trades', `${id}: ${d?.n} trades, ${d?.verdict}`);
+  assert.deepEqual(data.desks.map((d) => d.id).sort(), ROSTER.map((p) => p.id).sort(), 'every desk on the floor, replayed as the day trader it is now');
+  // One trade a day at most is too few for a verdict yet; USDJPY, Ether and Solana have no history here.
+  for (const d of data.desks) {
+    const noHistory = ['USDJPY', 'ETHUSD', 'SOLUSD'].includes(d.symbol);
+    assert.equal(d.verdict, noHistory ? 'no history' : 'too few trades', `${d.id}: ${d.n} trades, ${d.verdict}`);
+    if (!noHistory) assert.ok(d.n >= 10, `${d.id}: ${d.n} trades`);
   }
+  const judged = data.desks.filter((d) => b.forDesk(d.id));
+  assert.equal(judged.length, 0, 'nobody is held off by an old strategy\'s record');
   for (const d of judged) {
     assert.ok(d.n >= 100, `${d.id}: ${d.n} trades`);
     assert.ok(d.to - d.from > 300 * 86_400, `${d.id}: covers most of a year or more`);
@@ -1621,26 +1632,6 @@ test('long-run verdicts need confidence', async () => {
   assert.ok(j.ci[1] < 0);
   assert.ok(j.quarters.total >= 4);
   assert.equal(j.costR, 0.05);
-});
-
-test('a research desk\'s new strategy trades paper first, then the account', async () => {
-  const { skipCategory } = await import('../server/live/dailyReport.js');
-  const { fund, live, sync } = setup();
-  sync();
-  live.setup({ program: '2-step', type: 'trial', size: 100_000, practiceAll: false });
-  assert.equal(live.arm().ok, true);
-  const elena = fund.byId.get('elena');
-  elena.active = { name: '15m Squeeze breakout', symbol: 'XAUUSD', live: { trades: 3, sumR: 1.2, realTrades: 3, realSumR: 1.2 } };
-  const v = live.brain.allow(elena, { symbol: 'XAUUSD', qty: 1 }, {});
-  assert.equal(v.ok, false, 'even while training');
-  assert.match(v.reason, /^Elena's new strategy \(15m Squeeze breakout\) trades paper first: 3 of 10 live trades on real prices so far, \+1\.20R in total\. Validated on history isn't proven live$/);
-  assert.equal(skipCategory(v.reason), 'New strategy proving itself on paper');
-  assert.equal(live.brain.deskStatus(elena).label, 'Paper · proving live');
-  elena.active.live = { trades: 12, sumR: -0.5, realTrades: 12, realSumR: -0.5 };
-  assert.match(live.brain.allow(elena, { symbol: 'XAUUSD', qty: 1 }, {}).reason, /is down 0\.50R over its 12 live trades: it reaches the account once that's back to 0R or better/);
-  elena.active.live = { trades: 12, sumR: 1.5, realTrades: 12, realSumR: 1.5 };
-  assert.equal(live.brain.allow(elena, { symbol: 'XAUUSD', qty: 1 }, {}).ok, true, 'proven live: the account');
-  assert.ok(live.view().plan.rules.some((r) => /^Proven live first: a research desk's new strategy trades paper on real prices until 10 live trades/.test(r.text)));
 });
 
 test('deep in drawdown the account trades a quarter of its risk', () => {
@@ -1925,26 +1916,28 @@ test('FTMO only: a trade the account turns down is never taken, a test alert sti
 
 // ---- their own way ---------------------------------------------------------------------------
 test('their own way: a desk trades its own signal, only FTMO\'s own rules around it', async () => {
-  const { fund, live, sync, chen } = setup({ ftmoOnly: true, ownWay: true, committee: 'on' });
+  const { fund, live, sync } = setup({ ftmoOnly: true, ownWay: true, committee: 'on' });
+  // Amara, gold's London desk (full risk: not a crypto desk).
+  const amara = fund.byId.get('amara');
   sync();
   // A paid challenge: the institutional plan would only take proven desks' A-grade trades.
   live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
-  live.setDesk('chen', true);
+  live.setDesk('amara', true);
   assert.equal(live.arm({ confirm: '555' }).ok, true);
   // Nobody outside the desk decides: the committee isn't asked.
   fund.committee.review = () => { throw new Error('the committee was asked'); };
   // The risk desk's halts and the fund's risk-off from earlier don't bench it.
-  chen.halted = 'Risk desk halted Chen: loss limit $100,000';
+  amara.halted = 'Risk desk halted Amara: loss limit $100,000';
   fund.risk.riskOff = { reason: 'Fund down 1.2% on the day', time: Date.now() };
-  assert.equal(fund.risk.canOpen(chen, 'XAUUSD').ok, true);
+  assert.equal(fund.risk.canOpen(amara, 'XAUUSD').ok, true);
   // News on a challenge: FTMO allows it, so no blackout.
   assert.equal(fund.env.newsRules(), false);
   fund.risk.news = { blackout: () => ({ phase: 'before', event: { title: 'NFP', time: Date.now() + 60_000 }, impact: 'high', until: Date.now() + 120_000 }) };
-  assert.equal(fund.risk.canOpen(chen, 'XAUUSD').ok, true);
+  assert.equal(fund.risk.canOpen(amara, 'XAUUSD').ok, true);
   fund.risk.news = null;
 
-  assert.equal(chen.openTrade({ side: 'LONG', stop: 3795, target: 3810, reason: 'own signal', symbol: 'XAUUSD' }), true, chen.lastReject);
-  const plan = chen.plans.get('XAUUSD');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3795, target: 3810, reason: 'own signal', symbol: 'XAUUSD' }), true, amara.lastReject);
+  const plan = amara.plans.get('XAUUSD');
   assert.equal(plan.initialStop, 3795, 'its own stop: the cost rules don\'t move it');
   assert.equal(plan.grade, null);
   await tick();
@@ -1952,7 +1945,7 @@ test('their own way: a desk trades its own signal, only FTMO\'s own rules around
   const open = sync().find((c) => c[0] === 'open');
   assert.ok(open, 'on a challenge, an unproven desk\'s own trade goes to FTMO');
   // 0.25% of $100k at full size, nothing cut.
-  const link = [...live.links.values()].find((l) => l.agentId === 'chen');
+  const link = [...live.links.values()].find((l) => l.agentId === 'amara');
   assert.equal(link.riskMult, 1);
   assert.ok(Math.abs(link.risk - 250) < 30, `risk ${link.risk}`);
 
@@ -1962,13 +1955,13 @@ test('their own way: a desk trades its own signal, only FTMO\'s own rules around
   assert.equal(st.mult, 1);
   assert.match(st.rules[0].text, /^The desks trade their own way/);
   assert.ok(!st.rules.some((r) => /committee|Desk loss limit|No flipping|Desks earn their place|Capital follows/i.test(r.text) && !/^The desks trade their own way/.test(r.text)));
-  assert.equal(live.brain.deskStatus(fund.byId.get('chen')).label, 'LIVE');
+  assert.equal(live.brain.deskStatus(amara).label, 'LIVE');
   live.setDesk('marcus', true);
   assert.equal(live.brain.deskStatus(fund.byId.get('marcus')).label, 'Own way');
   // FTMO's own rules still hold a trade back: Best Day here (the loss guard halts the account).
   const real = live.brain.state.bind(live.brain);
   live.brain.state = () => ({ ruleStop: 'Best Day rule: done for today' });
-  assert.equal(live.brain.ownWayAllow(chen, { symbol: 'XAUUSD', qty: 1 }, {}).ok, false);
+  assert.equal(live.brain.ownWayAllow(amara, { symbol: 'XAUUSD', qty: 1 }, {}).ok, false);
   live.brain.state = real;
   // A funded account: FTMO's news rule applies again.
   live.setup({ program: '2-step', type: 'funded', size: 100_000 });
@@ -1986,60 +1979,74 @@ test('their own way: a desk trades its own signal, only FTMO\'s own rules around
 });
 
 
-test('Day Trading Desk only: the day traders alone trade the FTMO account, every trade they take is an FTMO trade', async () => {
-  const { fund, live, sync, mt5, chen, dataDir } = setup({ ftmoOnly: true, ownWay: true, dayDeskOnly: true });
+test('every desk trades the FTMO account: no one is off, and a setup saved before has its desks switched back on', async () => {
+  const { fund, live, sync, mt5, chen, dataDir } = setup({ ftmoOnly: true, ownWay: true });
   sync();
-  live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // a Free Trial: every desk's switch starts on
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
   assert.equal(live.arm().ok, true);
   const v = live.view();
-  assert.equal(v.dayDeskOnly, true);
-  const desk = (id) => v.desks.find((d) => d.id === id);
-  assert.equal(desk('theo').enabled, true, 'the day traders are on');
-  assert.equal(desk('amara').enabled, false, 'every other desk is off the account, whatever its switch');
-  assert.equal(desk('amara').dayDeskOff, true);
-  assert.equal(desk('chen').alertsOnly, true);
-  assert.equal(live.brain.deskStatus(chen).label, 'Your alerts only');
-  assert.equal(live.brain.deskStatus(fund.byId.get('amara')).label, 'Off · Day Trading Desk only');
-  assert.match(live.setDesk('amara', true).error, /Only the Day Trading Desk trades the FTMO account/);
-
-  // Amara's gold sweep isn't taken at all (FTMO only): nothing on paper, and she says why.
+  assert.equal(v.dayDeskOnly, undefined, 'no "Day Trading Desk only" switch: every desk is a day trader');
+  assert.ok(v.desks.every((d) => d.enabled), 'every desk is on the account');
   const amara = fund.byId.get('amara');
-  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), false);
-  assert.equal(amara.position('XAUUSD'), null);
-  assert.match(amara.setup.stage, /^Not taken \(FTMO only\): only the Day Trading Desk trades the FTMO account/);
-  assert.ok(live.view().today.reasons.some(([why]) => why === 'Day Trading Desk only'), JSON.stringify(live.view().today.reasons));
-
-  // Theo's day trade is taken, and it goes to MT5.
   const theo = fund.byId.get('theo');
-  assert.equal(theo.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'London open: swept the Asia low', partialAt: 0 }), true);
+  assert.equal(live.brain.deskStatus(amara).label, 'Own way');
+
+  // Amara's London gold trade goes to MT5 with her own magic number (her seat).
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'London open: swept the Asia low', partialAt: 0, symbol: 'XAUUSD' }), true, amara.lastReject);
   await tick();
   live.reconcile();
   const opens = sync().filter((c) => c[0] === 'open');
   assert.equal(opens.length, 1);
-  assert.equal(opens[0][7], String(MAGIC_BASE + 23));
-  // MT5 refuses it: cancelled, not the desk's record, nothing to learn from.
+  assert.equal(opens[0][7], String(MAGIC_BASE + 4));
+  // No pile-ups: Theo, gold's New York desk, waits while her trade is on (FTMO only: not taken at all).
+  assert.equal(theo.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'New York open: swept the London low', partialAt: 0 }), false);
+  assert.match(theo.setup.stage, /one desk per market: Amara already has a XAUUSD trade on the account/);
+  // MT5 refuses Amara's: cancelled, not the desk's record, nothing to learn from.
   mt5.acks.push({ id: opens[0][1], ok: false, msg: 'Market closed' });
   sync();
-  assert.equal(theo.position('XAUUSD'), null);
-  assert.equal(theo.lifetime.trades, 0, 'only trades on the account count');
-  assert.equal(theo.learner.summary().studied, 0, 'nothing learned from a trade the account didn\'t take');
+  assert.equal(amara.position('XAUUSD'), null);
+  assert.equal(amara.lifetime.trades, 0, 'only trades on the account count');
+  assert.equal(amara.learner.summary().studied, 0, 'nothing learned from a trade the account didn\'t take');
 
-  // Your own TradingView alert through Chen still goes (her switch is on).
-  theo.cooldownBars = 0;
+  // Your own TradingView alerts through Chen go at your full risk, not her crypto half.
   assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
+  await tick();
+  live.reconcile();
+  const alert = [...live.links.values()].find((l) => l.agentId === 'chen');
+  assert.ok(alert && Math.abs(alert.risk - 250) < 30, `risk ${alert?.risk}`);
 
-  // Switched off: the desk table decides again; the choice survives a restart.
-  assert.equal(live.setDayDeskOnly(false).ok, true);
-  assert.equal(live.view().desks.find((d) => d.id === 'amara').enabled, true);
+  // You can still switch a desk off in the desk table, and it says so.
+  assert.equal(live.setDesk('theo', false).ok, true);
+  assert.equal(live.brain.deskStatus(theo).label, 'Off');
+  assert.match(live.brain.deskStatus(theo).text, /^Switched off for the FTMO account in the desk table/);
+
+  // A setup saved by the version where only the Day Trading Desk traded the account (Amara
+  // switched off, the old switch on): her switch is back on after the update, once.
   live.save();
   await new Promise((r) => setTimeout(r, 300));
-  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'live.json'), 'utf8'));
-  assert.equal(saved.dayDeskOnly, false);
+  const file = path.join(dataDir, 'live.json');
+  const old = JSON.parse(fs.readFileSync(file, 'utf8'));
+  delete old.allDesksOn;
+  old.dayDeskOnly = true;
+  old.profiles['555'].desks = { ...old.profiles['555'].desks, amara: false, theo: false };
+  fs.writeFileSync(file, JSON.stringify(old));
+  const next = setup({ ftmoOnly: true, ownWay: true, dataDir });
+  next.sync();
+  assert.ok(next.fund.agents.every((a) => next.live.deskOn(a.id)), 'every desk back on the account');
+  // Switched off after that: it stays off through a restart.
+  next.live.setDesk('theo', false);
+  next.live.save();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).allDesksOn, true);
+  const again = setup({ ftmoOnly: true, ownWay: true, dataDir });
+  again.sync();
+  assert.equal(again.live.deskOn('theo'), false);
+  assert.equal(again.live.deskOn('amara'), true);
 });
 
 test('a crypto day trader trades the FTMO account at half the risk per trade, and says so', async () => {
   const BTC = { bid: 112000, ask: 112015, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 0.01, tickValueLoss: 0.01, volMin: 0.01, volStep: 0.01, volMax: 20, stopsLevel: 0, bars: [] };
-  const { fund, live, sync } = setup({ ftmoOnly: true, ownWay: true, dayDeskOnly: true, quotes: { BTCUSD: BTC }, symbols: ['BTCUSD'] });
+  const { fund, live, sync } = setup({ ftmoOnly: true, ownWay: true, quotes: { BTCUSD: BTC }, symbols: ['BTCUSD'] });
   fund.md.applyTick('BTCUSD', 112010, 1, Date.now());
   sync();
   live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // 0.25% a trade: $250

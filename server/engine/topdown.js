@@ -275,8 +275,11 @@ export class TopDownBook {
     if (bar.high > d.hi) { d.hi = bar.high; d.hiTime = bar.time; }
     if (bar.low < d.lo) { d.lo = bar.low; d.loTime = bar.time; }
     const sid = sessionOf(nyMinute(ms));
-    if (sid) {
-      const s = (d.sessions[sid] ||= { hi: -Infinity, lo: Infinity, end: 0 });
+    // The New York opening range (09:30–10:00) too: demo mode's liquidity (see liquidity()).
+    const m = nyMinute(ms);
+    for (const id of [sid, m >= 9 * 60 + 30 && m < 10 * 60 ? 'nyopen' : null]) {
+      if (!id) continue;
+      const s = (d.sessions[id] ||= { hi: -Infinity, lo: Infinity, end: 0 });
       if (bar.high > s.hi) { s.hi = bar.high; s.hiTime = bar.time; }
       if (bar.low < s.lo) { s.lo = bar.low; s.loTime = bar.time; }
       s.end = bar.time + 60;
@@ -371,8 +374,10 @@ export class TopDownBook {
 
   // Where the stops rest now: the previous week's and day's high and low, and today's Asia and
   // London ranges (and the previous day's New York range). Each says whether it has been taken.
-  liquidity(nowMs) {
-    if (this.liq?.ms === nowMs && this.liq.at === this.lastTime) return this.liq.out;
+  // openingRange: the New York opening range's high and low count too. Demo mode's clock runs
+  // 09:30–16:00 only, so it has no Asia or London range to sweep; on real prices it's left out.
+  liquidity(nowMs, { openingRange = false } = {}) {
+    if (this.liq?.ms === nowMs && this.liq.at === this.lastTime && this.liq.openingRange === openingRange) return this.liq.out;
     const day = tradingDayOf(nowMs);
     const days = [...this.days.keys()];
     const today = this.days.get(day);
@@ -408,7 +413,12 @@ export class TopDownBook {
       add('London high', lon.hi, 'above', lon.end);
       add('London low', lon.lo, 'below', lon.end);
     }
-    this.liq = { ms: nowMs, at: this.lastTime, out };
+    const nyo = today?.sessions.nyopen;
+    if (openingRange && nyo && nowMin >= 10 * 60 && nowMin < 18 * 60 && nyo.hi > -Infinity) {
+      add('Opening range high', nyo.hi, 'above', nyo.end);
+      add('Opening range low', nyo.lo, 'below', nyo.end);
+    }
+    this.liq = { ms: nowMs, at: this.lastTime, openingRange, out };
     return out;
   }
 }

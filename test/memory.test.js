@@ -127,13 +127,14 @@ test('the memory is kept on disk, and starts from what the desks already remembe
   const fund = floor(null);
   const lucas = fund.byId.get('lucas');
   lucas.learner.state.journal = [{ t: 1, ctx: CTX, r: 0.4 }, { t: 2, ctx: CTX, r: -0.2 }, { t: 3, ctx: { ...CTX, vol: 'quiet' }, r: 1 }];
-  fund.byId.get('elena').learner.state.journal = [{ t: 1, ctx: CTX, r: 2 }]; // research desks move markets: left out
+  fund.byId.get('elena').learner.state.journal = [{ t: 1, ctx: CTX, r: 2 }]; // Bitcoin's Asia desk
   const a = new FloorMemory({ file });
-  assert.equal(a.seedFromJournals(fund.agents), 3);
+  assert.equal(a.seedFromJournals(fund.agents), 4);
   assert.equal(a.seedFromJournals(fund.agents), 0, 'only once');
   a.flush();
   const b = new FloorMemory({ file });
   assert.equal(b.recall('USOIL', CTX).trades, 2);
   assert.equal(b.recall('USOIL', { ...CTX, vol: 'quiet' }).trades, 1);
+  assert.equal(b.recall('BTCUSD', CTX).trades, 1);
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
