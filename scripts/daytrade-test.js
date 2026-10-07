@@ -61,7 +61,7 @@ function print(p, s, bars, symbol) {
   console.log(`\n  ${p.name} · ${p.desk} · ${symbol} · ${bars.length.toLocaleString('en-US')} real 1-minute bars, ${days} days (${from} → ${to})`);
   console.log(`    Days with a top-down bias: ${f.biasDays ?? 0} of ${f.days ?? 0}`);
   console.log(`    Liquidity swept against the bias: ${f.sweeps ?? 0} · ran through (a breakdown, not a sweep): ${f.deep ?? 0} · never shifted: ${f.stale ?? 0}`);
-  console.log(`    5-minute shifts: ${f.shifts ?? 0} · outside the killzones: ${f.outside ?? 0} · no displacement: ${f.weak ?? 0} · no fair value gap: ${f.noGap ?? 0} · already traded that day: ${f.busy ?? 0}`);
+  console.log(`    5-minute shifts: ${f.shifts ?? 0} · outside the killzones: ${f.outside ?? 0} · no displacement: ${f.weak ?? 0} · no fair value gap: ${f.noGap ?? 0} · already traded that day: ${f.busy ?? 0}${f.costly ? ` · costs too high for the stop: ${f.costly}` : ''}`);
   console.log(`    Setups: ${f.orders ?? 0}`);
   console.log(`    Trades: ${s.trades} · win rate ${pct(s.winRate)} · average ${fmtR(s.avgR)} · total ${fmtR(s.sumR)} · profit factor ${s.pf == null ? '—' : s.pf === Infinity ? '∞' : s.pf.toFixed(2)} · worst drawdown ${s.maxDD.toFixed(1)}R`);
   const e = Object.entries(s.exits).sort((a, b) => b[1] - a[1]);

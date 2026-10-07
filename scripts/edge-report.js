@@ -27,9 +27,8 @@ import { mulberry32 } from '../server/util/random.js';
 import { riskSweep } from '../server/live/challengeSim.js';
 import { replay, loadBars } from './replay.js';
 
-// Desks that can't trade one prop account (pairs, market making) or that research their own
-// strategies as they go (the research lab) aren't replayed.
-const SKIP = new Set(['kenji', 'isabella']);
+// The research lab researches its own strategies as it goes: those desks aren't replayed.
+const SKIP = new Set();
 export const MIN_TRADES = 15;
 
 const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);

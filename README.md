@@ -1,6 +1,6 @@
 # Meridian Trading Floor
 
-A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. A five-person **Day Trading Desk** trades the way TJR teaches: the weekly, daily and 4-hour bias first, then a sweep of the session's liquidity, a 5-minute break of structure and an entry back in the fair value gap, aiming for 3R or more. No scalping. **Every desk reads the higher timeframes first** and only trades with that bias, and **the desks don't pile in together**: one desk per market, one trade per correlated group, at most three at once. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. Only the Day Trading Desk trades your FTMO account (a switch). Each desk **trades its own way**: its own strategy's signals, with its own stops and targets, and every trade goes to your FTMO account with only FTMO's own rules around it. (The institutional way, where a **committee** argues every idea and an **account brain** decides what reaches your prop account, is one switch away.) You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
+A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. A five-person **Day Trading Desk** (plus three crypto day traders at half risk) trades the way TJR teaches: the weekly, daily and 4-hour bias first, then a sweep of the session's liquidity, a 5-minute break of structure and an entry back in the fair value gap, aiming for 3R or more. No scalping. **Every desk reads the higher timeframes first** and only trades with that bias, and **the desks don't pile in together**: one desk per market, one trade per correlated group, at most three at once. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. Only the Day Trading Desk trades your FTMO account (a switch). Each desk **trades its own way**: its own strategy's signals, with its own stops and targets, and every trade goes to your FTMO account with only FTMO's own rules around it. (The institutional way, where a **committee** argues every idea and an **account brain** decides what reaches your prop account, is one switch away.) You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
 
 ![The trading floor](docs/floor.jpg)
 
@@ -83,10 +83,10 @@ Tickers are read the way traders say them ("gold", "the Nasdaq", "dollar yen"), 
 | --- | --- | --- | --- | --- |
 | 1 | Marcus Reid | Index Futures | NAS100 | **Opening Range Breakout**: marks the first 15 minutes of the London and New York opens and trades a volume-confirmed break, with the stop at the range midpoint |
 | 2 | Sofia Laurent | Global Macro | USDJPY | **Top-down market structure**: 15-minute HH/HL bias, waits for a pullback into discount or premium, enters on a 1-minute break of structure |
-| 3 | Kenji Tanaka | Quant Stat-Arb | ETH / BTC | **Statistical arbitrage**: rolling OLS hedge ratio, trades the spread z-score (±2 in, ±0.35 out), market-neutral |
+| 3 | Kenji Tanaka | Day Trading · Ether | ETHUSD | **Crypto day trading**: the Day Trading Desk's top-down playbook on Ether, safer (below) |
 | 4 | Amara Okafor | Metals | XAUUSD | **Liquidity sweep reversal**: maps resting liquidity at swing and session highs/lows, fades stop-run spikes that reject back inside |
-| 5 | Viktor Petrov | Digital Assets | BTCUSD | **Trend momentum**: EMA 9/21 crosses with an EMA 50 filter and ADX confirmation, trailing chandelier stop |
-| 6 | Isabella Cruz | Electronic MM | SOLUSD | **Market making**: two-sided quotes in clips, inventory skew, toxic-flow filter and an inventory stop |
+| 5 | Viktor Petrov | Day Trading · Bitcoin | BTCUSD | **Crypto day trading**: the Day Trading Desk's top-down playbook on Bitcoin, safer (below) |
+| 6 | Isabella Cruz | Day Trading · Solana | SOLUSD | **Crypto day trading**: the Day Trading Desk's top-down playbook on Solana, safer (below) |
 | 7 | James Whitfield | Execution & VWAP | SPX500 | **VWAP mean reversion**: fades ±2σ session-VWAP stretches back to VWAP when the tape is rotational |
 | 8 | Priya Sharma | FX G10 | EURUSD | **Volatility squeeze**: Bollinger inside Keltner for 6+ bars, trades the release with momentum |
 | 9 | Lucas Meyer | Energy | USOIL | **Trend pullback**: buys dips to the EMA 20 in an EMA 20/50 uptrend after an RSI reset (and the mirror for shorts) |
@@ -146,6 +146,17 @@ Read that carefully:
 
 In demo mode the clock only runs New York's cash session, so there the day traders work its first two and a half hours (09:30–12:00). On the FTMO account they follow the same rules as every desk, including no pile-ups: Tyler and Sienna share the US-index slot, and Zara takes the FX one.
 
+### Crypto day traders: the same playbook, safer
+
+Viktor (Bitcoin), Kenji (Ether) and Isabella (Solana) day-trade crypto with the Day Trading Desk's playbook: the weekly, daily and 4-hour bias, a sweep of the session's liquidity in the London or New York open, the 5-minute shift, the entry in the fair value gap, 3R or more, one trade a day, flat by 16:50 New York. They used to run trend momentum, pairs arbitrage and market making. The last two couldn't go to a prop account at all. Crypto trades every day, so they do too, weekends included.
+
+They trade it **safer**, because crypto moves harder and costs more:
+- **half the risk per trade** of the other desks, on the account and on paper;
+- **no setup whose spread and commission would eat more than 0.4R** (a crypto CFD's round trip costs about ten times an FX pair's);
+- **one crypto trade on the account at a time** (the coins move together: the no-pile-ups rule).
+
+**Tested on Bitcoin** (the only real crypto 1-minute history here: Bitstamp 2017 and Kraken 2018, costs included). Through the floor's own code: **56 trades, 36% won, +0.24R a trade, +13.7R, worst drawdown 10.2R** (5.1R at their half risk). Split by year it made money in 2017, the bull run (+0.52R a trade), and lost in 2018, the bear market (−0.33R). The cost limit improved both years (2017 +0.46R → +0.52R, 2018 −0.52R → −0.33R). No other rule tried held up in both years. Ether and Solana weren't tested on their own, so they're likely to behave like Bitcoin, with more noise. Treat crypto as the riskier half of the desk, which is why it trades at half size.
+
 ### Top-down first: every desk
 
 Every desk reads its market's weekly, daily and 4-hour structure first (the same read the day traders use, `server/engine/topdown.js`) and **only trades with that bias**: a buy signal under a bearish bias isn't taken, and the desk says why (*Not taken (top-down): W ↓ · D ↓ · 4H ↑: the higher timeframes are bearish, so no buys*). Each desk's card shows the read (*Top-down: W ↑ · D ↑ · 4H ↓: bullish bias, price in the discount of the daily range · buys only*), and its spoken briefing says it. Your own TradingView alerts are your call and aren't held back. Until a market has enough history for a read (a couple of weeks of bars), nothing is held back.
@@ -173,7 +184,7 @@ A trade held back this way isn't taken at all with FTMO only on, and the Today c
 
 ### Weekends: crypto day trading
 
-From Friday 18:00 to Sunday 18:00 New York, forex, gold, oil and the indices are closed, so every trading desk switches to crypto and day-trades it with its own strategy. Bitcoin goes to Marcus, James and Priya; Ether to Sofia, Amara and Lucas. The Day Trading Desk rests at the weekend: its playbook was tested on its own markets, not on crypto. Two desks running the same strategy get different coins, so they don't take the same trade twice. Viktor, Chen, Kenji and Isabella trade crypto all week anyway. Every day still ends flat at 16:50 New York. On Sunday at 18:00 New York each desk goes back to its own market. The desk chips, the floor's screens and the desk's log show the switch ("Weekend: … I'm day trading BTCUSD").
+From Friday 18:00 to Sunday 18:00 New York, forex, gold, oil and the indices are closed, so every trading desk switches to crypto and day-trades it with its own strategy. Bitcoin goes to Marcus, James and Priya; Ether to Sofia, Amara and Lucas. The Day Trading Desk rests at the weekend: its playbook was tested on its own markets, not on crypto. Two desks running the same strategy get different coins, so they don't take the same trade twice. Viktor, Kenji, Isabella and Chen trade crypto all week anyway. Every day still ends flat at 16:50 New York. On Sunday at 18:00 New York each desk goes back to its own market. The desk chips, the floor's screens and the desk's log show the switch ("Weekend: … I'm day trading BTCUSD").
 
 Each desk was first replayed on 98 real Bitcoin weekends (Bitstamp 2017 and Kraken 2018 1-minute bars, `npm run weekend`), and that record ships with the floor (`server/research/weekend.json`):
 
@@ -186,7 +197,7 @@ Each desk was first replayed on 98 real Bitcoin weekends (Bitstamp 2017 and Krak
 | Priya | 343 | −0.27R (−0.37 to −0.17) | loses |
 | Lucas | 1,318 | −0.31R (−0.36 to −0.27) | loses |
 
-Viktor, who trades Bitcoin all week, lost too on those weekends: −0.54R a trade in 2017 and −0.32R in 2018. Only Bitcoin was tested, because that was the only real crypto history available here. The record stands in for the Ether desks too.
+Viktor's old trend-momentum strategy lost too on those weekends: −0.54R a trade in 2017 and −0.32R in 2018 (he day-trades Bitcoin now). Only Bitcoin was tested, because that was the only real crypto history available here. The record stands in for the Ether desks too.
 
 On the account, at the weekend a desk's weekend record counts the way its long-run record counts during the week:
 - **loses:** paper only, unless practice is on (the Free Trial, at 0.25%);
@@ -509,7 +520,7 @@ You can try the whole pipeline without TradingView using **Send test alert** on 
 
 ## How the desks learn
 
-Every desk studies its own trades and gets better at avoiding its own mistakes. The pair-trading and market-making desks manage their books as a whole, so they sit this out.
+Every desk studies its own trades and gets better at avoiding its own mistakes.
 
 **What each trade teaches.** When a trade closes, the desk journals the situation it was taken in and how it played out:
 
@@ -550,7 +561,6 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 - **FTMO rule guard.** It watches the daily and maximum loss using FTMO's method (equity against the day's starting balance, and against the account size, or on 1-Step against the best end-of-day balance). At 80% of a limit it closes the floor's positions and stops trading: until the next server day for the daily limit, and until you clear it for the max loss. It can also stop when the profit target is hit, which is on by default.
 - **2-Step or 1-Step** (below): the FTMO tab asks which program the account is on, and follows that program's limits.
 - **Arming is always your decision.** The floor starts disarmed after a restart, unless you switch on **Stay armed after a restart** (below). Paid accounts need you to type the account number to arm. **Close all & disarm** is always one click away.
-- **Two desks can't trade the account.** The stat-arb and market-making desks don't mirror onto a single prop account, so with **FTMO only** on (below) they don't trade at all.
 - **Research desks can trade it too,** once you switch them on: they trade only validated strategies, at half size while a new strategy is on probation.
 - **The account brain decides what reaches the account** (above): only committee A-grade trades from desks with a proven edge, sized down in drawdown and after losses, with a daily stop, a daily trade cap and one position per correlated group.
 - **News.** Nothing is sent to MT5 inside a news blackout, and the floor's positions are closed 5 minutes before high-impact news.
@@ -595,13 +605,13 @@ What stays, because FTMO requires it or it protects the account from FTMO's own 
 On by default in live mode (a switch in the FTMO tab's Connection card). A desk takes a trade **only when it goes to your FTMO account**. Before its fill, the desk runs the same checks the account makes before an order: MT5 connected, the account set up and **armed**, the desk switched on, the market mapped to an MT5 symbol, the costs on MT5, room under the loss guard, the account brain. If FTMO can't take the trade, the desk doesn't take it either, and its stage says why (*Not taken (FTMO only): FTMO trading isn't armed*).
 
 - **The desk's trade lasts as long as the FTMO one.** When MT5 closes the position (its stop, its target, you closing it by hand, the loss guard, Close all), the desk's trade closes too. When MT5 rejects or never confirms an order, the desk's trade is cancelled at once and doesn't count: not in its record, not as a lesson, not for the brains.
-- **Nothing trades on paper.** That includes the neural brain's small experiments, the pairs and market-making desks (they can't be copied onto one prop account) and any desk you've switched off for the account. The demo (`npm run demo`) still trades on paper, and so does the TradingView tab's test button.
+- **Nothing trades on paper.** That includes the neural brain's small experiments and any desk you've switched off for the account. The demo (`npm run demo`) still trades on paper, and so does the TradingView tab's test button.
 - **If nothing trades, the floor says why.** The desk rail and the top of the FTMO tab show *Not trading: …* whenever the account can't take anything: MT5 not connected, the account not set up, not armed, or halted. The most common one is **not armed**: a restart disarms the floor unless **Stay armed after a restart** is on, so switch that on once. The *Today on the account* card counts every reason a desk didn't trade.
 - **The desks learn from their FTMO trades only.** On a Free Trial that's plenty (training and practice send nearly every idea). On a paid challenge the account plan holds most ideas back, and with FTMO only on, those desks don't trade or learn at all, so a desk that isn't proven yet never gets the paper trades it needs to prove itself. Switch FTMO only off there if you want them to keep proving themselves on paper.
 
 ### Day Trading Desk only: the FTMO account is the day traders'
 
-On by default (a switch in the FTMO tab's Connection card). Only **Tyler, Sienna, Theo, Zara and Diego** trade your FTMO account. Every other desk stays off it, whatever its switch in the desk table says. With FTMO only on, those desks don't trade at all: they show *Off · Day Trading Desk only*, and the Today card counts it (*Day Trading Desk only*). Your own TradingView alerts still go to the account through Chen while her switch is on. A day trader you switch off in the desk table stays off. Switch Day Trading Desk only off and the desk table decides again.
+On by default (a switch in the FTMO tab's Connection card). Only the day traders trade your FTMO account: **Tyler, Sienna, Theo, Zara and Diego**, and the crypto day traders **Viktor, Kenji and Isabella** at half risk. Every other desk stays off it, whatever its switch in the desk table says. With FTMO only on, those desks don't trade at all: they show *Off · Day Trading Desk only*, and the Today card counts it (*Day Trading Desk only*). Your own TradingView alerts still go to the account through Chen while her switch is on. A day trader you switch off in the desk table stays off. Switch Day Trading Desk only off and the desk table decides again.
 
 Together with FTMO only, every trade a day trader takes is a trade on your FTMO account, and everything it learns comes from those trades: its record, its learning journal, the floor's memory and the neural brain. A trade FTMO refuses is cancelled and teaches nothing.
 
@@ -659,6 +669,7 @@ A few weeks of your own prices can't tell an edge from luck, so every trading de
 | Theo | XAUUSD | 49 | +0.00R (−0.41 to +0.45) | 4 of 8 | too few trades |
 | Zara | EURUSD | 95 | +0.08R (−0.23 to +0.41) | 4 of 10 | too few trades |
 | Diego | USOIL | 62 | −0.16R (−0.54 to +0.25) | 4 of 8 | too few trades |
+| Viktor | BTCUSD | 56 | +0.24R (−0.24 to +0.76) | 4 of 8 | too few trades (Bitcoin 2017–2018, at half risk) |
 
 A verdict needs 100 trades, and a day trader takes one a day at most, on the days its setup shows up: 22 months gives each one 40 to 95. Together they made +46R over 292 trades.
 
@@ -668,7 +679,7 @@ The record ships with the floor (`server/research/baseline.json`), and the accou
 
 - **loses** (the whole 90% range below zero): paper only, in training too. The exception is a nightly review that finds a real edge on your own prices (its whole 90% range above zero); then the desk trades half size until that edge lasts. A few promising weeks aren't enough against thousands of losing trades.
 - **no edge** or **unclear** (not significant either way, a hair below or above zero, like Marcus): half size, until the nightly review says more.
-- **No long-run record, or too few trades for one** (Sofia on USDJPY, Viktor and Chen on crypto, the research desks, the day traders): the nightly review decides, as before.
+- **No long-run record, or too few trades for one** (Sofia on USDJPY, Chen, Kenji and Isabella on crypto, the research desks, the day traders and Viktor): the nightly review decides, as before.
 - Your own TradingView alerts are your call.
 
 The desk table, the Today card (*Loses over the long run*), the account's rule list and the Nightly review card's **Long run** column show it.

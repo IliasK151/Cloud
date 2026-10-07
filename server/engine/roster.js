@@ -1,9 +1,6 @@
 import { OpeningRangeBreakout } from './strategies/orb.js';
 import { MarketStructure } from './strategies/marketStructure.js';
-import { PairsArbitrage } from './strategies/pairs.js';
 import { LiquiditySweep } from './strategies/liquiditySweep.js';
-import { TrendMomentum } from './strategies/momentum.js';
-import { MarketMaker } from './strategies/marketMaker.js';
 import { VwapReversion } from './strategies/vwapReversion.js';
 import { VolatilitySqueeze } from './strategies/squeeze.js';
 import { TrendPullback } from './strategies/trendPullback.js';
@@ -11,6 +8,13 @@ import { TradingViewSignals } from './strategies/signals.js';
 import { QuantResearch } from './strategies/research.js';
 import { DayTrader } from './strategies/dayTrader.js';
 import { PLAYBOOK, zonesText } from './daytrade.js';
+
+// The crypto day traders (Viktor, Kenji, Isabella) run the Day Trading Desk's playbook on
+// crypto, safer: half the risk per trade, and no setup whose spread and commission would eat
+// more than 0.4R (crypto's costs are many times FX's). Tested on Bitcoin, 2017 and 2018
+// (README, "Crypto day traders").
+const CRYPTO_RISK = 0.5;
+const CRYPTO_RULES = { zones: 'london,ny', maxCostR: 0.4 };
 
 // Every seat the floor has had: ten discretionary/systematic desks, the five-person Quant
 // Research Lab (research: markets they may research and trade, budget = ideas tested per
@@ -42,8 +46,8 @@ export const SEATS = [
     voice: { neural: 'bf_emma', lang: 'en-GB', prefer: ['Serena', 'Kate', 'Stephanie', 'Martha', 'Google UK English Female'] },
   },
   {
-    id: 'kenji', name: 'Kenji Tanaka', title: 'Quant PM · Stat-Arb', desk: 'Quant Stat-Arb',
-    Strategy: PairsArbitrage, symbols: ['ETHUSD', 'BTCUSD'], gender: 'male', customPositionPitch: true, maxTradesPerDay: 10, learning: false,
+    id: 'kenji', name: 'Kenji Tanaka', title: 'Crypto Day Trader · Ether', desk: 'Day Trading · Ether',
+    Strategy: DayTrader, symbols: ['ETHUSD'], gender: 'male', dayTrader: true, crypto: true, riskScale: CRYPTO_RISK, rules: CRYPTO_RULES, maxTradesPerDay: 2,
     appearance: { skin: '#e6c29d', hair: '#0e0e10', hairStyle: 'side', eyes: '#2a1c12', outfit: 'knit', jacket: '#3a3f47', shirt: '#e9ecef', glasses: '#1a1a1a', headset: false },
     accent: '#199e70',
     voice: { neural: 'am_puck', lang: 'en-US', prefer: ['Nathan', 'Tom', 'Alex', 'Aaron', 'Evan'] },
@@ -57,16 +61,15 @@ export const SEATS = [
     voice: { neural: 'af_heart', lang: 'en-US', prefer: ['Zoe', 'Ava', 'Allison', 'Susan', 'Samantha'] },
   },
   {
-    id: 'viktor', name: 'Viktor Petrov', title: 'Digital Assets PM', desk: 'Digital Assets',
-    Strategy: TrendMomentum, symbols: ['BTCUSD'], gender: 'male',
+    id: 'viktor', name: 'Viktor Petrov', title: 'Crypto Day Trader · Bitcoin', desk: 'Day Trading · Bitcoin',
+    Strategy: DayTrader, symbols: ['BTCUSD'], gender: 'male', dayTrader: true, crypto: true, riskScale: CRYPTO_RISK, rules: CRYPTO_RULES, maxTradesPerDay: 2,
     appearance: { skin: '#efcfb5', hair: '#b58a52', hairStyle: 'buzz', eyes: '#4f7da8', outfit: 'knit', jacket: '#1a1d23', glasses: false, headset: true, stubble: 0.45 },
     accent: '#d95926',
     voice: { neural: 'am_fenrir', lang: 'en-US', prefer: ['Tom', 'Evan', 'Alex', 'Nathan', 'Aaron'] },
   },
   {
-    id: 'isabella', name: 'Isabella Cruz', title: 'Electronic Market Maker', desk: 'Electronic MM',
-    Strategy: MarketMaker, symbols: ['SOLUSD'], gender: 'female',
-    maxTradesPerDay: 1e9, noCooldown: true, quietTrades: true, learning: false,
+    id: 'isabella', name: 'Isabella Cruz', title: 'Crypto Day Trader · Solana', desk: 'Day Trading · Solana',
+    Strategy: DayTrader, symbols: ['SOLUSD'], gender: 'female', dayTrader: true, crypto: true, riskScale: CRYPTO_RISK, rules: CRYPTO_RULES, maxTradesPerDay: 2,
     appearance: { skin: '#d9a47a', hair: '#2a160c', hairStyle: 'ponytail', eyes: '#3a2515', outfit: 'blazer', jacket: '#7d1d38', shirt: '#eceae6', glasses: false, headset: true },
     accent: '#d55181',
     voice: { neural: 'af_bella', lang: 'en-US', prefer: ['Ava', 'Allison', 'Samantha', 'Susan', 'Zoe'] },

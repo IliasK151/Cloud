@@ -30,7 +30,7 @@ import { replay, loadBars } from './replay.js';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const BRAIN_FILE = path.join(HERE, '..', 'server', 'research', 'brain.json');
 export const EXAMPLES_FILE = path.join(HERE, '..', 'server', 'research', 'brain-examples.json.gz');
-const SKIP = new Set(['kenji', 'isabella']);
+const SKIP = new Set(); // every trading desk's trades teach the brain (the research lab is left out below)
 
 // ---- one desk's trades with what the brain sensed, in a worker ------------------------------------
 export function recordDesk({ id, file, seed = 1, bars = null }) {

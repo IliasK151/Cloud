@@ -1,4 +1,4 @@
-import { money, nyTime, signClass, escapeHtml, STATUS_COLORS, deskKey } from '../format.js';
+import { money, nyTime, signClass, escapeHtml, STATUS_COLORS, deskKey, isDayDesk } from '../format.js';
 import { fundBook, deskBook, hasFtmo, bookMode, setBookPref } from '../book.js';
 import { provingNote, setPlanSwitch } from './planSwitch.js';
 import { todayRailNote } from './todayCard.js';
@@ -60,14 +60,14 @@ export class Hud {
         h.innerHTML = 'Quant Research Lab <small>trades only validated strategies</small>';
         this.el.list.appendChild(h);
       }
-      if (p.dayTrader && !s.profiles[i - 1]?.dayTrader) {
+      if (isDayDesk(p) && !(s.profiles[i - 1] && isDayDesk(s.profiles[i - 1]))) {
         const h = document.createElement('li');
         h.className = 'desk-group daytrade';
         h.innerHTML = 'Day Trading Desk <small>TJR style: top-down bias, liquidity sweeps, 3R+ trades</small>';
         this.el.list.appendChild(h);
       }
       const li = document.createElement('li');
-      li.className = `desk-item${p.lab ? ' lab' : p.dayTrader ? ' daytrade' : ''}`;
+      li.className = `desk-item${p.lab ? ' lab' : isDayDesk(p) ? ' daytrade' : ''}`;
       const markets = p.research?.markets || p.symbols;
       li.innerHTML = `
         <span class="key" style="--accent:${p.accent}">${deskKey(p, i)}</span>

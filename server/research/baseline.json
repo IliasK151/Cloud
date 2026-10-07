@@ -41,6 +41,13 @@
    "n": 0
   },
   {
+   "id": "kenji",
+   "name": "Kenji Tanaka",
+   "symbol": "ETHUSD",
+   "verdict": "no history",
+   "n": 0
+  },
+  {
    "id": "amara",
    "name": "Amara Okafor",
    "symbol": "XAUUSD",
@@ -72,6 +79,35 @@
    "id": "viktor",
    "name": "Viktor Petrov",
    "symbol": "BTCUSD",
+   "bars": 971424,
+   "from": 1483228800,
+   "to": 1543842000,
+   "tradesPerWeek": 0.6,
+   "n": 56,
+   "avgR": 0.245,
+   "totalR": 13.7,
+   "winRate": 0.357,
+   "ci": [
+    -0.235,
+    0.759
+   ],
+   "halves": [
+    0.461,
+    0.029
+   ],
+   "quarters": {
+    "positive": 4,
+    "total": 8
+   },
+   "grossR": 0.333,
+   "costR": 0.088,
+   "verdict": "too few trades",
+   "source": "Bitstamp 2017 and Kraken 2018 1-minute bars"
+  },
+  {
+   "id": "isabella",
+   "name": "Isabella Cruz",
+   "symbol": "SOLUSD",
    "verdict": "no history",
    "n": 0
   },

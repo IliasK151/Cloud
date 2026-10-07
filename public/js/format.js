@@ -51,10 +51,13 @@ export function initials(name) {
   return name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
+// The back tier's Day Trading Desk (the crypto day traders keep their seats on the trading rows).
+export const isDayDesk = (p) => !!p.dayTrader && !p.crypto;
+
 // The key shown on a desk's badge: 1–0 for the ten trading desks, Q for the research lab,
 // D for the day trading desk.
 export function deskKey(p, i) {
-  return p.lab ? 'Q' : p.dayTrader ? 'D' : (i + 1) % 10;
+  return p.lab ? 'Q' : isDayDesk(p) ? 'D' : (i + 1) % 10;
 }
 
 export function escapeHtml(s) {

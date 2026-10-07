@@ -31,9 +31,8 @@ import { replay, loadBars } from './replay.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const BASELINE_FILE = path.join(HERE, '..', 'server', 'research', 'baseline.json');
-// Desks that can't trade one prop account (pairs, market making) and the research desks (they
-// test their own strategies as they go) aren't replayed.
-const SKIP = new Set(['kenji', 'isabella']);
+// The research desks test their own strategies as they go: they aren't replayed.
+const SKIP = new Set();
 export const LONG_MIN_TRADES = 100;
 
 const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);

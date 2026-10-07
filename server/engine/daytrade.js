@@ -46,6 +46,7 @@ export const PLAYBOOK = {
   beAt: 0, // stop to breakeven at this many R (0: never)
   zones: 'london,ny', // the killzones (see KILLZONES)
   sweepKz: 0, // 1: the sweep itself must come inside a killzone (the open's stop run)
+  maxCostR: null, // skip a setup whose spread and commission would eat more than this, in R
 };
 
 // New York time, minutes since midnight.
@@ -54,6 +55,7 @@ export const KILLZONES = {
   ny: { id: 'ny', label: 'New York open', from: 7 * 60, to: 11 * 60 },
   nyidx: { id: 'nyidx', label: 'New York open', from: 9 * 60 + 30, to: 11 * 60 + 30 },
   nypm: { id: 'nypm', label: 'New York afternoon', from: 13 * 60 + 30, to: 15 * 60 },
+  asia: { id: 'asia', label: 'Asia open', from: 20 * 60, to: 23 * 60 },
   // Demo mode's clock only runs 09:30–16:00 New York: its morning is the killzone.
   demo: { id: 'demo', label: 'Demo session open', from: 9 * 60 + 30, to: 12 * 60 },
 };
@@ -93,14 +95,16 @@ export function killzoneAt(zones, minute) {
 }
 
 export class DayPlaybook {
-  // fmt: how prices are written in its messages (the desk's decimals).
-  constructor(rules = {}, fmt = null) {
+  // fmt: how prices are written in its messages (the desk's decimals). costR: (entry, stop) →
+  // what the market's costs come to, in R (for maxCostR).
+  constructor(rules = {}, fmt = null, costR = null) {
     this.rules = { ...PLAYBOOK, ...rules };
     this.fmt = fmt || ((x) => String(Number(x.toPrecision(6))));
+    this.costR = costR;
     this.events = []; // cancelled setups since the desk last looked (it says so on the floor)
     this.day = null;
     // What happened, all along: days with a bias, sweeps, shifts and why they didn't trade.
-    this.stats = { days: 0, biasDays: 0, sweeps: 0, deep: 0, stale: 0, shifts: 0, outside: 0, busy: 0, weak: 0, noGap: 0, located: 0, noTarget: 0, orders: 0 };
+    this.stats = { days: 0, biasDays: 0, sweeps: 0, deep: 0, stale: 0, shifts: 0, outside: 0, busy: 0, weak: 0, noGap: 0, located: 0, noTarget: 0, costly: 0, orders: 0 };
     this.reset();
   }
 
@@ -235,6 +239,12 @@ export class DayPlaybook {
     if (long ? entry >= price : entry <= price) { entry = price; market = true; }
     const risk = Math.abs(entry - stop);
     if (!(risk > 0)) return null;
+    // Too expensive for its stop: the spread and commission would eat too much of the trade.
+    const cost = R.maxCostR && this.costR ? this.costR(entry, stop) : null;
+    if (cost != null && cost > R.maxCostR) {
+      this.stats.costly++;
+      return this.#idle(`Price ${what}, but costs would eat ${cost.toFixed(2)}R of the trade (the limit is ${R.maxCostR}R)`);
+    }
     // The target: the liquidity on the other side that pays at least minRR (the nearest one).
     const opp = this.#targets(book, read, long, entry, legEnd);
     const rr = (x) => Math.abs(x.price - entry) / risk;

@@ -1,5 +1,6 @@
 import { TraderAgent } from '../agent.js';
 import { DayPlaybook, PLAYBOOK, KILLZONES, zonesText } from '../daytrade.js';
+import { tradeCostR } from '../../market/symbols.js';
 
 const lcLabel = (label) => (/^(Asia|London|New York)/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1));
 
@@ -21,7 +22,7 @@ export class DayTrader extends TraderAgent {
   #playbook() {
     // Demo mode's clock runs 09:30–16:00 New York only: its morning is the killzone there.
     const rules = this.session.mode === 'sim' ? { ...this.rules, zones: 'demo' } : this.rules;
-    return new DayPlaybook(rules, (x) => this.px(x));
+    return new DayPlaybook(rules, (x) => this.px(x), (entry, stop) => tradeCostR(this.symbol, entry, stop));
   }
 
   resetMarket() {

@@ -27,12 +27,13 @@ export const STYLES = {
 };
 
 const BY_AGENT = {
-  marcus: 'trend', viktor: 'trend', lucas: 'trend', priya: 'trend',
+  marcus: 'trend', lucas: 'trend', priya: 'trend',
   james: 'reversion', amara: 'reversion',
   sofia: 'structure',
-  kenji: 'quant', arjun: 'quant', hannah: 'quant', omar: 'quant', mei: 'quant',
-  isabella: 'flow', chen: 'signals', elena: 'risk',
+  arjun: 'quant', hannah: 'quant', omar: 'quant', mei: 'quant',
+  chen: 'signals', elena: 'risk',
   tyler: 'daytrader', sienna: 'daytrader', theo: 'daytrader', zara: 'daytrader', diego: 'daytrader',
+  viktor: 'daytrader', kenji: 'daytrader', isabella: 'daytrader',
 };
 
 export function styleOf(agentId) {

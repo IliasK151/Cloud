@@ -566,9 +566,12 @@ export class AccountBrain {
     if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };
     if (st?.ruleStop && lt.armed) return { state: 'stopped', label: 'Stopped today', text: st.ruleStop };
     if (lt.ownWay) {
-      const pct = p.riskPerTradePct;
-      if (!lt.armed) return { state: 'ready', label: 'Own way · not armed', text: `Trades its own way once you arm live trading: every trade its strategy takes goes to your FTMO account at ${pct}% risk.` };
-      return { state: 'training', label: 'Own way', text: `Trades its own way: every trade its strategy takes goes to your FTMO account at ${pct}% risk. Only FTMO's own rules can hold one back.` };
+      // The crypto day traders trade at half the risk per trade (their riskScale).
+      const scale = agent.profile.riskScale ?? 1;
+      const pct = Math.round(p.riskPerTradePct * scale * 1000) / 1000;
+      const risk = `${pct}% risk${scale < 1 ? ` (${scale === 0.5 ? 'half' : `${scale}×`} your ${p.riskPerTradePct}%, crypto is traded safer)` : ''}`;
+      if (!lt.armed) return { state: 'ready', label: 'Own way · not armed', text: `Trades its own way once you arm live trading: every trade its strategy takes goes to your FTMO account at ${risk}.` };
+      return { state: 'training', label: 'Own way', text: `Trades its own way: every trade its strategy takes goes to your FTMO account at ${risk}. Only FTMO's own rules can hold one back.` };
     }
     if (st?.cooloff && lt.armed) return { state: 'stopped', label: 'Cooling off', text: st.cooloff.text };
     const limit = this.deskLimit(agent);

@@ -315,3 +315,39 @@ test('no pile-ups on the account: one desk per market, one per correlated group,
   assert.equal(skipCategory(full), 'Enough trades open at once');
   assert.equal(skipCategory(crowd([{ agentId: 'tyler', floorSymbol: 'NAS100' }], 'SPX500')), 'Correlated position already open');
 });
+
+test('the crypto day traders: Viktor, Kenji and Isabella run the same playbook on crypto, safer', async () => {
+  const crypto = ROSTER.filter((p) => p.crypto);
+  assert.deepEqual(crypto.map((p) => `${p.id}:${p.symbols[0]}`), ['kenji:ETHUSD', 'viktor:BTCUSD', 'isabella:SOLUSD']);
+  for (const p of crypto) {
+    assert.equal(p.Strategy, DayTrader, p.id);
+    assert.ok(p.dayTrader);
+    assert.equal(p.riskScale, 0.5, 'half the risk per trade');
+    assert.equal(p.rules.maxCostR, 0.4, 'no setup its costs would eat');
+    assert.equal(styleKey(p.id), 'daytrader');
+    assert.ok(!p.weekendSymbol, 'crypto trades all week');
+  }
+  // They keep their seats on the trading rows (the back tier is the Day Trading Desk).
+  const { isDayDesk, deskKey } = await import('../public/js/format.js');
+  assert.equal(isDayDesk(crypto[1]), false);
+  assert.equal(deskKey(crypto[1], ROSTER.indexOf(crypto[1])), 5);
+  assert.equal(isDayDesk(ROSTER.find((p) => p.id === 'tyler')), true);
+
+  // The cost cap: the same setup as the gold test, but too expensive for its stop.
+  const book = biasedBook('LONG');
+  const pb = new DayPlaybook({ zones: 'london,ny', maxCostR: 0.4 }, null, () => 0.55);
+  for (const b of goldDay()) {
+    book.feed(b);
+    assert.equal(pb.onBar(book, b), null);
+  }
+  assert.equal(pb.stats.costly, 1);
+  // Cheap enough: taken as before.
+  const ok = new DayPlaybook({ zones: 'london,ny', maxCostR: 0.4 }, null, () => 0.1);
+  const b2 = biasedBook('LONG');
+  let order = null;
+  for (const b of goldDay()) {
+    b2.feed(b);
+    order = ok.onBar(b2, b) || order;
+  }
+  assert.ok(order);
+});

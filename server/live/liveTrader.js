@@ -51,11 +51,9 @@ const SWITCH_NOTES = {
   practiceAll: [() => 'Practice switched ON: every desk trades the Free Trial while training, the ones the evidence holds back at a small practice size', () => 'Practice switched OFF: desks the evidence holds back stay on paper again'],
 };
 
-// Desks whose trades can't be mirrored 1:1 onto a single prop account.
-const INELIGIBLE = {
-  kenji: 'Pairs trades need two hedged legs without a single stop-loss — paper only.',
-  isabella: 'Market making relies on passive maker fills an FTMO account can’t reproduce — paper only.',
-};
+// Desks whose trades can't be mirrored 1:1 onto a single prop account (none now: the pairs and
+// market-making desks became crypto day traders).
+const INELIGIBLE = {};
 
 // Mirrors the floor's paper desks onto a real MT5 account (e.g. FTMO) through the bridge EA.
 // Paper stays the "brain": when an enabled desk opens, scales out, trails or closes a trade,
@@ -972,7 +970,7 @@ export class LiveTrader extends EventEmitter {
     this.state.dayDeskOnly = v;
     this.save();
     this.#note(v
-      ? 'Day Trading Desk only switched ON: only Tyler, Sienna, Theo, Zara and Diego trade the FTMO account. The other desks stay off it (your own TradingView alerts still go)'
+      ? 'Day Trading Desk only switched ON: only the day traders (Tyler, Sienna, Theo, Zara, Diego, and Viktor, Kenji and Isabella on crypto at half risk) trade the FTMO account. The other desks stay off it (your own TradingView alerts still go)'
       : 'Day Trading Desk only switched OFF: the desks switched on in the desk table trade the FTMO account', 'risk');
     return { ok: true };
   }
@@ -1232,11 +1230,12 @@ export class LiveTrader extends EventEmitter {
     let lots = lotsForRisk(riskMoney, plan.risk, spec);
     if (!lots) {
       // Below the broker's minimum lot: trade the minimum if that still risks no more than
-      // the base risk per trade you set; otherwise skip.
+      // the base risk per trade you set (a crypto day trader's half of it); otherwise skip.
       const perLot = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue);
       const minRisk = perLot * (spec.volMin || 0.01);
-      if (Number.isFinite(minRisk) && minRisk > 0 && minRisk <= acc.balance * (p.riskPerTradePct / 100)) lots = spec.volMin || 0.01;
-      else return { skip: `even the ${spec.volMin} lot minimum would risk ${fmtUsd(minRisk)}, more than your ${p.riskPerTradePct}% per trade` };
+      const capPct = p.riskPerTradePct * Math.min(1, agent.profile.riskScale ?? 1);
+      if (Number.isFinite(minRisk) && minRisk > 0 && minRisk <= acc.balance * (capPct / 100)) lots = spec.volMin || 0.01;
+      else return { skip: `even the ${spec.volMin} lot minimum would risk ${fmtUsd(minRisk)}, more than ${capPct === p.riskPerTradePct ? 'your' : 'this desk\'s'} ${Math.round(capPct * 1000) / 1000}% per trade` };
     }
     const actualRisk = (plan.risk / (spec.tickSize || spec.point)) * (spec.tickValueLoss || spec.tickValue) * lots;
     // Orders MT5 hasn't filled yet count too: several desks can send trades in the same second.

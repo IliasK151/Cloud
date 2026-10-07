@@ -101,7 +101,8 @@ test('arming rules: live mode, desks enabled, confirmation for paid accounts', (
   assert.equal(live.arm().ok, false); // no setup yet
   live.setup({ program: '2-step', type: 'challenge', size: 100_000 });
   assert.match(live.arm().error, /at least one desk/);
-  assert.equal(live.setDesk('kenji', true).ok, false); // pairs desk is paper only
+  assert.equal(live.setDesk('kenji', true).ok, true); // the crypto day trader can trade the account
+  live.setDesk('kenji', false);
   live.setDesk('chen', true);
   assert.match(live.arm().error, /Type the account number/);
   assert.equal(live.arm({ confirm: '555' }).ok, true);
@@ -1871,11 +1872,12 @@ test('FTMO only: a desk takes a trade only when it goes to FTMO, and its trade l
   assert.match(last('exit'), /on XAUUSD: [+-]\d+\.\d\dR — Closed on FTMO/);
   assert.doesNotMatch(last('exit'), /\$/);
 
-  // Pairs and market making can't go to one prop account: they add nothing.
-  const kenji = fund.byId.get('kenji');
-  assert.equal(kenji.trade('XAUUSD', 1, { tag: 'PAIR' }), null);
-  assert.equal(kenji.position('XAUUSD'), null);
-  assert.match(kenji.setup.stage, /Not taken \(FTMO only\): Pairs trades/);
+  // A desk switched off for the account adds nothing, by direct execution either.
+  live.setDesk('amara', false);
+  const amara = fund.byId.get('amara');
+  assert.equal(amara.trade('XAUUSD', 1, { tag: 'X' }), null);
+  assert.equal(amara.position('XAUUSD'), null);
+  assert.match(amara.setup.stage, /Not taken \(FTMO only\): this desk is switched off for the FTMO account/);
 
   // Switched off: the desks trade on paper again (here, disarmed, paper only).
   live.disarm();
@@ -2033,4 +2035,24 @@ test('Day Trading Desk only: the day traders alone trade the FTMO account, every
   await new Promise((r) => setTimeout(r, 300));
   const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'live.json'), 'utf8'));
   assert.equal(saved.dayDeskOnly, false);
+});
+
+test('a crypto day trader trades the FTMO account at half the risk per trade, and says so', async () => {
+  const BTC = { bid: 112000, ask: 112015, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 0.01, tickValueLoss: 0.01, volMin: 0.01, volStep: 0.01, volMax: 20, stopsLevel: 0, bars: [] };
+  const { fund, live, sync } = setup({ ftmoOnly: true, ownWay: true, dayDeskOnly: true, quotes: { BTCUSD: BTC }, symbols: ['BTCUSD'] });
+  fund.md.applyTick('BTCUSD', 112010, 1, Date.now());
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // 0.25% a trade: $250
+  assert.equal(live.arm().ok, true);
+  const viktor = fund.byId.get('viktor');
+  assert.match(live.brain.deskStatus(viktor).text, /at 0\.125% risk \(half your 0\.25%, crypto is traded safer\)/);
+  assert.equal(viktor.openTrade({ side: 'LONG', stop: 111010, target: 115010, reason: 'London open: swept the Asia low', partialAt: 0 }), true);
+  await tick();
+  live.reconcile();
+  const open = sync().find((c) => c[0] === 'open');
+  assert.ok(open, 'sent to MT5');
+  // $1,000 of stop a lot: $125 of risk is 0.12 lots (a full-risk desk would send 0.25).
+  assert.equal(Number(open[4]), 0.12);
+  const link = [...live.links.values()].find((l) => l.agentId === 'viktor');
+  assert.ok(link.risk <= 125, `risk ${link.risk}`);
 });
