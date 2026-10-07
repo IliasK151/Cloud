@@ -52,9 +52,9 @@ export function initials(name) {
 }
 
 // The key shown on a desk's badge: 1–0 for the ten trading desks, Q for the research lab,
-// S for the scalping desk.
+// D for the day trading desk.
 export function deskKey(p, i) {
-  return p.lab ? 'Q' : p.scalper ? 'S' : (i + 1) % 10;
+  return p.lab ? 'Q' : p.dayTrader ? 'D' : (i + 1) % 10;
 }
 
 export function escapeHtml(s) {

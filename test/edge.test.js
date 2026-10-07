@@ -48,19 +48,19 @@ test('the edge report judges a desk only on enough trades, with a confidence ran
 
 test('npm run edge replays the desks on the saved history and says when there isn\'t any', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'edge-'));
-  // Two quiet days of GBPUSD minutes for Jake: enough to run, too few trades to judge.
+  // Two quiet days of EURUSD minutes for Zara: enough to run, too few trades to judge.
   const bars = [];
-  let p = 1.34;
+  let p = 1.17;
   const t0 = Date.UTC(2026, 8, 28) / 1000;
   for (let i = 0; i < 2 * 1440; i++) {
     const o = p;
     p += Math.sin(i / 37) * 0.00004 + ((i * 7919) % 13 - 6) * 0.000004;
     bars.push([t0 + i * 60, o, Math.max(o, p) + 0.00006, Math.min(o, p) - 0.00006, p, 1]);
   }
-  fs.writeFileSync(path.join(dir, 'GBPUSD.json'), JSON.stringify({ v: 2, level: 'mt5', bars }));
-  const rep = edgeReport({ dir, deskId: 'jake', seeds: 1, program: '1-step' });
+  fs.writeFileSync(path.join(dir, 'EURUSD.json'), JSON.stringify({ v: 2, level: 'mt5', bars }));
+  const rep = edgeReport({ dir, deskId: 'zara', seeds: 1, program: '1-step' });
   assert.equal(rep.desks.length, 1);
-  assert.equal(rep.desks[0].id, 'jake');
+  assert.equal(rep.desks[0].id, 'zara');
   assert.ok(['too few trades to tell', 'no edge', 'unclear', 'promising', 'EDGE'].includes(rep.desks[0].verdict));
   const none = edgeReport({ dir, deskId: 'amara', seeds: 1 });
   assert.equal(none.desks[0].verdict, 'no saved history');
@@ -76,14 +76,14 @@ function historyDir() {
   const hist = path.join(dir, 'history');
   fs.mkdirSync(hist);
   const bars = [];
-  let p = 1.34;
+  let p = 1.17;
   const t0 = Date.UTC(2026, 8, 28) / 1000;
   for (let i = 0; i < 2 * 1440; i++) {
     const o = p;
     p += Math.sin(i / 37) * 0.00004 + ((i * 7919) % 13 - 6) * 0.000004;
     bars.push([t0 + i * 60, o, Math.max(o, p) + 0.00006, Math.min(o, p) - 0.00006, p, 1]);
   }
-  fs.writeFileSync(path.join(hist, 'GBPUSD.json'), JSON.stringify({ v: 2, level: 'mt5', bars }));
+  fs.writeFileSync(path.join(hist, 'EURUSD.json'), JSON.stringify({ v: 2, level: 'mt5', bars }));
   return { dir, hist };
 }
 
@@ -108,9 +108,9 @@ test('the nightly review runs after the New York close or at the weekend, at mos
   assert.equal(rv.isDue(), true, 'at the weekend any time');
   // An old review is flagged, but its verdicts keep deciding: a desk taken off the account
   // doesn't drift back just because the reviews stopped.
-  rv.report = { at: t - REVIEW.freshMs - 1, desks: [{ id: 'jake', n: 30, avgR: -0.2, verdict: 'no edge' }] };
+  rv.report = { at: t - REVIEW.freshMs - 1, desks: [{ id: 'zara', n: 30, avgR: -0.2, verdict: 'no edge' }] };
   assert.equal(rv.current(), null, 'not fresh');
-  assert.equal(rv.verdictFor('jake').verdict, 'no edge');
+  assert.equal(rv.verdictFor('zara').verdict, 'no edge');
   // No saved history: nothing to review.
   const empty = new EdgeReview({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'review-')), log: quiet, now: () => t });
   assert.equal(empty.isDue(), false);
@@ -126,7 +126,7 @@ test('a review runs in a worker thread, is saved, and its summary reads well on 
   assert.ok(rv.view().running);
   const rep = await done;
   assert.equal(rv.view().running, null);
-  assert.ok(rep.desks.some((d) => d.id === 'jake'), 'Jake was replayed on his GBPUSD');
+  assert.ok(rep.desks.some((d) => d.id === 'zara'), 'Zara was replayed on her EURUSD');
   assert.ok(rep.desks.find((d) => d.id === 'amara').verdict === 'no saved history');
   assert.ok(fs.existsSync(path.join(dir, 'edge-report.json')), 'saved for the next start');
   const again = new EdgeReview({ dataDir: dir, log: quiet });
@@ -229,19 +229,19 @@ test('a review written by npm run edge reaches the running floor; a broken file 
   const file = path.join(dir, 'edge-report.json');
   const rv = new EdgeReview({ dataDir: dir, log: quiet });
   assert.equal(rv.report, null);
-  const good = { at: Date.now(), program: '1-step', size: 10_000, tradingDays: 12, desks: [{ id: 'nico', name: 'Nico Rossi', desk: 'Scalping', symbol: 'NAS100', n: 30, avgR: 0.4, verdict: 'EDGE' }], withEdge: null, everyone: null };
+  const good = { at: Date.now(), program: '1-step', size: 10_000, tradingDays: 12, desks: [{ id: 'tyler', name: 'Tyler Brooks', desk: 'Day Trading · Nasdaq', symbol: 'NAS100', n: 30, avgR: 0.4, verdict: 'EDGE' }], withEdge: null, everyone: null };
   fs.writeFileSync(file, JSON.stringify(good));
   rv.tick();
-  assert.equal(rv.verdictFor('nico').verdict, 'EDGE', 'picked up within a tick');
+  assert.equal(rv.verdictFor('tyler').verdict, 'EDGE', 'picked up within a tick');
   // Half-written, or the wrong shape: the floor keeps the review it has and the FTMO tab works.
   fs.writeFileSync(file, '{"at": 1, "desks": [');
   fs.utimesSync(file, new Date(), new Date(Date.now() + 5000));
   rv.tick();
-  assert.equal(rv.verdictFor('nico').verdict, 'EDGE');
+  assert.equal(rv.verdictFor('tyler').verdict, 'EDGE');
   fs.writeFileSync(file, JSON.stringify({ at: Date.now() + 1, desks: 'everyone' }));
   fs.utimesSync(file, new Date(), new Date(Date.now() + 10_000));
   rv.tick();
-  assert.equal(rv.verdictFor('nico').verdict, 'EDGE');
+  assert.equal(rv.verdictFor('tyler').verdict, 'EDGE');
   assert.equal(validReport({ at: 1, desks: [{ id: 'x', name: 'X', verdict: 'EDGE' }] }), false, 'a verdict needs its numbers');
   assert.equal(validReport(good), true);
   // The browser only ever gets numbers for the odds.
@@ -258,7 +258,7 @@ test('one unreadable history file doesn\'t sink the review, and each market coun
   fs.writeFileSync(path.join(hist, 'XAUUSD.json'), '{ not json');
   const rep = edgeReport({ dir: hist, seeds: 1 });
   assert.equal(rep.desks.find((d) => d.id === 'amara').verdict, 'history file unreadable');
-  assert.ok(rep.desks.find((d) => d.id === 'jake').verdict !== 'history file unreadable', 'Jake was still replayed');
+  assert.ok(rep.desks.find((d) => d.id === 'zara').verdict !== 'history file unreadable', 'Zara was still replayed');
   // Two full days and a few stray bars on a third: two trading days.
   const t0 = Date.UTC(2026, 8, 28) / 1000;
   const bars = [...Array(2 * 1440).keys()].map((i) => ({ time: t0 + i * 60 })).concat([{ time: t0 + 3 * 86_400 }, { time: t0 + 3 * 86_400 + 60 }]);

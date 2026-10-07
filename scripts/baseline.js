@@ -14,6 +14,8 @@
 //   npm run baseline -- --dir … --jobs 4 --seed 1 --out file  parallel replays, slippage seed,
 //                                                             where to write (default: the
 //                                                             file the floor reads)
+//   npm run baseline -- --dir … --no-topdown --out file       the desks without the top-down
+//                                                             rule, to compare
 //
 // It only reads market data: nothing is sent to MT5 and your paper book isn't touched.
 
@@ -25,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { ROSTER } from '../server/engine/roster.js';
 import { mulberry32 } from '../server/util/random.js';
 import { bootstrapCI } from './edge-report.js';
-import { replay, loadBars } from './scalp-test.js';
+import { replay, loadBars } from './replay.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const BASELINE_FILE = path.join(HERE, '..', 'server', 'research', 'baseline.json');
@@ -68,14 +70,14 @@ export function judgeLong(trades) {
 }
 
 // ---- one desk, in a worker ---------------------------------------------------------------------
-function replayDesk({ id, file, seed }) {
+function replayDesk({ id, file, seed, topDown = true }) {
   const p = ROSTER.find((r) => r.id === id);
   const bars = loadBars(file);
   const random = Math.random;
   Math.random = mulberry32(seed);
   let res;
   try {
-    res = replay({ profile: p, bars });
+    res = replay({ profile: p, bars, topDown });
   } finally {
     Math.random = random;
   }
@@ -104,14 +106,14 @@ function runInWorker(job) {
   });
 }
 
-export async function baseline({ dir, jobs = Math.max(1, Math.min(4, os.cpus().length)), seed = 1, source = 'real 1-minute bars', log = () => {} }) {
+export async function baseline({ dir, jobs = Math.max(1, Math.min(4, os.cpus().length)), seed = 1, source = 'real 1-minute bars', topDown = true, log = () => {} }) {
   const desks = ROSTER.filter((p) => !p.lab && !SKIP.has(p.id));
   const queue = [];
   const out = [];
   for (const p of desks) {
     const symbol = p.symbols[0];
     const file = path.join(dir, `${symbol}.json`);
-    if (fs.existsSync(file)) queue.push({ id: p.id, file, seed, symbol });
+    if (fs.existsSync(file)) queue.push({ id: p.id, file, seed, symbol, topDown });
     else out.push({ id: p.id, name: p.name, symbol, verdict: 'no history', n: 0 });
   }
   const running = new Set();
@@ -132,7 +134,7 @@ export async function baseline({ dir, jobs = Math.max(1, Math.min(4, os.cpus().l
     out.push({ id: r.id, name: p.name, symbol: r.symbol, bars: r.bars, from: r.from, to: r.to, tradesPerWeek: round(r.trades.length / (days / 7), 1), ...judgeLong(r.trades) });
   }
   out.sort((a, b) => desks.findIndex((p) => p.id === a.id) - desks.findIndex((p) => p.id === b.id));
-  return { v: 1, at: Date.now(), source, seed, desks: out };
+  return { v: 1, at: Date.now(), source, seed, topDown, desks: out };
 }
 
 async function main() {
@@ -148,7 +150,8 @@ async function main() {
     return;
   }
   const t0 = Date.now();
-  const rep = await baseline({ dir, jobs: Number(opt('jobs')) || undefined, seed: Number(opt('seed')) || 1, source: opt('source', 'real 1-minute bars'), log: (s) => console.log(s) });
+  // --no-topdown: the desks without the top-down rule (to see what it changes).
+  const rep = await baseline({ dir, jobs: Number(opt('jobs')) || undefined, seed: Number(opt('seed')) || 1, source: opt('source', 'real 1-minute bars'), topDown: !args.includes('--no-topdown'), log: (s) => console.log(s) });
   const fmt = (x) => (x == null ? '—' : `${x >= 0 ? '+' : ''}${x.toFixed(2)}R`);
   console.log('');
   for (const d of rep.desks) {

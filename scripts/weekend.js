@@ -20,7 +20,7 @@ import { ROSTER } from '../server/engine/roster.js';
 import { isWeekendDay } from '../server/engine/fund.js';
 import { nyDateKey } from '../server/market/session.js';
 import { mulberry32 } from '../server/util/random.js';
-import { replay, loadBars } from './scalp-test.js';
+import { replay, loadBars } from './replay.js';
 import { judgeLong } from './baseline.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

@@ -25,7 +25,7 @@ import { ROSTER } from '../server/engine/roster.js';
 import { mulberry32 } from '../server/util/random.js';
 import { senseTrade, toArray } from '../server/neural/features.js';
 import { fit, load, walkForward, evaluate, insights } from '../server/neural/train.js';
-import { replay, loadBars } from './scalp-test.js';
+import { replay, loadBars } from './replay.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const BRAIN_FILE = path.join(HERE, '..', 'server', 'research', 'brain.json');

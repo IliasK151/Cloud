@@ -14,7 +14,8 @@ import { spanText } from './baseline.js';
 //   - a daily stop well before FTMO's daily limit (the boss can switch it off; FTMO's own
 //     daily guard still applies), a cap on trades per day, and a stop for the day after a
 //     losing streak;
-//   - one position per correlated group (both US indices are one bet, so are the coins);
+//   - no pile-ups, in every mode: one desk per market, one position per correlated group (both
+//     US indices are one bet, so are the coins and the FX pairs), at most three at once;
 //   - the boss's own TradingView alerts are the boss's decision: they skip the proven-desk
 //     and grade gates (the committee can still veto them) but every risk rule above applies;
 //   - near the profit target the risk shrinks so one loss can't undo the progress, and on a
@@ -44,8 +45,12 @@ export const LIMITS = {
   formWindow: 20, // its most recent real-price trades (paper and account alike)
   labPaperTrades: 10, // a research desk's new strategy: live paper trades before the account
   practiceRiskPct: 0.25, // Free Trial practice: desks the evidence holds back trade at this risk at most
-  weekendCrypto: 3, // at the weekend every desk trades crypto, and crypto moves together: positions at once
+  together: 3, // the most trades open on the account at once: the desks don't all trade together
 };
+
+// No pile-ups, whatever the mode: one desk per market, one trade per correlated group (Nasdaq
+// and S&P, the FX pairs, crypto) and at most LIMITS.together trades open at once.
+export const CROWD_RULE = `No pile-ups: one desk per market, one trade per correlated group (Nasdaq and S&P, the FX pairs, crypto), at most ${LIMITS.together} trades open on the account at once`;
 
 const GRADE_RANK = { A: 3, B: 2, C: 1 };
 const fmtR = (x) => (Number.isFinite(x) ? `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}R` : '—');
@@ -88,6 +93,8 @@ export class AccountBrain {
       rules: [
         { text: 'The desks trade their own way: each takes its strategy\'s signals as it sees them, with its own stops, targets and what it learned from its own trades. No committee, no account-plan holds, no size cuts, no cost, news or loss-limit rules from outside', ok: true },
         { text: `Risk ${base}% of the balance on every trade (${fmtUsd(riskMoney)})`, ok: true },
+        { text: 'Top-down first: every desk trades with its market\'s weekly, daily and 4-hour bias, never against it', ok: true },
+        { text: CROWD_RULE, ok: true },
         { text: 'Every order carries its stop-loss', ok: true },
         { text: 'Real prices only: a market whose live feed is down is not traded, never simulated', ok: true },
         { text: `FTMO guard closes everything at ${p.guardPct}% of a limit, and no trade goes in that could breach it`, ok: !lt.halt },
@@ -249,7 +256,9 @@ export class AccountBrain {
           ? { text: `Neural brain has a say: on trades it hadn't seen it ranks winners above losers (skill ${sk.auc}). Ideas it expects to lose stay off the account${noPaper(this.live) ? ' and, with FTMO only on, aren\'t traded at all' : ', a few trade small on paper so it keeps learning'}. It never sends a trade these rules hold back`, ok: true }
           : { text: `Neural brain is learning: it judges every idea and learns from every trade, but decides nothing for the account until it tells winners from losers on trades it hasn't seen (skill ${sk.auc ?? '—'} now, it needs ${nb.trust.minAuc})`, ok: true };
       })(),
-      lt.fund?.weekendOn && { text: `Weekend: the desks day-trade crypto (Bitcoin and Ether) until Sunday 18:00 New York, flat by 16:50 each day. At most ${LIMITS.weekendCrypto} crypto positions on the account at once, because crypto moves together, and each desk's weekend crypto record counts as its long-run record`, ok: true },
+      lt.fund?.weekendOn && { text: 'Weekend: the desks day-trade crypto (Bitcoin and Ether) until Sunday 18:00 New York, flat by 16:50 each day, one crypto trade at a time because crypto moves together; each desk\'s weekend crypto record counts as its long-run record', ok: true },
+      { text: 'Top-down first: every desk trades with its market\'s weekly, daily and 4-hour bias, never against it', ok: true },
+      { text: CROWD_RULE, ok: true },
       { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R ${noPaper(this.live) ? 'stays off the account' : 'trades paper only'} until its record recovers`, ok: true },
       { text: `Proven live first: a research desk's new strategy trades paper on real prices until ${LIMITS.labPaperTrades} live trades haven't lost money in total, then the account`, ok: true },
       { text: `Capital follows results: a desk losing money after costs over its last ${LIMITS.allocMin} or more account trades trades at half size`, ok: true },
@@ -275,7 +284,7 @@ export class AccountBrain {
       training, canTrain: p.type === 'trial',
       practiceAll: p.type === 'trial' && p.practiceAll !== false, practice: training && p.practiceAll !== false, practiceRiskPct: LIMITS.practiceRiskPct,
       rules: training ? [
-        { text: 'Training on FTMO: every trade the desks take goes to the account, so they learn on FTMO itself. The committee grade, proven-desk, correlation and daily-plan holds are paused; the risk limits below stay', ok: false },
+        { text: 'Training on FTMO: every trade the desks take goes to the account, so they learn on FTMO itself. The committee grade, proven-desk and daily-plan holds are paused; the risk limits below stay (no pile-ups included)', ok: false },
         p.practiceAll !== false
           ? { text: `Practice is ON: desks the evidence holds back (losing over the long run, no edge on your prices, out of form, a new research strategy) trade the Free Trial too, at ${Math.min(LIMITS.practiceRiskPct, p.riskPerTradePct)}% a trade, so you watch every desk trade. On average they lose a little; a paid challenge never does this`, ok: false }
           : { text: `Practice is OFF: desks the evidence holds back ${noPaper(this.live) ? 'don\'t trade (FTMO only is on)' : 'stay on paper'} while the others train on FTMO`, ok: true },
@@ -301,7 +310,6 @@ export class AccountBrain {
         p.streakStopOn !== false
           ? { text: `Stop for the day after ${p.streakStop} losses in a row (streak ${streak})`, ok: streak < 2 }
           : { text: `Losing-streak stop is OFF (streak ${streak}; risk still halves after 2 losses)`, ok: false },
-        { text: 'One position per correlated group', ok: true },
         { text: 'Flat before high-impact news, no trades in a blackout', ok: true },
         { text: `FTMO guard closes everything at ${p.guardPct}% of a limit`, ok: !lt.halt },
         ...limitRules,
@@ -333,6 +341,8 @@ export class AccountBrain {
   ownWayAllow(agent, pos, plan) {
     const st = this.state();
     if (st?.ruleStop) return { ok: false, reason: st.ruleStop };
+    const crowd = this.crowd(pos, agent);
+    if (crowd) return { ok: false, reason: crowd };
     return { ok: true, riskMult: 1, reasons: ['Its own trade, at the full risk per trade'], boss: plan.tag === 'TV', ownWay: true };
   }
 
@@ -350,8 +360,8 @@ export class AccountBrain {
     if (st.cooloff) return { ok: false, reason: st.cooloff.text };
     const flip = this.#flip(pos);
     if (flip) return { ok: false, reason: flip };
-    // The weekend: all the desks on crypto, which moves as one market.
-    const crowd = this.#weekendCrowd(pos);
+    // No pile-ups (training too): one desk per market and per correlated group, a few at once.
+    const crowd = this.crowd(pos, agent);
     if (crowd) return { ok: false, reason: crowd };
     // The desk's own loss limit and its record on the account (your own alerts are your call).
     let alloc = { mult: 1 };
@@ -403,9 +413,6 @@ export class AccountBrain {
         return { ok: false, reason: `committee grade ${plan.grade}: the account only takes ${need >= 3 ? 'A-grade' : 'A and B-grade'} trades` };
       }
     }
-    const group = GROUPS[pos.symbol];
-    const busy = this.#links().some((l) => !l.previousSession && ['pending', 'open', 'closing'].includes(l.state) && GROUPS[l.floorSymbol] === group);
-    if (group && busy) return { ok: false, reason: `the account already has a ${group} position (one per correlated group)` };
     if (probation) return { ok: true, riskMult: st.mult * alloc.mult * 0.5, reasons: [...reasons, 'Unproven desk: half risk'], probation, boss };
     return { ok: true, riskMult: st.mult * alloc.mult, reasons, boss };
   }
@@ -425,13 +432,20 @@ export class AccountBrain {
     return `desk loss limit: ${fmtUsd(pnl)} on the account today, ${LIMITS.deskLossR}× its full risk of ${fmtUsd(full)}. Off the account until tomorrow${noPaper(lt) ? ' (FTMO only: it doesn\'t trade until then)' : '; it keeps trading on paper'}`;
   }
 
-  // At the weekend every desk day-trades crypto, and Bitcoin, Ether and the rest move together:
-  // a few positions at once on the account, or it's one big bet (training and practice too).
-  #weekendCrowd(pos) {
-    if (!this.live.fund?.weekendOn || GROUPS[pos.symbol] !== 'Crypto') return null;
-    const open = this.#links().filter((l) => !l.previousSession && ['pending', 'open', 'closing'].includes(l.state) && GROUPS[l.floorSymbol] === 'Crypto').length;
-    if (open < LIMITS.weekendCrypto) return null;
-    return `weekend crypto: the account already has ${open} crypto positions, the most at once at the weekend (${LIMITS.weekendCrypto}), because crypto moves together`;
+  // Why this trade would pile onto what the account already holds, or null. (agent: the desk
+  // asking; its own orders still in flight don't count against it for its market.)
+  crowd(pos, agent = null) {
+    const live = this.#links().filter((l) => !l.previousSession && ['pending', 'open', 'closing'].includes(l.state));
+    const others = live.filter((l) => !agent || l.agentId !== agent.id);
+    const name = (l) => this.live.fund?.byId?.get(l.agentId)?.firstName ?? l.agentId ?? 'another desk';
+    const same = others.find((l) => l.floorSymbol === pos.symbol);
+    if (same) return `one desk per market: ${name(same)} already has a ${pos.symbol} trade on the account`;
+    const group = GROUPS[pos.symbol];
+    const near = group && others.find((l) => GROUPS[l.floorSymbol] === group);
+    const what = { 'US indices': 'the US indices', Crypto: 'the coins', FX: 'the FX pairs' }[group] || group;
+    if (near) return `one trade per correlated group: ${name(near)}'s ${near.floorSymbol} trade is already on, and ${what} move together`;
+    if (live.length >= LIMITS.together) return `${live.length} trades already open on the account, the most at once (${LIMITS.together}): the desks don't all trade together`;
+    return null;
   }
 
   // No whipsaws: after the account lost on one side of a market, nothing the other way on it

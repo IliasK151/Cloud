@@ -252,9 +252,10 @@ test('at the weekend the desks day-trade crypto, Friday 18:00 to Sunday 18:00 Ne
   assert.match(marcus.log.at(-1).text, /Weekend: .* day trading BTCUSD with my Opening Range Breakout until Sunday 18:00 New York/);
   assert.equal(fund.byId.get('amara').symbol, 'ETHUSD');
   assert.equal(viktor.symbol, 'BTCUSD', 'a crypto desk stays where it is');
-  assert.ok(fund.events.some((e) => /Weekend: 11 desks day-trade crypto/.test(e.text)));
+  assert.ok(fund.events.some((e) => /Weekend: 6 desks day-trade crypto/.test(e.text)));
   for (const a of fund.agents.filter((x) => x.profile.weekendSymbol)) assert.ok(['BTCUSD', 'ETHUSD'].includes(a.symbol), a.id);
-  assert.equal(fund.agents.filter((x) => !x.profile.lab && !x.profile.weekendSymbol && !/USD$/.test(x.symbol)).length, 0, 'no desk left on a closed market');
+  // The day traders rest at the weekend: their playbook was tested on their own markets.
+  assert.equal(fund.agents.filter((x) => !x.profile.lab && !x.profile.dayTrader && !x.profile.weekendSymbol && !/USD$/.test(x.symbol)).length, 0, 'no desk left on a closed market');
   now = nyWallToMs(2026, 10, 18, 17, 0); // Sunday 17:00: still the weekend
   fund.housekeeping();
   assert.equal(marcus.symbol, 'BTCUSD');
@@ -283,7 +284,7 @@ function account({ weekendOn = true, links = [], weekendRecord = null, practice 
   return { brain: new AccountBrain(live), live };
 }
 
-test('the account at the weekend: each desk\'s weekend crypto record decides, and only a few crypto positions at once', () => {
+test('the account at the weekend: each desk\'s weekend crypto record decides, and one crypto trade at a time', () => {
   const { fund } = floor('live');
   const marcus = fund.byId.get('marcus');
   marcus.switchMarket('BTCUSD', { weekend: true });
@@ -314,15 +315,15 @@ test('the account at the weekend: each desk\'s weekend crypto record decides, an
   const short = account({ weekendRecord: { v: 1, desks: [] } }).brain.allow(marcus, pos, {});
   assert.equal(short.ok, true);
   assert.ok(short.reasons.some((r) => /too short a record day-trading crypto at the weekend/.test(r)));
-  // Three crypto positions already open: no more until one closes.
-  const open = (sym, i) => ({ floorSymbol: sym, state: 'open', ticket: i });
-  const full = account({ weekendRecord: { v: 1, desks: [] }, links: [open('BTCUSD', 1), open('ETHUSD', 2), open('BTCUSD', 3)] }).brain.allow(marcus, pos, {});
+  // Crypto moves together: one crypto trade on the account at a time (no pile-ups).
+  const open = (sym, i) => ({ floorSymbol: sym, state: 'open', ticket: i, agentId: 'chen' });
+  const full = account({ weekendRecord: { v: 1, desks: [] }, links: [open('ETHUSD', 1)] }).brain.allow(marcus, pos, {});
   assert.equal(full.ok, false);
-  assert.match(full.reason, /weekend crypto: the account already has 3 crypto positions/);
-  assert.equal(skipCategory(full.reason), 'Weekend crypto: enough positions open');
-  assert.equal(LIMITS.weekendCrypto, 3);
-  // During the week the cap doesn't apply.
-  assert.equal(account({ weekendOn: false, links: [open('BTCUSD', 1), open('ETHUSD', 2), open('BTCUSD', 3)] }).brain.allow(fund.byId.get('viktor'), pos, {}).reason?.match(/weekend crypto/) ?? null, null);
+  assert.match(full.reason, /^one trade per correlated group: chen's ETHUSD trade is already on, and the coins move together/);
+  assert.equal(skipCategory(full.reason), 'Correlated position already open');
+  assert.equal(LIMITS.together, 3);
+  // The same during the week.
+  assert.match(account({ weekendOn: false, links: [open('ETHUSD', 1)] }).brain.allow(fund.byId.get('viktor'), pos, {}).reason, /one trade per correlated group/);
   // The plan says so.
   const st = account({ weekendRecord: { v: 1, desks: [] } }).brain.state();
   assert.ok(st.rules.some((r) => /^Weekend: the desks day-trade crypto \(Bitcoin and Ether\) until Sunday 18:00 New York/.test(r.text)));
@@ -333,7 +334,7 @@ test('the weekend record ships with the floor: every desk that switches, replaye
   assert.ok(data);
   const b = new Baseline(data);
   const switching = ROSTER.filter((p) => p.weekendSymbol);
-  assert.equal(switching.length, 11);
+  assert.equal(switching.length, 6);
   for (const p of switching) {
     const d = data.desks.find((x) => x.id === p.id);
     assert.ok(d, p.id);

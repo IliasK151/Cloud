@@ -60,14 +60,14 @@ export class Hud {
         h.innerHTML = 'Quant Research Lab <small>trades only validated strategies</small>';
         this.el.list.appendChild(h);
       }
-      if (p.scalper && !s.profiles[i - 1]?.scalper) {
+      if (p.dayTrader && !s.profiles[i - 1]?.dayTrader) {
         const h = document.createElement('li');
-        h.className = 'desk-group scalp';
-        h.innerHTML = 'Scalping Desk <small>AJ Currency style: liquidity runs, tight stops, fast trades</small>';
+        h.className = 'desk-group daytrade';
+        h.innerHTML = 'Day Trading Desk <small>TJR style: top-down bias, liquidity sweeps, 3R+ trades</small>';
         this.el.list.appendChild(h);
       }
       const li = document.createElement('li');
-      li.className = `desk-item${p.lab ? ' lab' : p.scalper ? ' scalp' : ''}`;
+      li.className = `desk-item${p.lab ? ' lab' : p.dayTrader ? ' daytrade' : ''}`;
       const markets = p.research?.markets || p.symbols;
       li.innerHTML = `
         <span class="key" style="--accent:${p.accent}">${deskKey(p, i)}</span>

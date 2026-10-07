@@ -6,7 +6,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildRoom, PLATFORM, LAB, SCALP, DESK_XS, FRONT_ROW_Z, BACK_ROW_Z, LAB_ROW_Z, SCALP_ROW_Z } from './room.js';
+import { buildRoom, PLATFORM, LAB, DAY, DESK_XS, FRONT_ROW_Z, BACK_ROW_Z, LAB_ROW_Z, DAY_ROW_Z } from './room.js';
 import { Desk } from './desk.js';
 import { VideoWall } from './videowall.js';
 import { money, escapeHtml, STATUS_COLORS, deskKey } from '../format.js';
@@ -164,9 +164,9 @@ export class TradingFloor {
     if (this.desks.size) return;
     profiles.forEach((p, i) => {
       const desk = new Desk(p, i);
-      // Trading rows by position, then the lab and the scalping desk on their own tiers.
-      const row = p.scalper ? 3 : p.lab ? 2 : Math.min(1, Math.floor(i / 5));
-      desk.group.position.set(DESK_XS[i % 5], [0, PLATFORM.height, LAB.height, SCALP.height][row], [FRONT_ROW_Z, BACK_ROW_Z, LAB_ROW_Z, SCALP_ROW_Z][row]);
+      // Trading rows by position, then the lab and the day trading desk on their own tiers.
+      const row = p.dayTrader ? 3 : p.lab ? 2 : Math.min(1, Math.floor(i / 5));
+      desk.group.position.set(DESK_XS[i % 5], [0, PLATFORM.height, LAB.height, DAY.height][row], [FRONT_ROW_Z, BACK_ROW_Z, LAB_ROW_Z, DAY_ROW_Z][row]);
       desk.blob.visible = !this.quality;
       this.scene.add(desk.group);
       this.desks.set(p.id, desk);
@@ -230,7 +230,7 @@ export class TradingFloor {
     el.className = 'desk-tag';
     el.type = 'button';
     const key = deskKey(p, i);
-    el.innerHTML = `<span class="k${p.lab ? ' lab' : p.scalper ? ' scalp' : ''}">${key}</span><span class="who"><b>${escapeHtml(p.name.split(' ')[0])}</b><small>${escapeHtml(p.desk)}</small></span><span class="v"></span><i class="st"></i>`;
+    el.innerHTML = `<span class="k${p.lab ? ' lab' : p.dayTrader ? ' daytrade' : ''}">${key}</span><span class="who"><b>${escapeHtml(p.name.split(' ')[0])}</b><small>${escapeHtml(p.desk)}</small></span><span class="v"></span><i class="st"></i>`;
     el.style.setProperty('--accent', p.accent);
     el.addEventListener('click', () => this.#emit('select', p.id));
     this.overlay.appendChild(el);

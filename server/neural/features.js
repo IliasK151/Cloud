@@ -22,8 +22,9 @@ const squash = (x, k = 1) => (Number.isFinite(x) ? Math.tanh(x / k) : 0);
 const MARKET = { EURUSD: 'fx', GBPUSD: 'fx', USDJPY: 'fx', XAUUSD: 'gold', NAS100: 'index', SPX500: 'index', USOIL: 'oil', BTCUSD: 'crypto', ETHUSD: 'crypto', SOLUSD: 'crypto' };
 const MARKETS = ['fx', 'gold', 'index', 'oil', 'crypto'];
 const STYLE = {
-  'Liquidity Scalp (AJ Currency style)': 'scalp',
+  'Liquidity Scalp (AJ Currency style)': 'scalp', // the retired scalpers' trades, in what it learned from
   'Liquidity Sweep Reversal': 'sweep',
+  'Top-Down Day Trading (TJR style)': 'sweep', // a sweep of liquidity with the higher-timeframe bias
   'Opening Range Breakout': 'breakout',
   'Volatility Squeeze Breakout': 'breakout',
   'Top-Down Market Structure': 'trend',

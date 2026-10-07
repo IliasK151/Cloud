@@ -1,8 +1,9 @@
 {
  "v": 1,
- "at": 1791012379204,
+ "at": 1791364336125,
  "source": "Oanda 1-minute bars (FutureSharks/financial-data)",
  "seed": 1,
+ "topDown": true,
  "desks": [
   {
    "id": "marcus",
@@ -11,26 +12,26 @@
    "bars": 644154,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 8.9,
-   "n": 865,
-   "avgR": -0.083,
-   "totalR": -72,
-   "winRate": 0.483,
+   "tradesPerWeek": 6.5,
+   "n": 635,
+   "avgR": -0.04,
+   "totalR": -25.1,
+   "winRate": 0.515,
    "ci": [
-    -0.142,
-    -0.02
+    -0.124,
+    0.044
    ],
    "halves": [
-    -0.094,
-    -0.072
+    0.017,
+    -0.096
    ],
    "quarters": {
-    "positive": 1,
+    "positive": 3,
     "total": 8
    },
-   "grossR": -0.083,
+   "grossR": -0.04,
    "costR": 0,
-   "verdict": "loses"
+   "verdict": "no edge"
   },
   {
    "id": "sofia",
@@ -46,25 +47,25 @@
    "bars": 640681,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 20.5,
-   "n": 1999,
-   "avgR": -0.138,
-   "totalR": -276.2,
-   "winRate": 0.482,
+   "tradesPerWeek": 20.4,
+   "n": 1987,
+   "avgR": -0.216,
+   "totalR": -429.5,
+   "winRate": 0.468,
    "ci": [
-    -0.18,
-    -0.098
+    -0.26,
+    -0.171
    ],
    "halves": [
-    -0.126,
-    -0.15
+    -0.259,
+    -0.173
    ],
    "quarters": {
     "positive": 0,
     "total": 8
    },
-   "grossR": -0.111,
-   "costR": 0.027,
+   "grossR": -0.177,
+   "costR": 0.039,
    "verdict": "loses"
   },
   {
@@ -81,24 +82,24 @@
    "bars": 552524,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 20.5,
-   "n": 1996,
-   "avgR": -0.14,
-   "totalR": -279.1,
-   "winRate": 0.531,
+   "tradesPerWeek": 22.1,
+   "n": 2155,
+   "avgR": -0.218,
+   "totalR": -468.8,
+   "winRate": 0.504,
    "ci": [
-    -0.179,
-    -0.1
+    -0.258,
+    -0.178
    ],
    "halves": [
-    -0.194,
-    -0.086
+    -0.244,
+    -0.191
    ],
    "quarters": {
-    "positive": 1,
+    "positive": 0,
     "total": 8
    },
-   "grossR": -0.14,
+   "grossR": -0.219,
    "costR": 0,
    "verdict": "loses"
   },
@@ -109,25 +110,25 @@
    "bars": 826801,
    "from": 1514844000,
    "to": 1589443140,
-   "tradesPerWeek": 10.4,
-   "n": 1279,
-   "avgR": -0.235,
-   "totalR": -300.3,
-   "winRate": 0.445,
+   "tradesPerWeek": 19.7,
+   "n": 2425,
+   "avgR": -0.409,
+   "totalR": -991.6,
+   "winRate": 0.439,
    "ci": [
-    -0.284,
-    -0.185
+    -0.447,
+    -0.371
    ],
    "halves": [
-    -0.243,
-    -0.226
+    -0.395,
+    -0.422
    ],
    "quarters": {
     "positive": 0,
     "total": 10
    },
-   "grossR": -0.145,
-   "costR": 0.089,
+   "grossR": -0.202,
+   "costR": 0.207,
    "verdict": "loses"
   },
   {
@@ -137,25 +138,25 @@
    "bars": 623198,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 43.2,
-   "n": 4207,
-   "avgR": -0.146,
-   "totalR": -613.3,
-   "winRate": 0.478,
+   "tradesPerWeek": 42.1,
+   "n": 4099,
+   "avgR": -0.292,
+   "totalR": -1198.2,
+   "winRate": 0.453,
    "ci": [
-    -0.174,
-    -0.115
+    -0.323,
+    -0.262
    ],
    "halves": [
-    -0.144,
-    -0.147
+    -0.376,
+    -0.208
    ],
    "quarters": {
     "positive": 0,
     "total": 8
    },
-   "grossR": -0.102,
-   "costR": 0.044,
+   "grossR": -0.22,
+   "costR": 0.072,
    "verdict": "loses"
   },
   {
@@ -166,144 +167,144 @@
    "n": 0
   },
   {
-   "id": "jake",
-   "name": "Jake Morrison",
-   "symbol": "GBPUSD",
-   "bars": 817359,
-   "from": 1514844000,
-   "to": 1589443140,
-   "tradesPerWeek": 9.7,
-   "n": 1193,
-   "avgR": -0.189,
-   "totalR": -225.3,
-   "winRate": 0.461,
-   "ci": [
-    -0.24,
-    -0.139
-   ],
-   "halves": [
-    -0.21,
-    -0.168
-   ],
-   "quarters": {
-    "positive": 0,
-    "total": 10
-   },
-   "grossR": -0.101,
-   "costR": 0.088,
-   "verdict": "loses"
-  },
-  {
-   "id": "layla",
-   "name": "Layla Nasser",
-   "symbol": "EURUSD",
-   "bars": 826801,
-   "from": 1514844000,
-   "to": 1589443140,
-   "tradesPerWeek": 10.1,
-   "n": 1242,
-   "avgR": -0.174,
-   "totalR": -216,
-   "winRate": 0.459,
-   "ci": [
-    -0.22,
-    -0.129
-   ],
-   "halves": [
-    -0.137,
-    -0.211
-   ],
-   "quarters": {
-    "positive": 1,
-    "total": 10
-   },
-   "grossR": -0.069,
-   "costR": 0.105,
-   "verdict": "loses"
-  },
-  {
-   "id": "ryan",
-   "name": "Ryan Cole",
-   "symbol": "XAUUSD",
-   "bars": 640681,
-   "from": 1530482400,
-   "to": 1589443140,
-   "tradesPerWeek": 9.4,
-   "n": 914,
-   "avgR": -0.195,
-   "totalR": -177.9,
-   "winRate": 0.452,
-   "ci": [
-    -0.254,
-    -0.134
-   ],
-   "halves": [
-    -0.201,
-    -0.188
-   ],
-   "quarters": {
-    "positive": 0,
-    "total": 8
-   },
-   "grossR": -0.16,
-   "costR": 0.035,
-   "verdict": "loses"
-  },
-  {
-   "id": "mia",
-   "name": "Mia Torres",
-   "symbol": "XAUUSD",
-   "bars": 640681,
-   "from": 1530482400,
-   "to": 1589443140,
-   "tradesPerWeek": 10.4,
-   "n": 1017,
-   "avgR": -0.211,
-   "totalR": -214.4,
-   "winRate": 0.428,
-   "ci": [
-    -0.267,
-    -0.154
-   ],
-   "halves": [
-    -0.237,
-    -0.185
-   ],
-   "quarters": {
-    "positive": 0,
-    "total": 8
-   },
-   "grossR": -0.187,
-   "costR": 0.024,
-   "verdict": "loses"
-  },
-  {
-   "id": "nico",
-   "name": "Nico Rossi",
+   "id": "tyler",
+   "name": "Tyler Brooks",
    "symbol": "NAS100",
    "bars": 644154,
    "from": 1530482400,
    "to": 1589443140,
-   "tradesPerWeek": 6,
-   "n": 584,
-   "avgR": 0.028,
-   "totalR": 16.3,
-   "winRate": 0.546,
+   "tradesPerWeek": 0.5,
+   "n": 47,
+   "avgR": 0.461,
+   "totalR": 21.7,
+   "winRate": 0.383,
    "ci": [
-    -0.045,
-    0.101
+    -0.051,
+    0.961
    ],
    "halves": [
-    -0.044,
-    0.1
+    0.162,
+    0.748
+   ],
+   "quarters": {
+    "positive": 8,
+    "total": 8
+   },
+   "grossR": 0.461,
+   "costR": 0,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "sienna",
+   "name": "Sienna Clarke",
+   "symbol": "SPX500",
+   "bars": 552524,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 0.4,
+   "n": 39,
+   "avgR": 0.693,
+   "totalR": 27,
+   "winRate": 0.359,
+   "ci": [
+    0.032,
+    1.455
+   ],
+   "halves": [
+    0.978,
+    0.422
    ],
    "quarters": {
     "positive": 4,
     "total": 8
    },
-   "grossR": 0.028,
+   "grossR": 0.693,
    "costR": 0,
-   "verdict": "unclear"
+   "verdict": "too few trades"
+  },
+  {
+   "id": "theo",
+   "name": "Theo Hart",
+   "symbol": "XAUUSD",
+   "bars": 640681,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 0.5,
+   "n": 49,
+   "avgR": 0.002,
+   "totalR": 0.1,
+   "winRate": 0.306,
+   "ci": [
+    -0.411,
+    0.454
+   ],
+   "halves": [
+    0.079,
+    -0.072
+   ],
+   "quarters": {
+    "positive": 4,
+    "total": 8
+   },
+   "grossR": 0.019,
+   "costR": 0.017,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "zara",
+   "name": "Zara Ahmed",
+   "symbol": "EURUSD",
+   "bars": 826801,
+   "from": 1514844000,
+   "to": 1589443140,
+   "tradesPerWeek": 0.8,
+   "n": 95,
+   "avgR": 0.077,
+   "totalR": 7.3,
+   "winRate": 0.326,
+   "ci": [
+    -0.229,
+    0.412
+   ],
+   "halves": [
+    -0.096,
+    0.246
+   ],
+   "quarters": {
+    "positive": 4,
+    "total": 10
+   },
+   "grossR": 0.149,
+   "costR": 0.072,
+   "verdict": "too few trades"
+  },
+  {
+   "id": "diego",
+   "name": "Diego Alvarez",
+   "symbol": "USOIL",
+   "bars": 623198,
+   "from": 1530482400,
+   "to": 1589443140,
+   "tradesPerWeek": 0.6,
+   "n": 62,
+   "avgR": -0.159,
+   "totalR": -9.8,
+   "winRate": 0.258,
+   "ci": [
+    -0.543,
+    0.254
+   ],
+   "halves": [
+    -0.445,
+    0.128
+   ],
+   "quarters": {
+    "positive": 4,
+    "total": 8
+   },
+   "grossR": -0.126,
+   "costR": 0.033,
+   "verdict": "too few trades"
   }
  ]
 }

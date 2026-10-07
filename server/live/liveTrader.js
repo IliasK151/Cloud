@@ -6,6 +6,7 @@ import { EventEmitter } from 'node:events';
 import { ACCOUNT_TYPES, DEFAULTS, PLAN_SWITCHES, PROGRAMS, COST_MAX_R, normalizeProfile, guardMetrics, lotsForRisk, positionRisk, tradeCost, trainingOn, programRules, strictUntilKnown, bestDayCheck } from './rules.js';
 import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS, SYMBOLS } from '../market/symbols.js';
+import { SEATS } from '../engine/roster.js';
 import { AccountBrain } from './accountBrain.js';
 import { DailyReports, closedTrades } from './dailyReport.js';
 import { ACTION_LIMITS } from './bridge.js';
@@ -89,7 +90,8 @@ export class LiveTrader extends EventEmitter {
     this.events = [];
     // Orders from an earlier run that MT5 never confirmed didn't happen.
     this.links = new Map((this.state.links || []).map((l) => [l.key, { ...l, previousSession: true, ...(l.state === 'pending' ? { state: 'failed', reason: 'never confirmed by MT5 before the floor restarted' } : {}) }]));
-    this.agentIndex = new Map(fund.agents.map((a, i) => [a.id, i + 1]));
+    // A desk's magic number is its seat (engine/roster.js SEATS): retired seats keep theirs.
+    this.agentIndex = new Map(SEATS.map((p, i) => [p.id, i + 1]));
     // Today's order actions survive a restart (FTMO counts them per day, not per run).
     if (this.state.actions?.day && Number.isFinite(this.state.actions.n)) bridge.actions = { day: this.state.actions.day, n: this.state.actions.n };
     this.lastSkipNote = new Map();
@@ -193,7 +195,7 @@ export class LiveTrader extends EventEmitter {
 
   agentForMagic(magic) {
     const idx = magic - MAGIC_BASE;
-    return this.fund.agents[idx - 1]?.id ?? null;
+    return SEATS[idx - 1]?.id ?? null;
   }
 
   #ours(pos) {

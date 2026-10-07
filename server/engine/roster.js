@@ -9,17 +9,20 @@ import { VolatilitySqueeze } from './strategies/squeeze.js';
 import { TrendPullback } from './strategies/trendPullback.js';
 import { TradingViewSignals } from './strategies/signals.js';
 import { QuantResearch } from './strategies/research.js';
-import { LiquidityScalp } from './strategies/ajScalp.js';
+import { DayTrader } from './strategies/dayTrader.js';
+import { PLAYBOOK, zonesText } from './daytrade.js';
 
-// The twenty desks on the floor: ten discretionary/systematic desks, the five-person Quant
+// Every seat the floor has had: ten discretionary/systematic desks, the five-person Quant
 // Research Lab (research: markets they may research and trade, budget = ideas tested per
-// market per research round) and the five-person Scalping Desk, who all scalp the way AJ
-// Currency trades (scalp.killzone: the session each one works). New desks are only ever
-// appended: a desk's place in this list is its MT5 magic number on the prop account.
+// market per research round), the five scalpers who used to sit at the back (retired: no
+// scalping any more) and the five-person Day Trading Desk, who trade top-down the way TJR does
+// (rules.zones: the killzones each one works). New desks are only ever appended and retired
+// ones keep their seat: a desk's place in this list is its MT5 magic number on the prop
+// account. ROSTER (below) is the desks on the floor now.
 // `appearance` drives the 3D avatar (build comes from gender), `voice` the spoken briefing:
 // `neural` is the Kokoro voice, `lang`/`prefer` pick a system voice when neural voices are
 // off. `accent` is the desk colour.
-export const ROSTER = [
+export const SEATS = [
   {
     id: 'marcus', name: 'Marcus Reid', title: 'Head of Index Futures', desk: 'Index Futures',
     Strategy: OpeningRangeBreakout, symbols: ['NAS100'], gender: 'male',
@@ -142,50 +145,86 @@ export const ROSTER = [
     accent: '#7ccf2a',
     voice: { neural: 'af_nova', lang: 'en-US', prefer: ['Ava', 'Zoe', 'Allison', 'Samantha', 'Susan'] },
   },
-  // ---- Scalping Desk (AJ Currency style: liquidity runs, tight stops, fast in and out) ------
+  // ---- Scalping Desk: retired (no scalping any more). Their seats keep their magic numbers. ----
   {
     id: 'jake', name: 'Jake Morrison', title: 'Liquidity Scalper · Cable', desk: 'Scalping · GBPUSD London',
-    Strategy: LiquidityScalp, symbols: ['GBPUSD'], gender: 'male', scalper: true, scalp: { killzone: 'london', pools: 'all' }, maxTradesPerDay: 4,
-    weekendSymbol: 'ETHUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
+    retired: true, symbols: ['GBPUSD'], gender: 'male',
     appearance: { skin: '#e9bf9b', hair: '#6b4a2e', hairStyle: 'textured', eyes: '#4a6b8a', outfit: 'knit', jacket: '#20242b', glasses: false, headset: true, stubble: 0.5 },
     accent: '#ef5350',
     voice: { neural: 'am_liam', lang: 'en-AU', prefer: ['Lee', 'Gordon', 'Daniel', 'Oliver'] },
   },
   {
     id: 'layla', name: 'Layla Nasser', title: 'Liquidity Scalper · Euro', desk: 'Scalping · EURUSD London',
-    Strategy: LiquidityScalp, symbols: ['EURUSD'], gender: 'female', scalper: true, scalp: { killzone: 'london', pools: 'all' }, maxTradesPerDay: 4,
-    weekendSymbol: 'BTCUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
+    retired: true, symbols: ['EURUSD'], gender: 'female',
     appearance: { skin: '#d6a57c', hair: '#1a1210', hairStyle: 'long', eyes: '#3a2616', outfit: 'blazer', jacket: '#efe9df', shirt: '#1d2230', neckline: true, glasses: false, headset: true },
     accent: '#4fc3f7',
     voice: { neural: 'bf_alice', lang: 'en-GB', prefer: ['Kate', 'Serena', 'Martha', 'Stephanie', 'Google UK English Female'] },
   },
   {
     id: 'ryan', name: 'Ryan Cole', title: 'Liquidity Scalper · Gold', desk: 'Scalping · Gold London',
-    Strategy: LiquidityScalp, symbols: ['XAUUSD'], gender: 'male', scalper: true, scalp: { killzone: 'london', pools: 'all' }, rules: { extend: 60 }, maxTradesPerDay: 4,
-    weekendSymbol: 'BTCUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
+    retired: true, symbols: ['XAUUSD'], gender: 'male',
     appearance: { skin: '#f0cfb2', hair: '#2b1d14', hairStyle: 'side', eyes: '#5a4632', outfit: 'shirt', jacket: '#26344a', shirt: '#26344a', trousers: '#1b1e24', glasses: false, headset: true, stubble: 0.25 },
     accent: '#ffca28',
     voice: { neural: 'bm_daniel', lang: 'en-GB', prefer: ['Daniel', 'Oliver', 'Arthur', 'Jamie', 'Google UK English Male'] },
   },
   {
     id: 'mia', name: 'Mia Torres', title: 'Liquidity Scalper · Gold', desk: 'Scalping · Gold New York',
-    Strategy: LiquidityScalp, symbols: ['XAUUSD'], gender: 'female', scalper: true, scalp: { killzone: 'newyork', pools: 'all' }, rules: { extend: 60 }, maxTradesPerDay: 4,
-    weekendSymbol: 'ETHUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
+    retired: true, symbols: ['XAUUSD'], gender: 'female',
     appearance: { skin: '#c68d62', hair: '#2a1a12', hairStyle: 'ponytail', eyes: '#3b2415', outfit: 'turtleneck', jacket: '#3b1f2b', glasses: false, headset: true },
     accent: '#ff8f3a',
     voice: { neural: 'af_river', lang: 'en-US', prefer: ['Samantha', 'Allison', 'Ava', 'Zoe', 'Susan'] },
   },
   {
     id: 'nico', name: 'Nico Rossi', title: 'Liquidity Scalper · Nasdaq', desk: 'Scalping · Nasdaq New York',
-    Strategy: LiquidityScalp, symbols: ['NAS100'], gender: 'male', scalper: true, scalp: { killzone: 'newyork' }, rules: { extend: 60 }, maxTradesPerDay: 4,
-    weekendSymbol: 'BTCUSD', // crypto day trading at the weekend (Fri 18:00 – Sun 18:00 New York)
+    retired: true, symbols: ['NAS100'], gender: 'male',
     appearance: { skin: '#dcae88', hair: '#141013', hairStyle: 'short', eyes: '#2e2014', outfit: 'suit', jacket: '#2c2f36', shirt: '#f4f5f7', tie: '#8a1c2b', trousers: '#2c2f36', glasses: '#1a1a1a', headset: false, stubble: 0.6 },
     accent: '#ab47bc',
     voice: { neural: 'am_eric', lang: 'en-US', prefer: ['Alex', 'Tom', 'Evan', 'Aaron', 'Nathan'] },
   },
+  // ---- Day Trading Desk (TJR style: top-down bias, session liquidity, 3R+ day trades) ---------
+  {
+    id: 'tyler', name: 'Tyler Brooks', title: 'Day Trader · Nasdaq', desk: 'Day Trading · Nasdaq',
+    Strategy: DayTrader, symbols: ['NAS100'], gender: 'male', dayTrader: true, rules: { zones: 'ny' }, maxTradesPerDay: 2,
+    appearance: { skin: '#e8bd98', hair: '#3a2617', hairStyle: 'textured', eyes: '#3d5a78', outfit: 'knit', jacket: '#1f2a37', glasses: false, headset: true, stubble: 0.4 },
+    accent: '#ff7043',
+    voice: { neural: 'am_adam', lang: 'en-US', prefer: ['Alex', 'Tom', 'Evan', 'Aaron', 'Nathan'] },
+  },
+  {
+    id: 'sienna', name: 'Sienna Clarke', title: 'Day Trader · S&P 500', desk: 'Day Trading · S&P 500',
+    Strategy: DayTrader, symbols: ['SPX500'], gender: 'female', dayTrader: true, rules: { zones: 'ny' }, maxTradesPerDay: 2,
+    appearance: { skin: '#f2d3bd', hair: '#8a5a2b', hairStyle: 'ponytail', eyes: '#4f6f5a', outfit: 'blazer', jacket: '#24323f', shirt: '#eef1f4', neckline: true, glasses: false, headset: true },
+    accent: '#26c6da',
+    voice: { neural: 'af_jessica', lang: 'en-US', prefer: ['Allison', 'Ava', 'Samantha', 'Susan', 'Zoe'] },
+  },
+  {
+    id: 'theo', name: 'Theo Hart', title: 'Day Trader · Gold', desk: 'Day Trading · Gold',
+    Strategy: DayTrader, symbols: ['XAUUSD'], gender: 'male', dayTrader: true, rules: { zones: 'london,ny' }, maxTradesPerDay: 2,
+    appearance: { skin: '#f3d2b8', hair: '#7a5634', hairStyle: 'side', eyes: '#4a6b52', outfit: 'blazer', jacket: '#3b3127', shirt: '#f2efe8', glasses: '#2a2a2a', headset: true, stubble: 0.15 },
+    accent: '#ffca28',
+    voice: { neural: 'bm_daniel', lang: 'en-GB', prefer: ['Daniel', 'Oliver', 'Arthur', 'Jamie', 'Google UK English Male'] },
+  },
+  {
+    id: 'zara', name: 'Zara Ahmed', title: 'Day Trader · Euro', desk: 'Day Trading · EURUSD',
+    Strategy: DayTrader, symbols: ['EURUSD'], gender: 'female', dayTrader: true, rules: { zones: 'london,ny' }, maxTradesPerDay: 2,
+    appearance: { skin: '#c99872', hair: '#16100d', hairStyle: 'long', eyes: '#3a2616', outfit: 'turtleneck', jacket: '#2d2342', glasses: false, headset: true },
+    accent: '#5c6bc0',
+    voice: { neural: 'bf_alice', lang: 'en-GB', prefer: ['Kate', 'Serena', 'Martha', 'Stephanie', 'Google UK English Female'] },
+  },
+  {
+    id: 'diego', name: 'Diego Alvarez', title: 'Day Trader · Oil', desk: 'Day Trading · Oil',
+    Strategy: DayTrader, symbols: ['USOIL'], gender: 'male', dayTrader: true, rules: { zones: 'london,ny' }, maxTradesPerDay: 2,
+    appearance: { skin: '#c68d62', hair: '#120d0b', hairStyle: 'short', eyes: '#2e1d12', outfit: 'suit', jacket: '#2a2f36', shirt: '#f4f5f7', tie: '#2e5d3a', trousers: '#2a2f36', glasses: false, headset: false, stubble: 0.6 },
+    accent: '#66bb6a',
+    voice: { neural: 'am_echo', lang: 'en-US', prefer: ['Aaron', 'Evan', 'Tom', 'Nathan', 'Alex'] },
+  },
 ];
+
+// The desks on the floor now (retired seats left out).
+export const ROSTER = SEATS.filter((p) => !p.retired);
 
 export function publicProfile(p) {
   const { Strategy, ...rest } = p;
-  return { ...rest, strategy: Strategy.strategyName, strategyBlurb: Strategy.strategyBlurb };
+  // A day trader's killzones, New York time ("London open 02:00–05:00, New York open 07:00–11:00").
+  const sessions = p.dayTrader ? zonesText(p.rules?.zones || PLAYBOOK.zones) : undefined;
+  return { ...rest, sessions, strategy: Strategy.strategyName, strategyBlurb: Strategy.strategyBlurb };
 }

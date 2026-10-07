@@ -438,28 +438,29 @@ test('with "Proven desks only" off, a desk\'s own trade really reaches MT5 at ha
   assert.match(live.describeFor('amara'), /sent a buy order/);
 });
 
-test("a scalper's GBPUSD scalp reaches MT5 under its own magic number, with its tight stop", async () => {
-  const CABLE = { bid: 1.34, ask: 1.34008, digits: 5, point: 0.00001, tickSize: 0.00001, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
-  const { fund, live, sync } = setup({ quotes: { GBPUSD: CABLE }, symbols: ['GBPUSD'] });
-  fund.md.applyTick('GBPUSD', 1.34004, 1, Date.now());
+test("a day trader's trade reaches MT5 under its own magic number, after the retired scalpers' seats", async () => {
+  const { fund, live, sync } = setup();
   sync();
   live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   live.setPlan({ provenOnly: false });
-  assert.equal(live.setDesk('jake', true).ok, true);
+  assert.equal(live.setDesk('theo', true).ok, true);
   assert.equal(live.arm().ok, true);
-  assert.equal(live.view().desks.find((d) => d.id === 'jake').brokerSymbol, 'GBPUSD');
-  const jake = fund.byId.get('jake');
-  assert.equal(jake.openTrade({ side: 'LONG', stop: 1.3394, target: 1.3425, reason: 'London scalp: ran the Asia low', symbol: 'GBPUSD', partialAt: 1, timeStopBars: 20 }), true);
+  assert.equal(live.view().desks.find((d) => d.id === 'theo').brokerSymbol, 'XAUUSD');
+  const theo = fund.byId.get('theo');
+  assert.equal(theo.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'London open: swept the Asia low', partialAt: 0 }), true);
   await tick();
   live.reconcile();
   const open = sync().filter((c) => c[0] === 'open');
-  assert.equal(open.length, 1, 'the scalp went to MT5');
+  assert.equal(open.length, 1, 'the trade went to MT5');
   // open|id|SYM|BUY|vol|slDist|tpDist|magic|comment
-  const [, , sym, side, , slDist, , magic] = open[0];
-  assert.equal(sym, 'GBPUSD');
+  const [, , sym, side, , slDist, tpDist, magic] = open[0];
+  assert.equal(sym, 'XAUUSD');
   assert.equal(side, 'BUY');
-  assert.equal(Number(magic), MAGIC_BASE + 16, 'the scalpers come after the original fifteen desks');
-  assert.ok(Number(slDist) > 0 && Number(slDist) < 0.001, `a scalp stop under 10 pips (${slDist})`);
+  assert.equal(Number(magic), MAGIC_BASE + 23, 'seat 23: after the original fifteen desks and the five retired scalpers');
+  assert.ok(Number(tpDist) / Number(slDist) > 2.8, `about 3R to the target (${tpDist} / ${slDist})`);
+  // A retired seat keeps its number: an old scalper position is still recognised as the floor's.
+  assert.equal(live.agentForMagic(MAGIC_BASE + 16), 'jake');
+  assert.equal(live.magicFor('marcus'), MAGIC_BASE + 1);
 });
 
 test('a market added after the account was set up (GBPUSD) is mapped to the broker on the next sync', () => {
@@ -481,19 +482,19 @@ test('a market added after the account was set up (GBPUSD) is mapped to the brok
 
 test('a market without real prices is never made up: its desks stand aside and say why', () => {
   const { fund, live, sync } = setup();
-  fund.md.setStatus('GBPUSD', 'WAITING', 'none');
-  const jake = fund.byId.get('jake');
-  assert.equal(jake.status(), 'NO PRICES');
-  assert.match(jake.briefing().text, /no real prices for GBPUSD right now/);
-  const alert = jake.handleSignal({ action: 'buy', symbol: 'GBPUSD' });
+  fund.md.setStatus('USOIL', 'WAITING', 'none');
+  const diego = fund.byId.get('diego');
+  assert.equal(diego.status(), 'NO PRICES');
+  assert.match(diego.briefing().text, /no real prices for USOIL right now/);
+  const alert = diego.handleSignal({ action: 'buy', symbol: 'USOIL' });
   assert.equal(alert.ok, false);
-  assert.match(alert.reason, /No real prices for GBPUSD/);
+  assert.match(alert.reason, /No real prices for USOIL/);
   sync();
   live.setup({ program: '2-step', type: 'trial', training: false, size: 100_000 });
   const w = live.view().warnings.find((x) => /^No real prices/.test(x));
   assert.ok(w, 'the FTMO tab says so');
   assert.match(w, /Nothing is simulated/);
-  assert.match(w, /GBPUSD isn't mapped to a symbol on your broker/);
+  assert.match(w, /USOIL isn't mapped to a symbol on your broker/);
 });
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -519,7 +520,7 @@ test('the daily report card records the day: trades, R, what stayed on paper, an
   sync();
   assert.ok(alerts.some((a) => a.kind === 'trade' && /Chen bought .* XAUUSD @ 3800.2/.test(a.text)), JSON.stringify(alerts));
 
-  // Amara wants gold too while Chen holds it: one position per correlated group, so hers
+  // Amara wants gold too while Chen holds it: one desk per market (no pile-ups), so hers
   // stays on paper, and the report says why.
   const amara = fund.byId.get('amara');
   assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), true);
@@ -542,7 +543,7 @@ test('the daily report card records the day: trades, R, what stayed on paper, an
   assert.equal(r.desks.chen.pnl, 125);
   assert.ok(r.desks.chen.sumR > 0);
   assert.equal(r.desks.amara.skipped, 1);
-  assert.equal(r.skipped['Correlated position already open'], 1, JSON.stringify(r.skipped));
+  assert.equal(r.skipped['Another desk is in that market'], 1, JSON.stringify(r.skipped));
   assert.ok(r.events.some((e) => e.kind === 'arm'));
   live.reports.flush();
   const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'reports', '2026-09-29.json'), 'utf8'));
@@ -690,7 +691,7 @@ test('Today on the account: ideas, what the committee turned down, what stayed o
   assert.deepEqual(c.windows.map((w) => w.label), ['London open', 'New York open']);
   assert.match(c.windows[0].local, /^10:00/);
   assert.match(c.windows[1].local, /^(16:30|04:30 PM)/);
-  assert.deepEqual(c.scalp.map((k) => k.open), [true, false], 'the London scalpers are in their killzone');
+  assert.deepEqual(c.killzones.map((k) => k.open), [true, false], 'the London open killzone');
   assert.equal(marketClock(Date.UTC(2026, 9, 3, 12, 0), 'Europe/Athens').weekend, true, 'Saturday');
   assert.match(marketClock(Date.UTC(2026, 9, 1, 14, 0), 'Europe/Athens').session, /New York session/);
 });
@@ -716,7 +717,7 @@ test('training on FTMO (Free Trial): every trade the desks take goes to the acco
   committee.review = () => ({ ok: true, silent: false, grade: 'C', score: 0.05, sizeMult: 0.25, thesis: 'Sweep.', reason: 'not convinced' });
   const amara = fund.byId.get('amara');
   assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), true);
-  // A second gold trade from another desk: no one-per-group hold while training.
+  // A second gold trade from another desk: no pile-ups, even while training (one desk per market).
   const lucas = fund.byId.get('lucas');
   lucas.symbols.push('XAUUSD');
   assert.equal(lucas.openTrade({ side: 'LONG', stop: 3792, target: 3830, reason: 'pullback', symbol: 'XAUUSD' }), true);
@@ -724,10 +725,11 @@ test('training on FTMO (Free Trial): every trade the desks take goes to the acco
   await tick();
   live.reconcile();
   const opens = sync().filter((c) => c[0] === 'open');
-  assert.equal(opens.length, 2, 'both trades went to MT5');
+  assert.equal(opens.length, 1, 'only the first went to MT5');
   const links = [...live.links.values()].filter((l) => l.state === 'pending');
-  assert.deepEqual(links.map((l) => l.agentId).sort(), ['amara', 'lucas']);
-  assert.equal(live.view().today.held, 0, 'nothing held back on paper');
+  assert.deepEqual(links.map((l) => l.agentId).sort(), ['amara']);
+  assert.deepEqual(live.view().today.reasons, [['Another desk is in that market', 1]]);
+  lucas.closeTrade('XAUUSD', 'test exit');
 
   // No daily cap and no stop for the day while training, but a losing streak gets a cool-off…
   const lossDay = (i, at = Date.now()) => ({ key: `x${i}`, agentId: 'amara', state: 'closed', ticket: 500 + i, pnl: -50, login: '555', closedAt: at, closedDay: '2026.09.29', openedDay: '2026.09.29' });
@@ -751,7 +753,7 @@ test('training on FTMO (Free Trial): every trade the desks take goes to the acco
   assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep again', symbol: 'XAUUSD' }), true);
   await tick();
   live.reconcile();
-  assert.deepEqual(live.view().today.reasons, [['No room under the loss guard', 1]]);
+  assert.ok(live.view().today.reasons.some(([k, n]) => k === 'No room under the loss guard' && n === 1), JSON.stringify(live.view().today.reasons));
 
   // Training is for the Free Trial only.
   live.setPlan({ training: false });
@@ -1301,25 +1303,25 @@ test('a desk earns its place on the account with its form: out of form, it trade
   sync();
   live.setup({ program: '2-step', type: 'trial', size: 100_000, practiceAll: false }); // training: every desk on
   assert.equal(live.arm().ok, true);
-  const ryan = fund.byId.get('ryan');
+  const theo = fund.byId.get('theo');
   const gold = { symbol: 'XAUUSD', qty: 1 };
   // Its trades on real prices are remembered (simulated-feed trades never count).
-  ryan.lifetime.recentR = [];
-  ryan.onTradeClosed({ id: 'a', symbol: 'XAUUSD', pnl: -100, r: -1, exitReason: 'Stop loss' });
-  ryan.onTradeClosed({ id: 'b', symbol: 'XAUUSD', pnl: -100, r: -1, exitReason: 'Stop loss', simFeed: true });
-  assert.deepEqual(ryan.lifetime.recentR, [-1]);
-  assert.equal(live.brain.allow(ryan, gold, {}).ok, true, 'one or two trades say little');
-  ryan.lifetime.recentR = [-1, -1.1, 0.8];
-  const v = live.brain.allow(ryan, gold, {});
-  assert.match(v.reason, /out of form: Ryan's last 3 trades on real prices averaged −0\.43R\. Paper only until that's back to 0R or better/);
-  assert.equal(live.brain.deskStatus(ryan).label, 'Paper · out of form');
-  assert.equal(live.brain.allow(ryan, gold, { tag: 'TV' }).ok, true, 'your own alerts are your call');
+  theo.lifetime.recentR = [];
+  theo.onTradeClosed({ id: 'a', symbol: 'XAUUSD', pnl: -100, r: -1, exitReason: 'Stop loss' });
+  theo.onTradeClosed({ id: 'b', symbol: 'XAUUSD', pnl: -100, r: -1, exitReason: 'Stop loss', simFeed: true });
+  assert.deepEqual(theo.lifetime.recentR, [-1]);
+  assert.equal(live.brain.allow(theo, gold, {}).ok, true, 'one or two trades say little');
+  theo.lifetime.recentR = [-1, -1.1, 0.8];
+  const v = live.brain.allow(theo, gold, {});
+  assert.match(v.reason, /out of form: Theo's last 3 trades on real prices averaged −0\.43R\. Paper only until that's back to 0R or better/);
+  assert.equal(live.brain.deskStatus(theo).label, 'Paper · out of form');
+  assert.equal(live.brain.allow(theo, gold, { tag: 'TV' }).ok, true, 'your own alerts are your call');
   // A good paper trade lifts the average back over 0R: on the account again.
-  ryan.lifetime.recentR.push(1.5);
-  assert.equal(live.brain.allow(ryan, gold, {}).ok, true);
+  theo.lifetime.recentR.push(1.5);
+  assert.equal(live.brain.allow(theo, gold, {}).ok, true);
   // Only the last 20 count.
-  ryan.lifetime.recentR = [-5, ...Array(20).fill(0.1)];
-  assert.equal(live.brain.form(ryan).ok, true);
+  theo.lifetime.recentR = [-5, ...Array(20).fill(0.1)];
+  assert.equal(live.brain.form(theo).ok, true);
   assert.ok(live.view().plan.rules.some((r) => /Desks earn their place/.test(r.text)));
 });
 
@@ -1342,8 +1344,8 @@ test('capital follows the nightly review: no edge on your prices is paper only, 
   const verdicts = {
     marcus: { id: 'marcus', n: 21, avgR: -0.56, verdict: 'no edge' },
     amara: { id: 'amara', n: 40, avgR: 0.03, verdict: 'unclear' },
-    nico: { id: 'nico', n: 31, avgR: 0.42, verdict: 'EDGE' },
-    jake: { id: 'jake', n: 6, avgR: 0.5, verdict: 'too few trades to tell' },
+    tyler: { id: 'tyler', n: 31, avgR: 0.42, verdict: 'EDGE' },
+    zara: { id: 'zara', n: 6, avgR: 0.5, verdict: 'too few trades to tell' },
   };
   const report = { at: Date.now() - 2 * 3_600_000, tradingDays: 18 };
   live.review = { verdictFor: (id) => verdicts[id] || null, report, current: () => report };
@@ -1355,14 +1357,14 @@ test('capital follows the nightly review: no edge on your prices is paper only, 
   assert.equal(brain.deskStatus(m).label, 'Paper · no edge');
   assert.equal(brain.allow(m, { symbol: 'NAS100', qty: 1 }, { tag: 'TV' }).ok, true, 'your own alerts are your call');
 
-  const full = brain.allow(fund.byId.get('nico'), { symbol: 'NAS100', qty: 1 }, {});
+  const full = brain.allow(fund.byId.get('tyler'), { symbol: 'NAS100', qty: 1 }, {});
   const half = brain.allow(fund.byId.get('amara'), { symbol: 'XAUUSD', qty: 1 }, {});
   assert.equal(full.ok && half.ok, true);
   assert.ok(Math.abs(half.riskMult - full.riskMult * 0.5) < 1e-9, `${half.riskMult} vs ${full.riskMult}`);
   assert.ok(half.reasons.some((r) => /Amara is unproven on your prices \(\+0\.03R a trade over 40 trades in the nightly review\): half size/.test(r)));
   assert.equal(brain.deskStatus(fund.byId.get('amara')).label, 'Training · half size');
-  assert.equal(brain.deskStatus(fund.byId.get('nico')).label, 'Training · proven');
-  assert.equal(brain.allow(fund.byId.get('jake'), { symbol: 'GBPUSD', qty: 1 }, {}).riskMult, full.riskMult, 'too few trades: unchanged');
+  assert.equal(brain.deskStatus(fund.byId.get('tyler')).label, 'Training · proven');
+  assert.equal(brain.allow(fund.byId.get('zara'), { symbol: 'EURUSD', qty: 1 }, {}).riskMult, full.riskMult, 'too few trades: unchanged');
   assert.ok(live.view().plan.rules.some((r) => /Evidence first: every night each desk is replayed on your own prices \(last review 2 h ago, 18 trading days\)/.test(r.text)));
   // Reviews stopped for days: flagged, and the old verdicts still decide.
   report.at = Date.now() - 6 * 86_400_000;
@@ -1396,7 +1398,7 @@ test('the review card: verdicts, what they mean for the account, and the odds at
       report: {
         at: Date.now() - 3 * 3_600_000, tookMs: 240_000, program: '1-step', size: 10_000, tradingDays: 18,
         desks: [
-          { id: 'nico', name: 'Nico Rossi', desk: 'Scalping · NAS100 New York', symbol: 'NAS100', n: 31, winRate: 0.68, avgR: 0.42, ci: [0.08, 0.77], verdict: 'EDGE' },
+          { id: 'tyler', name: 'Tyler Brooks', desk: 'Day Trading · Nasdaq', symbol: 'NAS100', n: 31, winRate: 0.68, avgR: 0.42, ci: [0.08, 0.77], verdict: 'EDGE' },
           { id: 'marcus', name: 'Marcus Reid', desk: 'Index Futures', symbol: 'NAS100', n: 21, winRate: 0.29, avgR: -0.56, ci: [-0.85, -0.25], verdict: 'no edge' },
           { id: 'sofia', name: 'Sofia Laurent', desk: 'Global Macro', symbol: 'USDJPY', n: 0, verdict: 'no saved history' },
         ],
@@ -1425,9 +1427,9 @@ test('the review card: verdicts, what they mean for the account, and the odds at
   assert.doesNotMatch(none, /~4 days/);
   assert.doesNotMatch(none, /data-act="use-risk"/);
   // Running, and no review yet.
-  const first = renderReview({ mode: 'live', profile: { riskPerTradePct: 0.5 }, review: { running: { startedAt: Date.now(), line: 'Nico Rossi on NAS100 (9,000 bars)…' }, report: null, fresh: false } });
+  const first = renderReview({ mode: 'live', profile: { riskPerTradePct: 0.5 }, review: { running: { startedAt: Date.now(), line: 'Tyler Brooks on NAS100 (9,000 bars)…' }, report: null, fresh: false } });
   assert.match(first, /Reviewing…/);
-  assert.match(first, /Nico Rossi on NAS100/);
+  assert.match(first, /Tyler Brooks on NAS100/);
   assert.match(first, /No review yet/);
   // A failed review says when the floor tries again.
   const failed = renderReview({ mode: 'live', profile: { riskPerTradePct: 0.5 }, review: { running: null, lastError: { text: 'took too long and was stopped' }, retryAt: Date.now() + 30 * 60_000, report: null, fresh: false } });
@@ -1488,8 +1490,8 @@ const LONG = {
   desks: [
     { id: 'amara', name: 'Amara Okafor', symbol: 'XAUUSD', n: 2078, avgR: -0.162, ci: [-0.21, -0.12], from: FROM, to: TO, verdict: 'loses', quarters: { positive: 1, total: 8 } },
     { id: 'lucas', name: 'Lucas Meyer', symbol: 'USOIL', n: 4016, avgR: -0.166, ci: [-0.19, -0.14], from: FROM, to: TO, verdict: 'loses', quarters: { positive: 0, total: 8 } },
-    { id: 'nico', name: 'Nico Rossi', symbol: 'NAS100', n: 648, avgR: -0.014, ci: [-0.09, 0.06], from: FROM, to: TO, verdict: 'no edge', quarters: { positive: 4, total: 8 } },
-    { id: 'jake', name: 'Jake Morrison', symbol: 'GBPUSD', verdict: 'no history', n: 0 },
+    { id: 'tyler', name: 'Tyler Brooks', symbol: 'NAS100', n: 648, avgR: -0.014, ci: [-0.09, 0.06], from: FROM, to: TO, verdict: 'no edge', quarters: { positive: 4, total: 8 } },
+    { id: 'zara', name: 'Zara Ahmed', symbol: 'EURUSD', verdict: 'no history', n: 0 },
   ],
 };
 
@@ -1510,16 +1512,16 @@ test('long run: a desk that lost money over months of real prices stays off the 
   assert.equal(brain.deskStatus(lucas).label, 'Paper · loses long-term');
   assert.equal(brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, { tag: 'TV' }).ok, true, 'your own TradingView alerts are your call');
   // No edge either way over the long run: half size. No long-run record: unchanged.
-  const full = brain.allow(fund.byId.get('jake'), { symbol: 'GBPUSD', qty: 1 }, {});
-  const nico = brain.allow(fund.byId.get('nico'), { symbol: 'NAS100', qty: 1 }, {});
-  assert.equal(full.ok && nico.ok, true);
-  assert.ok(Math.abs(nico.riskMult - full.riskMult * 0.5) < 1e-9);
-  assert.ok(nico.reasons.some((r) => /Nico has no edge over the long run \(−0\.01R a trade over 648 trades/.test(r)));
+  const full = brain.allow(fund.byId.get('zara'), { symbol: 'EURUSD', qty: 1 }, {});
+  const tyler = brain.allow(fund.byId.get('tyler'), { symbol: 'NAS100', qty: 1 }, {});
+  assert.equal(full.ok && tyler.ok, true);
+  assert.ok(Math.abs(tyler.riskMult - full.riskMult * 0.5) < 1e-9);
+  assert.ok(tyler.reasons.some((r) => /Tyler has no edge over the long run \(−0\.01R a trade over 648 trades/.test(r)));
   // A hair above zero, the range either side of it: not proven either.
-  live.baseline = new Baseline({ ...LONG, desks: LONG.desks.map((d) => (d.id === 'nico' ? { ...d, avgR: 0.002, ci: [-0.08, 0.09], verdict: 'unclear' } : d)) });
-  const unclear = brain.allow(fund.byId.get('nico'), { symbol: 'NAS100', qty: 1 }, {});
+  live.baseline = new Baseline({ ...LONG, desks: LONG.desks.map((d) => (d.id === 'tyler' ? { ...d, avgR: 0.002, ci: [-0.08, 0.09], verdict: 'unclear' } : d)) });
+  const unclear = brain.allow(fund.byId.get('tyler'), { symbol: 'NAS100', qty: 1 }, {});
   assert.ok(Math.abs(unclear.riskMult - full.riskMult * 0.5) < 1e-9);
-  assert.ok(unclear.reasons.some((r) => /Nico has no proven edge over the long run \(\+0\.00R a trade over 648 trades/.test(r)));
+  assert.ok(unclear.reasons.some((r) => /Tyler has no proven edge over the long run \(\+0\.00R a trade over 648 trades/.test(r)));
   live.baseline = new Baseline(LONG);
   // The nightly review on your own prices: only a statistically real edge outweighs the long
   // run, and then at half size; a promising few weeks don't.
@@ -1527,7 +1529,7 @@ test('long run: a desk that lost money over months of real prices stays off the 
   const recent = {
     amara: { id: 'amara', n: 44, avgR: 0.4, verdict: 'EDGE' },
     lucas: { id: 'lucas', n: 30, avgR: 0.2, verdict: 'promising' },
-    nico: { id: 'nico', n: 35, avgR: 0.3, verdict: 'EDGE' },
+    tyler: { id: 'tyler', n: 35, avgR: 0.3, verdict: 'EDGE' },
   };
   live.review = { verdictFor: (id) => recent[id] || null, report, current: () => report };
   const amara = brain.allow(fund.byId.get('amara'), { symbol: 'XAUUSD', qty: 1 }, {});
@@ -1535,7 +1537,7 @@ test('long run: a desk that lost money over months of real prices stays off the 
   assert.ok(Math.abs(amara.riskMult - full.riskMult * 0.5) < 1e-9);
   assert.ok(amara.reasons.some((r) => /Amara has an edge on your recent prices \(\+0\.40R a trade over 44 trades in the nightly review\) but lost money over the long run .*: half size until the edge lasts/.test(r)));
   assert.equal(brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {}).ok, false, 'promising isn\'t enough against 4,016 losing trades');
-  assert.equal(brain.allow(fund.byId.get('nico'), { symbol: 'NAS100', qty: 1 }, {}).riskMult, full.riskMult, 'no edge long-run, a real edge now: full size');
+  assert.equal(brain.allow(fund.byId.get('tyler'), { symbol: 'NAS100', qty: 1 }, {}).riskMult, full.riskMult, 'no edge long-run, a real edge now: full size');
   // The account's rule list says so, and the FTMO tab gets the record.
   const rule = live.view().plan.rules.find((r) => /^Long-run record/.test(r.text));
   assert.match(rule.text, /each desk was replayed on up to 22 months \(Jul 2018 – May 2020\) of real 1-minute prices\. 2 of the 3 desks on the account lost money there with confidence \(Amara, Lucas\)/);
@@ -1557,7 +1559,7 @@ test('practice on the Free Trial: desks the evidence holds back still trade it, 
   live.baseline = new Baseline(LONG);
   const brain = live.brain;
   const lucas = fund.byId.get('lucas');
-  const full = brain.allow(fund.byId.get('jake'), { symbol: 'GBPUSD', qty: 1 }, {});
+  const full = brain.allow(fund.byId.get('zara'), { symbol: 'EURUSD', qty: 1 }, {});
   const v = brain.allow(lucas, { symbol: 'USOIL', qty: 1 }, {});
   assert.equal(v.ok, true, 'it trades the trial');
   assert.equal(v.practice, true);
@@ -1591,7 +1593,12 @@ test('the shipped long-run record is complete and judged on thousands of real tr
   assert.ok(data, 'server/research/baseline.json is valid');
   const b = new Baseline(data);
   const judged = data.desks.filter((d) => b.forDesk(d.id));
-  assert.ok(judged.length >= 8, `${judged.length} desks judged`);
+  assert.ok(judged.length >= 5, `${judged.length} desks judged`);
+  // The day traders were replayed too: one trade a day at most is too few for a verdict yet.
+  for (const id of ['tyler', 'sienna', 'theo', 'zara', 'diego']) {
+    const d = data.desks.find((x) => x.id === id);
+    assert.ok(d && d.n > 30 && d.verdict === 'too few trades', `${id}: ${d?.n} trades, ${d?.verdict}`);
+  }
   for (const d of judged) {
     assert.ok(d.n >= 100, `${d.id}: ${d.n} trades`);
     assert.ok(d.to - d.from > 300 * 86_400, `${d.id}: covers most of a year or more`);

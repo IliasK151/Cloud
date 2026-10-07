@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { ROSTER, publicProfile } from './roster.js';
+import { TopDownBooks } from './topdown.js';
 import { publicSymbolInfo } from '../market/symbols.js';
 import { fmtUsd } from '../util/format.js';
 import { eventLabel } from '../market/calendar.js';
@@ -48,6 +49,10 @@ export class Fund extends EventEmitter {
     };
     this.memory = memory;
     this.env = env;
+    // The top-down read of every market (weekly, daily and 4-hour structure, areas of interest,
+    // session liquidity), shared by the desks: each one trades with its market's bias.
+    this.topDown = new TopDownBooks({ md, history: lab?.history ?? null });
+    env.topDown = (symbol) => this.topDown.get(symbol);
     risk.news = news;
     news?.on('announce', (a) => this.#event({ kind: 'news', text: a.text }));
     this.agents = ROSTER.map((p) => new p.Strategy(p, env));

@@ -16,7 +16,7 @@
     "test": "node --test test/*.test.js",
     "reset": "node scripts/reset.js",
     "backtest": "node scripts/backtest.js",
-    "scalp-test": "node scripts/scalp-test.js",
+    "daytrade-test": "node scripts/daytrade-test.js",
     "edge": "node scripts/edge-report.js",
     "baseline": "node scripts/baseline.js",
     "brain": "node scripts/brain.js",

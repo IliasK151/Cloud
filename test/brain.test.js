@@ -256,7 +256,7 @@ test('account brain: only proven desks, A-grade, one position per correlated gro
   assert.equal(yes.ok, true);
   assert.equal(yes.riskMult, 1);
   const withSpx = account({ links: [{ state: 'open', floorSymbol: 'SPX500' }] }).brain;
-  assert.match(withSpx.allow(marcus, pos, { grade: 'A' }).reason, /already has a US indices position/);
+  assert.match(withSpx.allow(marcus, pos, { grade: 'A' }).reason, /^one trade per correlated group: another desk's SPX500 trade is already on, and the US indices move together/);
   // Near the target the risk shrinks; a funded account trades lighter.
   const near = account({ equity: 10_950, dayStart: 10_950 }).brain.state();
   assert.ok(near.reasons.some((r) => /left to the target/.test(r)));

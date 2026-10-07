@@ -57,9 +57,9 @@ export function marketClock(ms, timeZone) {
     ny: `${String(p.h).padStart(2, '0')}:${String(p.m).padStart(2, '0')}`,
     local: localTime(ms, timeZone),
     session, quiet, weekend, windows,
-    // The London scalpers trade 02:00–05:00 New York (Ryan on gold to 06:00), New York's
-    // 08:00–11:00 (Mia and Nico to 12:00).
-    scalp: [kz('London', 2 * 60, 6 * 60), kz('New York', 8 * 60, 12 * 60)],
+    // The Day Trading Desk's killzones: the London open 02:00–05:00 New York, the New York open
+    // 07:00–11:00 (engine/daytrade.js).
+    killzones: [kz('London open', 2 * 60, 5 * 60), kz('New York open', 7 * 60, 11 * 60)],
   };
 }
 
@@ -75,6 +75,9 @@ const MEANING = {
   'Committee grade too low': 'The committee grades every idea A, B or C. Only A and B-grade trades go to the account; a C ("not convinced") stays on paper so the desk keeps measuring.',
   'Desk not proven yet': 'The desk needs 10+ trades on real prices with a positive edge first, or switch off "Proven desks only" below.',
   'Correlated position already open': 'One position per correlated group: both US indices are one bet, so are the coins and the FX pairs.',
+  'Against the top-down bias': 'Every desk reads the weekly, daily and 4-hour structure first and only trades with that bias.',
+  'Another desk is in that market': 'One desk per market at a time: the desks don\'t pile into the same move.',
+  'Enough trades open at once': 'At most three trades open on the account at once: the desks don\'t all trade together.',
   'Account plan stopped for the day': 'The account plan\'s daily stop, trade cap or losing-streak stop (each has a switch below).',
   'Max open positions reached': 'The account already holds the most positions the setup allows.',
   'Open-risk budget full': 'The trades already open use the whole open-risk budget.',
@@ -189,7 +192,7 @@ export function renderToday(store, { now = Date.now(), timeZone } = {}) {
   if (!s) return '';
   const c = marketClock(store.fund?.marketTime || now, timeZone);
   const next = c.windows.map((w) => `${w.label} ${w.local}`).join(' · ');
-  const scalp = c.scalp.map((k) => `${k.name} ${k.from}–${k.to}${k.open ? ' <b class="open">(open now)</b>' : ''}`).join(' · ');
+  const zones = c.killzones.map((k) => `${k.name} ${k.from}–${k.to}${k.open ? ' <b class="open">(open now)</b>' : ''}`).join(' · ');
   const f = s.funnel;
   const tile = (label, n, sub = '', cls = '') => `<div class="ft ${cls}"><span>${label}</span><b class="num">${n}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
   const reasons = s.reasons.length
@@ -207,7 +210,7 @@ export function renderToday(store, { now = Date.now(), timeZone } = {}) {
     <h2>Today on the account</h2>
     <p class="today-head ${s.tone}">${escapeHtml(s.headline)}</p>
     <p class="today-clock">Now <b>${c.ny}</b> in New York, <b>${c.local}</b> your time: ${escapeHtml(c.session)}.${c.weekend ? '' : ` Next: ${next} your time.`}<br>
-      <span class="muted">Scalpers (your time): ${scalp}</span></p>
+      <span class="muted">Day traders' killzones (your time): ${zones}</span></p>
     <div class="acct-funnel">
       ${tile('Trade ideas', f.ideas, 'setups the desks found')}
       ${tile('Turned down', f.turnedDown, `committee ${f.vetoed}${f.skipped ? ` · experience ${f.skipped}` : ''}`)}

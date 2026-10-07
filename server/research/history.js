@@ -227,6 +227,12 @@ export class HistoryStore {
     return tail.length ? arr.concat(tail) : arr;
   }
 
+  // How much is stored, cheaply: { n, from } (the oldest bar's time).
+  span(id) {
+    const arr = this.store.get(id) || [];
+    return { n: arr.length, from: arr[0]?.time ?? null };
+  }
+
   recent(id, n) {
     const all = this.bars(id);
     return all.length > n ? all.slice(-n) : all;

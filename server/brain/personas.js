@@ -20,9 +20,9 @@ export const STYLES = {
   quant: { label: 'quant', w: { edge: 1.8, htf: 0.6, trend: 0.6, structure: 0.5, momentum: 0.5, stretch: 0.7, location: 0.5, room: 0.8, volatility: 0.9, news: 1.0, research: 1.4, memory: 1.0 } },
   flow: { label: 'market maker', w: { edge: 1.2, htf: 0.4, trend: 0.5, structure: 0.4, momentum: 0.6, stretch: 0.9, location: 0.6, room: 0.6, volatility: 1.3, news: 1.0, research: 0.4, memory: 0.5 } },
   signals: { label: 'systematic trader', w: { edge: 1.1, htf: 0.8, trend: 1.0, structure: 0.8, momentum: 0.7, stretch: 0.6, location: 0.5, room: 0.8, volatility: 0.6, news: 1.0, research: 0.4, memory: 0.6 } },
-  // Liquidity scalpers (AJ Currency style): the higher timeframe, structure and where the
-  // stops rest decide; how far price is from VWAP or the intraday trend matter less.
-  scalper: { label: 'liquidity scalper', w: { edge: 1.0, htf: 1.1, trend: 0.4, structure: 1.2, momentum: 0.5, stretch: 0.5, location: 1.2, room: 1.1, volatility: 0.8, news: 1.3, research: 0.3, memory: 0.5 } },
+  // Top-down day traders (TJR style): the higher timeframe, structure and where the stops rest
+  // decide; how far price is from VWAP or the intraday trend matter less.
+  daytrader: { label: 'top-down day trader', w: { edge: 1.0, htf: 1.1, trend: 0.4, structure: 1.2, momentum: 0.5, stretch: 0.5, location: 1.2, room: 1.1, volatility: 0.8, news: 1.3, research: 0.3, memory: 0.5 } },
   risk: { label: 'risk manager', w: { edge: 1.8, htf: 1.0, trend: 0.8, structure: 0.8, momentum: 0.4, stretch: 0.9, location: 0.8, room: 1.1, volatility: 1.2, news: 1.3, research: 1.0, memory: 1.0 } },
 };
 
@@ -32,7 +32,7 @@ const BY_AGENT = {
   sofia: 'structure',
   kenji: 'quant', arjun: 'quant', hannah: 'quant', omar: 'quant', mei: 'quant',
   isabella: 'flow', chen: 'signals', elena: 'risk',
-  jake: 'scalper', layla: 'scalper', ryan: 'scalper', mia: 'scalper', nico: 'scalper',
+  tyler: 'daytrader', sienna: 'daytrader', theo: 'daytrader', zara: 'daytrader', diego: 'daytrader',
 };
 
 export function styleOf(agentId) {

@@ -6,6 +6,12 @@ import { eventLabel, spokenLabel, spokenTime } from '../market/calendar.js';
 
 const LOG_SIZE = 80;
 
+// "W ↑ · D ↑ · 4H ↓" read out: "weekly up, daily up, 4-hour down".
+const spokenTopDown = (short) => short.split(' · ').map((x) => {
+  const [tf, a] = x.split(' ');
+  return `${{ W: 'weekly', D: 'daily', '4H': '4-hour' }[tf] || tf} ${a === '↑' ? 'up' : a === '↓' ? 'down' : 'unclear'}`;
+}).join(', ');
+
 // ideas: setups put to the committee today; vetoed / skipped: turned down by the committee or
 // by what the desk has learned; entries: paper trades; whyNot: the latest reason a signal
 // didn't become a trade (the FTMO tab's "Today on the account" shows it).
@@ -121,6 +127,11 @@ export class TraderAgent {
       return false;
     }
     if (this.position(symbol)) return false;
+    // Top-down first, like a real trader (engine/topdown.js): every desk trades with its
+    // market's weekly / daily / 4-hour bias and never against it. (Your own TradingView alerts
+    // are your call.)
+    const against = tag === 'TV' ? null : this.againstTopDown(symbol, side);
+    if (against) return this.#notTopDown(against);
     // FTMO only (live/liveTrader.js gate()): the desk trades nothing the FTMO account can't take
     // right now (MT5 not connected, not armed, the desk switched off, ...).
     const ready = this.env.tradeGate?.(this, { symbol, side, tag, testAlert }) ?? null;
@@ -253,6 +264,31 @@ export class TraderAgent {
 
   #whyNot(text) {
     this.day.whyNot = { text, at: this.env.clock.now() };
+  }
+
+  // Why a trade on this side would go against the market's top-down read, or null when it
+  // goes with it (or there is no read yet: too little history to tell).
+  againstTopDown(symbol, side) {
+    if (this.profile.topDown === false || this.rules.topDown === false) return null;
+    const read = this.env.topDown?.(symbol)?.read();
+    if (!read?.ready) return null;
+    if (!read.bias) return `${read.short}: no clear higher-timeframe bias`;
+    if (read.bias === side) return null;
+    return `${read.short}: the higher timeframes are ${read.bias === 'LONG' ? 'bullish' : 'bearish'}, so no ${side === 'LONG' ? 'buys' : 'sells'}`;
+  }
+
+  // A signal against the top-down read isn't taken. Said when the reason changes, and again at
+  // most every 10 minutes (a setup that keeps firing isn't news).
+  #notTopDown(reason) {
+    this.lastReject = `against the top-down read: ${reason}`;
+    this.day.ideas++;
+    this.day.skipped++;
+    this.#whyNot(`not taken, against the top-down read: ${reason}`);
+    const now = this.env.clock.now();
+    const said = this.topDownSaid?.reason === reason && now - this.topDownSaid.at < 10 * 60_000;
+    if (!said) this.topDownSaid = { reason, at: now };
+    this.setStage(`Not taken (top-down): ${reason}`, said ? 'quiet' : 'setup');
+    return false;
   }
 
   // A trade FTMO can't take isn't taken at all. Said on the floor when the reason changes,
@@ -640,6 +676,7 @@ export class TraderAgent {
       paused: this.paused,
       halted: this.halted,
       setup,
+      topDown: this.topDownView(),
       positions: this.positionsView(),
       pnl: {
         day: book.realizedDay + unreal,
@@ -658,6 +695,14 @@ export class TraderAgent {
     };
   }
 
+  // The market's top-down read as this desk trades it (the panel's "Top-down" line).
+  topDownView() {
+    const read = this.env.topDown?.(this.symbol)?.read();
+    if (!read) return null;
+    const rule = this.profile.topDown !== false && this.rules.topDown !== false;
+    return { text: read.text, short: read.short, bias: read.bias, ready: read.ready, strength: read.strength, of: read.of, zone: read.zone?.word ?? null, inAoi: !!read.inAoi, rule };
+  }
+
   briefing() {
     const lines = [];
     lines.push(`${this.firstName} here, ${this.profile.desk} desk.`);
@@ -669,6 +714,9 @@ export class TraderAgent {
       lines.push(`There are no real prices for ${this.symbol} right now: its live feed isn't answering, and we never trade on made-up prices. I'm standing aside and start the moment real prices come in.`);
     } else {
       lines.push(this.pitch());
+      // Every desk reads the higher timeframes first (the day traders say it in their pitch).
+      const td = this.profile.dayTrader ? null : this.topDownView();
+      if (td?.ready && td.rule && td.bias) lines.push(`My top-down: ${spokenTopDown(td.short)}, so I only take ${td.bias === 'LONG' ? 'buys' : 'sells'} on ${this.symbol} right now.`);
     }
     const newsLine = this.newsLine();
     if (newsLine) lines.push(newsLine);

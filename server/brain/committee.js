@@ -12,9 +12,9 @@ import { opinion, say, thesisLine, researchFactor, styleKey, styleOf, FACTORS } 
 // Only A-grade trades go to the prop account (see live/accountBrain.js).
 
 export const DEPARTMENTS = [
-  { id: 'indices', name: 'Equity Indices', markets: ['NAS100', 'SPX500'], members: ['marcus', 'james', 'arjun', 'nico'] },
-  { id: 'fx', name: 'FX & Macro', markets: ['EURUSD', 'GBPUSD', 'USDJPY'], members: ['sofia', 'priya', 'hannah', 'jake', 'layla'] },
-  { id: 'commodities', name: 'Metals & Energy', markets: ['XAUUSD', 'USOIL'], members: ['amara', 'lucas', 'omar', 'ryan', 'mia'] },
+  { id: 'indices', name: 'Equity Indices', markets: ['NAS100', 'SPX500'], members: ['marcus', 'james', 'arjun', 'tyler', 'sienna'] },
+  { id: 'fx', name: 'FX & Macro', markets: ['EURUSD', 'GBPUSD', 'USDJPY'], members: ['sofia', 'priya', 'hannah', 'zara'] },
+  { id: 'commodities', name: 'Metals & Energy', markets: ['XAUUSD', 'USOIL'], members: ['amara', 'lucas', 'omar', 'theo', 'diego'] },
   { id: 'crypto', name: 'Digital Assets', markets: ['BTCUSD', 'ETHUSD', 'SOLUSD'], members: ['viktor', 'isabella', 'kenji', 'chen', 'mei'] },
 ];
 export const CHAIR = 'elena';
@@ -108,30 +108,29 @@ export class Committee extends EventEmitter {
     // The floor's memory speaks only once it has seen enough trades like this one.
     const mem = this.memory && ag?.learner ? this.memory.recall(symbol, ag.learner.context(symbol, side)) : null;
     if (mem?.ready) a.f.memory = { value: mem.value, text: mem.text };
-    if (style === 'scalper') this.#scalpTerms(a, symbol);
+    if (style === 'daytrader') this.#liquidityTerms(a, symbol);
     return a;
   }
 
-  // A scalp is judged on scalping terms. Its target is the liquidity on the other side, and
-  // the small 5- and 15-minute swings on the way are the stops it trades through, so room is
-  // measured to that target. And a run of liquidity is a volatility burst by definition, so
-  // high volatility is the setup, not a strike against it. (On real history the committee's
-  // swing-trade view graded every gold and EURUSD scalp C, including the winners.)
-  #scalpTerms(a, symbol) {
+  // A liquidity day trade is judged on its own terms. Its target is the liquidity on the other
+  // side, and the small 5- and 15-minute swings on the way are the stops it trades through, so
+  // room is measured to that target. And a sweep of liquidity is a volatility burst by
+  // definition, so high volatility is the setup, not a strike against it.
+  #liquidityTerms(a, symbol) {
     const dec = SYMBOLS[symbol]?.decimals ?? 2;
     if (a.rr != null) {
-      const v = a.rr >= 2 ? 0.5 : a.rr >= 1.5 ? 0.2 : -0.5;
-      a.f.room = { value: v, text: `the scalp targets liquidity ${a.rr.toFixed(1)}R away at ${Number(a.target).toFixed(dec)}` };
+      const v = a.rr >= 3 ? 0.5 : a.rr >= 2 ? 0.2 : -0.5;
+      a.f.room = { value: v, text: `the trade targets liquidity ${a.rr.toFixed(1)}R away at ${Number(a.target).toFixed(dec)}` };
     }
-    if (a.read.volPct >= 0.93) a.f.volatility = { value: 0.1, text: `volatility is high (${volText(a.read)}): that's when liquidity runs happen` };
+    if (a.read.volPct >= 0.93) a.f.volatility = { value: 0.1, text: `volatility is high (${volText(a.read)}): that's when liquidity gets swept` };
   }
 
   #reviewers(proposer, symbol) {
     const dept = departmentFor(symbol);
     const pool = (dept?.members || []).filter((id) => id !== proposer.id && this.agents.get(id));
     const lab = pool.filter((id) => this.agents.get(id).profile.lab);
-    // Scalpers review scalps; a trading desk's idea goes to the department's other desks.
-    const traders = pool.filter((id) => !this.agents.get(id).profile.lab && (proposer.profile.scalper || !this.agents.get(id).profile.scalper));
+    // Day traders review day trades; a trading desk's idea goes to the department's other desks.
+    const traders = pool.filter((id) => !this.agents.get(id).profile.lab && (proposer.profile.dayTrader || !this.agents.get(id).profile.dayTrader));
     traders.sort((x, y) => (this.agents.get(y).symbols.includes(symbol) ? 1 : 0) - (this.agents.get(x).symbols.includes(symbol) ? 1 : 0));
     return [...lab.slice(0, 1), ...traders].slice(0, 2);
   }
@@ -143,14 +142,14 @@ export class Committee extends EventEmitter {
   // "Extreme" volatility is measured against the same time of day on earlier days (see
   // volPercentile in market.js), so the London and New York opens aren't extreme by default.
   //
-  // Liquidity scalpers are exempt from the extreme-volatility veto: a run of liquidity is a
-  // volatility burst by definition, and on real history (scripts/scalp-test.js) the scalps
-  // this veto would have stopped did better than the rest, not worse.
+  // The day traders are exempt from the extreme-volatility veto: a sweep of liquidity is a
+  // volatility burst by definition (on real history the liquidity trades this veto would have
+  // stopped did better than the rest, not worse).
   #vetoes(a, proposerId = null) {
     const out = [];
     const r = a.read;
     if (r.news && r.news.minutes <= (r.news.impact === 'high' ? 45 : 20)) out.push(`${r.news.label} is due in ${r.news.minutes} minutes`);
-    if (r.volPct >= 0.93 && styleKey(proposerId) !== 'scalper') out.push(`volatility is extreme (${volText(r)})`);
+    if (r.volPct >= 0.93 && styleKey(proposerId) !== 'daytrader') out.push(`volatility is extreme (${volText(r)})`);
     if (r.volPct <= 0.07) out.push('the market is dead quiet, costs eat small moves');
     if (a.rr != null && a.rr < 0.9) out.push(`the target is only ${a.rr.toFixed(1)}R, less than the risk`);
     return out;

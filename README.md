@@ -1,6 +1,6 @@
 # Meridian Trading Floor
 
-A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. A five-person **Scalping Desk** only takes fast trades, scalping the London and New York sessions the way AJ Currency trades: liquidity first, tight stops. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. Each desk **trades its own way**: its own strategy's signals, with its own stops and targets, and every trade goes to your FTMO account with only FTMO's own rules around it. (The institutional way, where a **committee** argues every idea and an **account brain** decides what reaches your prop account, is one switch away.) You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
+A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor. Ten trading desks each run their own strategy and day-trade like an institutional book. A five-person **Quant Research Lab** builds strategies for the market's current conditions, backtests and validates them, and trades only what survives. A five-person **Day Trading Desk** trades the way TJR teaches: the weekly, daily and 4-hour bias first, then a sweep of the session's liquidity, a 5-minute break of structure and an entry back in the fair value gap, aiming for 3R or more. No scalping. **Every desk reads the higher timeframes first** and only trades with that bias, and **the desks don't pile in together**: one desk per market, one trade per correlated group, at most three at once. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. Each desk **trades its own way**: its own strategy's signals, with its own stops and targets, and every trade goes to your FTMO account with only FTMO's own rules around it. (The institutional way, where a **committee** argues every idea and an **account brain** decides what reaches your prop account, is one switch away.) You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their current setup and P&L out loud.
 
 ![The trading floor](docs/floor.jpg)
 
@@ -54,7 +54,7 @@ In the meantime those markets wait, with no prices. The floor keeps retrying in 
 ## The floor
 
 - **A calm, modern floor:** polished concrete, walnut slat walls, linear pendants over every desk and floor-to-ceiling windows onto the city at dusk, with soft shadows and ambient occlusion.
-- **20 desks in four tiers**: two trading rows; raised behind a glass rail, the Quant Research Lab; and at the very back, a step higher, the Scalping Desk. Each desk has a six-screen workstation. The screens are live: a TradingView-style chart with the desk's entry, stop and target drawn as a position box, the book and setup checklist, a DOM ladder with time & sales, a Bloomberg-style terminal with the desk's log, the intraday P&L curve, and market watch.
+- **20 desks in four tiers**: two trading rows; raised behind a glass rail, the Quant Research Lab; and at the very back, a step higher, the Day Trading Desk. Each desk has a six-screen workstation. The screens are live: a TradingView-style chart with the desk's entry, stop and target drawn as a position box, the book and setup checklist, a DOM ladder with time & sales, a Bloomberg-style terminal with the desk's log, the intraday P&L curve, and market watch.
 - **A name tag floats over every desk** with the trader, their desk, today's P&L and a status dot (scanning, armed, in trade, standing aside for news, researching, halted). Click it to talk to them.
 - **The front wall** carries the LED video wall (NAV, day P&L, fund equity, the next market-moving news, desk P&L bars, markets), world clocks and a ticker tape.
 - **The traders are real characters,** each with their own look: faces with eyes that blink and follow what they're reading, hairstyles, suits, blazers and knitwear, glasses and trading headsets. Their hands work the keyboard and mouse (the arms use inverse kinematics), and between trades they sit back to read, rest their chin on a hand, take calls on the headset or sip their coffee. They fist-pump a winner, put their hands on their head after a loser and slump when risk halts them. When they trade, a speech bubble pops up over their head.
@@ -102,45 +102,78 @@ Tickers are read the way traders say them ("gold", "the Nasdaq", "dollar yen"), 
 | Omar Haddad | Commodities Research | XAUUSD, USOIL |
 | Mei Lin | Crypto Research | BTCUSD, ETHUSD, SOLUSD |
 
-**The Scalping Desk** (the top tier at the back, marked `S`): five scalpers who only take fast trades, all with the same method, modelled on how [AJ Currency](https://www.youtube.com/@aj.currency) (Adrian Mudronja) describes his trading in public. He started with smart-money concepts and moved to a purely liquidity-based approach. He reads the higher timeframes for context even though he scalps, trades the London session (his signals come at 8am London) on GBPUSD, EURUSD and gold, and keeps a tight fixed stop (he quotes 20 pips on gold) for a high reward to risk. His exact entry rules aren't public; the rules below are the floor's version of that approach.
+**The Day Trading Desk** (the top tier at the back, marked `D`): five day traders who trade the way TJR teaches: higher-timeframe bias first, then the session's liquidity, then the entry. No scalping: at most one trade a day each, held for minutes to hours, risking 1R to make 3R or more.
 
-| Scalper | Desk | Market | Killzone |
+| Trader | Desk | Market | Killzones (New York time) |
 | --- | --- | --- | --- |
-| Jake Morrison | Scalping · GBPUSD London | GBPUSD | 07:00–10:00 London |
-| Layla Nasser | Scalping · EURUSD London | EURUSD | 07:00–10:00 London |
-| Ryan Cole | Scalping · Gold London | XAUUSD | 07:00–10:00 London |
-| Mia Torres | Scalping · Gold New York | XAUUSD | 08:00–11:00 New York |
-| Nico Rossi | Scalping · Nasdaq New York | NAS100 | 08:00–11:00 New York |
+| Tyler Brooks | Day Trading · Nasdaq | NAS100 | New York open 07:00–11:00 |
+| Sienna Clarke | Day Trading · S&P 500 | SPX500 | New York open 07:00–11:00 |
+| Theo Hart | Day Trading · Gold | XAUUSD | London open 02:00–05:00, New York open 07:00–11:00 |
+| Zara Ahmed | Day Trading · EURUSD | EURUSD | London open 02:00–05:00, New York open 07:00–11:00 |
+| Diego Alvarez | Day Trading · Oil | USOIL | London open 02:00–05:00, New York open 07:00–11:00 |
 
-AJ is known for the first three. The Nasdaq desk applies the same method to the New York open, the most popular fast market on FTMO.
+How each one trades (`server/engine/daytrade.js`):
 
-How each scalper trades, on the 1-minute chart, inside its killzone only:
+1. **Top-down bias.** The weekly, daily and 4-hour structure, read on candle bodies (closes), not wicks: higher highs and higher lows are bullish, lower highs and lower lows bearish. The trend only turns on a close through the protected level (below the higher low, above the lower high). The majority of the three is the bias, the higher timeframe outranking the lower (weekly and daily up with the 4-hour down is still bullish: the 4-hour is the pullback). No bias, no trade. It only ever trades with the bias.
+2. **Liquidity.** Where the stops rest: the previous day's and week's high and low, the Asia range (19:00–02:00 New York) and the London range (02:00–07:00).
+3. **The sweep.** Under a bullish bias it waits for price to run a low (sell-side liquidity) and come back; under a bearish one, a high. A run that keeps going, more than 5 five-minute ATRs past the level, is a breakdown, not a sweep, and is left alone.
+4. **The shift.** Within two hours of the sweep's extreme, a 5-minute candle closes through the last swing that led into the sweep (a change of character), with displacement: a strong candle (at least half a 5-minute ATR of body) in the move that leaves a fair value gap behind it. Inside a killzone only.
+5. **The entry.** A limit order back in the fair value gap, waiting up to an hour. The stop goes just beyond the sweep's extreme. The target is the liquidity on the other side (an untouched session or previous-day/week high or low, or the 4-hour or daily range extreme) that pays **at least 3R** (up to 10R); with none there, 3R.
+6. **Management.** No scaling out, no trailing: the stop or the target, and flat by 16:50 New York. One trade a day.
 
-1. **Higher timeframe first.** The hourly trend (15-minute while history is short). With it, any pool of liquidity will do; against it, only a run of *major* liquidity (below), and the committee weighs the trend too.
-2. **Mark the liquidity.** The Asia range (19:00–02:00 New York), the previous day's high and low, the London range (for the New York desks), the killzone's opening range, and equal highs and lows. These are the pools it trades. The 5- and 1-minute swings are mapped too, but on real history trading them lost, so they're only the small stops a scalp trades through.
-3. **The run and the trap.** Price trades through a pool (the stops get run), then closes back inside: the breakout traders are trapped.
-4. **The shift.** A 1-minute close back through the candle that made the run's extreme, with displacement (a big body, a big range or a fair value gap).
-5. **Entry and stop.** A limit on the pullback to the middle of the move off the sweep, given up after 8 minutes or if price jumps through it. The stop goes just beyond the run, never tighter than 10 spreads (so costs stay small) and never wider than the **scalp stop:** 20 pips on gold (AJ's number), 10 on GBPUSD, 8 on EURUSD, 20 points on the Nasdaq, stretched to at most 1.5× the 1-minute ATR when the market is fast. A deeper run is skipped, never chased.
-6. **Target and exits.** The liquidity on the other side, at least 2R away (2.5R when there's none within 6R). Half comes off at 1R with the stop to breakeven. Out after 30 minutes if it isn't working (below +0.5R), and after 45 minutes regardless. At most three scalps per killzone.
+Each desk's card shows its top-down read, the liquidity it's watching, the sweep, and the entry, stop and target while it waits for the pullback.
 
-**How the committee judges a scalp.** Like every idea, a scalp is argued by its department, but on scalping terms: room is measured to the scalp's liquidity target (the small swings on the way are the stops it trades through), and high volatility counts as the moment liquidity runs happen, so scalps are exempt from the extreme-volatility veto. The news, dead-market and reward-smaller-than-risk vetoes still apply, and the desk's measured edge on real prices still counts most: a scalper that keeps losing on paper stays on paper.
+**Tested on real history, honestly.** The rules were chosen on Oanda's real 1-minute bars in six markets, judged on months they weren't chosen on: October 2018 to August 2019 to choose, September 2019 to May 2020 to check. About 20 variants were tried (bias rules, location filters, entries, minimum R, displacement, killzones, break-even stops). The defaults are the plainest version that held up in both halves, not the best-looking one. Costs included. Per trade, choosing months → checking months:
 
-**Tested on real history.** `npm run scalp-test` replays each scalper minute by minute through the floor's own code (strategy, broker costs, risk desk and committee) on real 1-minute bars and prints the funnel (killzones, liquidity runs, traps, shifts, setups, what stopped each one) and the results. On your Mac it uses the real bars the floor saves in `data/history/` (your MT5 broker's prices once MT5 is connected), so run it after the floor has been connected for a few days. `--desk jake` tests one scalper; `--file bars.json --symbol EURUSD` tests your own data; `--set entry=auto,pools=all` tries other settings; `--committee shadow` grades every idea without blocking.
-
-The first version was tested on the real 1-minute data available here (QuantConnect Lean's samples: OANDA gold and EURUSD, 1–15 May 2014; CME S&P futures, 12 days in late 2013), with trading costs:
-
-| Version | Scalps | Average | Win rate |
+| Market | Trades | Per trade | Win rate |
 | --- | --- | --- | --- |
-| At market right after the shift, all pools | 117 | −0.27R | 40% |
-| Pullback entry, major liquidity only, stop ≥ 10 spreads, 30-minute time stop (now the default) | 45 | +0.05R | 60% |
+| NAS100 (New York) | 19 → 19 | +0.44R → +0.72R | 37% → 47% |
+| SPX500 (New York) | 21 → 14 | +0.19R → +0.97R | 29% → 36% |
+| XAUUSD (London + New York) | 27 → 21 | +0.28R → −0.29R | 37% → 19% |
+| EURUSD (London + New York) | 46 → 34 | +0.40R → −0.09R | 39% → 29% |
+| USOIL (London + New York) | 36 → 22 | −0.48R → +0.65R | 19% → 36% |
+| GBPUSD (London + New York) | 37 → 34 | −0.40R → −0.11R | 22% → 26% |
 
-45% of the first version's scalps never went half a risk-unit in their favour and lost almost 1R each: entering right after the shift candle meant buying the top of the move. The committee also vetoed nearly every setup for "extreme volatility" and graded the rest C (paper only), which is why the scalpers weren't reaching the account. Both are fixed. It's a small sample, about breakeven: treat the scalpers' first weeks as the real test and watch their numbers on the daily report card.
+GBPUSD lost in both halves, so the fifth desk trades oil instead. The five desks together, with the no-pile-ups rules (below): **255 trades over 20 months, 32% won, +0.20R a trade (90% range −0.00R to +0.43R), +51R in all, worst drawdown 18R, 11 of 20 months up, worst day −3.5R, worst losing streak 10.** Through the floor's own code (`npm run daytrade-test`, July 2018 to May 2020): Tyler +0.46R a trade over 47 trades, Sienna +0.69R over 39, Theo +0.00R over 49, Zara +0.07R over 95, Diego −0.16R over 62.
 
-In demo mode the clock only runs New York's cash session, so there the London scalpers work its first two hours (09:30–11:30) and the New York scalpers 11:00–13:00. On the FTMO account the scalpers follow the same rules as every desk: they need a proven edge (or **Proven desks only** off for half risk), and one position per correlated group, so Jake and Layla share the FX slot and Ryan and Mia the gold one.
+Read that carefully:
+- It's the shape you asked for: most trades lose about 1R, the winners pay 3R or more, and two out of three trades lose. Losing streaks of ten happen.
+- It's a small sample: about 13 trades a month across the five desks. The 90% range still touches zero. It is far better than the scalpers (−0.17R to −0.21R a trade over thousands of trades), but it isn't a proven edge yet.
+- The indices did best in both halves. Gold and EURUSD made money in the first half and lost in the second.
+- Size it for the streaks: at 0.5% risk a trade, 18R of drawdown is 9%, close to FTMO's 10% max loss. At the floor's default 0.25% it's 4.5%.
+
+`npm run daytrade-test` prints each desk's funnel (days with a bias, sweeps, breakdowns, shifts, why a shift didn't trade) and its results on the bars your floor saved (`--dir` for another folder, `--desk tyler`, `--set minRR=4,zones=ny` to try other rules).
+
+In demo mode the clock only runs New York's cash session, so there the day traders work its first two and a half hours (09:30–12:00). On the FTMO account they follow the same rules as every desk, including no pile-ups: Tyler and Sienna share the US-index slot, and Zara takes the FX one.
+
+### Top-down first: every desk
+
+Every desk reads its market's weekly, daily and 4-hour structure first (the same read the day traders use, `server/engine/topdown.js`) and **only trades with that bias**: a buy signal under a bearish bias isn't taken, and the desk says why (*Not taken (top-down): W ↓ · D ↓ · 4H ↑: the higher timeframes are bearish, so no buys*). Each desk's card shows the read (*Top-down: W ↑ · D ↑ · 4H ↓: bullish bias, price in the discount of the daily range · buys only*), and its spoken briefing says it. Your own TradingView alerts are your call and aren't held back. Until a market has enough history for a read (a couple of weeks of bars), nothing is held back.
+
+**What it changes, on 22 months of real prices** (`npm run baseline`, each desk trading its own way, July 2018 to May 2020; `--no-topdown` for the comparison):
+
+| Desk | Without the rule | With it | Total R |
+|---|---|---|---|
+| Marcus | 1,143 trades, −0.10R a trade | 635 trades, −0.04R | −110R → −25R |
+| Amara | 3,359, −0.24R | 1,987, −0.22R | −798R → −430R |
+| James | 4,075, −0.23R | 2,155, −0.22R | −947R → −469R |
+| Priya | 4,333, −0.41R | 2,425, −0.41R | −1,790R → −992R |
+| Lucas | 5,581, −0.32R | 4,099, −0.29R | −1,788R → −1,198R |
+
+The rule cuts out about 40% of their trades, and the ones it cuts were the worse ones, so their losses over the 22 months fall from −5,433R to −3,113R. It doesn't make these five desks profitable: their signals don't have an edge on these markets, with or without the bias. Only Marcus gets close (no edge either way, instead of losing).
+
+### No pile-ups
+
+Whatever the mode (their own way, training on FTMO or the institutional plan), the account never stacks the same bet:
+- **one desk per market:** while one desk has a Nasdaq trade on, no other desk opens one;
+- **one trade per correlated group:** the US indices (Nasdaq and S&P) are one bet, so are the FX pairs and the coins;
+- **at most three trades open at once.**
+
+A trade held back this way isn't taken at all with FTMO only on, and the Today card counts why (*Another desk is in that market*, *Correlated position already open*, *Enough trades open at once*).
 
 ### Weekends: crypto day trading
 
-From Friday 18:00 to Sunday 18:00 New York, forex, gold, oil and the indices are closed, so every trading desk switches to crypto and day-trades it with its own strategy. Bitcoin goes to Marcus, James, Priya, Layla, Ryan and Nico; Ether to Sofia, Amara, Lucas, Jake and Mia. Two desks running the same strategy get different coins, so they don't take the same trade twice. Viktor, Chen, Kenji and Isabella trade crypto all week anyway. Every day still ends flat at 16:50 New York. On Sunday at 18:00 New York each desk goes back to its own market. The desk chips, the floor's screens and the desk's log show the switch ("Weekend: … I'm day trading BTCUSD").
+From Friday 18:00 to Sunday 18:00 New York, forex, gold, oil and the indices are closed, so every trading desk switches to crypto and day-trades it with its own strategy. Bitcoin goes to Marcus, James and Priya; Ether to Sofia, Amara and Lucas. The Day Trading Desk rests at the weekend: its playbook was tested on its own markets, not on crypto. Two desks running the same strategy get different coins, so they don't take the same trade twice. Viktor, Chen, Kenji and Isabella trade crypto all week anyway. Every day still ends flat at 16:50 New York. On Sunday at 18:00 New York each desk goes back to its own market. The desk chips, the floor's screens and the desk's log show the switch ("Weekend: … I'm day trading BTCUSD").
 
 Each desk was first replayed on 98 real Bitcoin weekends (Bitstamp 2017 and Kraken 2018 1-minute bars, `npm run weekend`), and that record ships with the floor (`server/research/weekend.json`):
 
@@ -152,10 +185,6 @@ Each desk was first replayed on 98 real Bitcoin weekends (Bitstamp 2017 and Krak
 | James | 355 | −0.16R (−0.24 to −0.07) | loses |
 | Priya | 343 | −0.27R (−0.37 to −0.17) | loses |
 | Lucas | 1,318 | −0.31R (−0.36 to −0.27) | loses |
-| Jake, Layla | 50 each | +0.14R (−0.12 to +0.39) | too few trades |
-| Ryan | 63 | +0.12R (−0.12 to +0.35) | too few trades |
-| Mia | 62 | −0.11R (−0.33 to +0.13) | too few trades |
-| Nico | 34 | +0.08R (−0.23 to +0.37) | too few trades |
 
 Viktor, who trades Bitcoin all week, lost too on those weekends: −0.54R a trade in 2017 and −0.32R in 2018. Only Bitcoin was tested, because that was the only real crypto history available here. The record stands in for the Ether desks too.
 
@@ -163,14 +192,14 @@ On the account, at the weekend a desk's weekend record counts the way its long-r
 - **loses:** paper only, unless practice is on (the Free Trial, at 0.25%);
 - **no edge, or too few trades:** half size.
 
-At most **3 crypto positions** are on the account at once, training and practice included, because Bitcoin and Ether move together and every desk on crypto would otherwise add up to one big bet. FTMO's guard, stops and the daily loss limits apply as always. The account only trades crypto at the weekend if your FTMO account offers it then.
+**One crypto trade** is on the account at a time (the no-pile-ups rule, training and practice included), because Bitcoin and Ether move together and every desk on crypto would otherwise add up to one big bet. FTMO's guard, stops and the daily loss limits apply as always. The account only trades crypto at the weekend if your FTMO account offers it then.
 
 ### Risk framework
 
 With the desks trading their own way (the default, below), the desk and fund daily loss limits and the news rules are off; trade management, cooldowns, trade caps and the close are each desk's own way of trading, so they stay.
 
 - A **$100M fund** split evenly across the 20 desks ($5M each). Every trade is sized so that a stop-out costs **0.5% of the desk's allocation**, capped at **4× leverage**.
-- **Trade management:** half the position is taken off at +1R and the stop moves to breakeven. After that the runner is trailed with an ATR chandelier stop, and some strategies use time stops. The scalpers don't trail: the runner goes for the liquidity target, with a 30-minute time stop and a 45-minute limit.
+- **Trade management:** half the position is taken off at +1R and the stop moves to breakeven. After that the runner is trailed with an ATR chandelier stop, and some strategies use time stops. The day traders don't scale out or trail: the whole trade goes for the liquidity target (3R or more) or the stop, and is closed at 16:50 New York if it's still open.
 - **Desk daily loss limit (2%):** when it's hit, the CRO flattens and halts the desk until the next trading day.
 - **Fund daily loss limit (1.2% of NAV):** when it's hit, the whole floor goes risk-off.
 - **News:** no new trades around high and medium-impact releases for the markets they move, and every desk goes flat 5 minutes before high-impact news (below).
@@ -227,7 +256,7 @@ Only a strategy that passes every gate trades. If nothing passes, the researcher
 
 ![The Brain](docs/brain.jpg)
 
-**Departments.** The twenty agents work in four departments, each covering its markets with at least two traders and a researcher: **Equity Indices** (Marcus, James, Arjun, and Nico from the Scalping Desk), **FX & Macro** (Sofia, Priya, Hannah, Jake, Layla), **Metals & Energy** (Amara, Lucas, Omar, Ryan, Mia) and **Digital Assets** (Viktor, Isabella, Kenji, Chen, Mei). Elena, head of research, chairs every decision as the risk manager. Scalpers review scalps; a trading desk's idea goes to the department's other trading desks.
+**Departments.** The twenty agents work in four departments, each covering its markets with at least two traders and a researcher: **Equity Indices** (Marcus, James, Arjun, and Tyler and Sienna from the Day Trading Desk), **FX & Macro** (Sofia, Priya, Hannah, Zara), **Metals & Energy** (Amara, Lucas, Omar, Theo, Diego) and **Digital Assets** (Viktor, Isabella, Kenji, Chen, Mei). Elena, head of research, chairs every decision as the risk manager. Day traders review day trades; a trading desk's idea goes to the department's other trading desks.
 
 **The market brain.** One shared, multi-timeframe read of every market that everybody reasons from: the higher-timeframe and 15-minute trend, swing structure (higher highs and lows or not), momentum, distance from session VWAP, the levels that matter (session high/low, prior day, 5 and 15-minute swings, VWAP), the volatility regime, the market condition and the news clock. Each piece of evidence comes with a sentence explaining it.
 
@@ -262,7 +291,7 @@ Run `npm run backtest -- 5` to fast-forward five sessions and see the results yo
 
 **The floor memory: one knowledge graph the whole floor shares.** Each desk's learner only remembers its own trades. The floor memory remembers every trade any desk closes on real prices, filed by its **situation**: the market, with or against the trend, quiet, normal or wild, and the session (Asia, London, the New York open, midday or afternoon). It also keeps the lessons each desk learned and who reviewed whose ideas in the committee. Recent trades count more (each new trade in a situation outweighs the old ones), so the memory follows the market as it changes. It's kept in `data/memory.json` (demo mode has its own file, so made-up prices never mix in), and on its first start it fills itself from the trades the desks' learners already remember.
 
-The committee asks it before every trade: *how did trades like this go, across the floor?* Once a situation has about six trades behind it, that answer becomes one more piece of evidence everyone weighs ("the floor's memory: 14 trades like this (XAUUSD, with the trend, wild, London) averaged +0.42R, 64% won"). Quants and the risk manager weigh it most, the scalpers and the market maker least. Until then it stays out of the vote, so a handful of trades can't sway anything.
+The committee asks it before every trade: *how did trades like this go, across the floor?* Once a situation has about six trades behind it, that answer becomes one more piece of evidence everyone weighs ("the floor's memory: 14 trades like this (XAUUSD, with the trend, wild, London) averaged +0.42R, 64% won"). Quants and the risk manager weigh it most, the day traders and the market maker least. Until then it stays out of the vote, so a handful of trades can't sway anything.
 
 The **Brain** tab shows it as a live 3D graph:
 - **Nodes:** desks (in their own colour), markets (gold), situations (green if trades like that made money, red if they lost, grey while there's too little evidence) and lessons (purple).
@@ -600,7 +629,7 @@ What the floor does on 1-Step:
 - **The Best Day rule.** The desks call it a day once a day's profit reaches **half the profit target** ($500 on a $10,000 account), even while training on FTMO, so no single day can be "too good" at the finish line. The trades already open run to their exits. If the target is reached while the best day is still over 50%, the floor doesn't stop at the target: it says how much more profit on other days passes the rule, and trades on at half risk until it's met.
 - The Today card shows both loss lines, the Best Day share and the day's order actions in one line.
 
-**Fast trades are allowed.** FTMO bans high-frequency and tick scalping (dozens of trades a minute, trades held for seconds), latency arbitrage, copying the same trades onto another FTMO account, and hedging one account against another. Ordinary scalping that holds for minutes is fine, and so are Expert Advisors. The floor's scalpers decide on 1-minute candles, cut a scalp that isn't working after 30 minutes and close every scalp by 45 minutes.
+**What FTMO allows.** FTMO bans high-frequency and tick scalping (dozens of trades a minute, trades held for seconds), latency arbitrage, copying the same trades onto another FTMO account, and hedging one account against another. Ordinary scalping that holds for minutes is allowed, and so are Expert Advisors. The floor doesn't scalp any more anyway: the Day Trading Desk takes at most one trade a day each, held for minutes to hours toward a 3R+ target.
 
 **Order actions.** FTMO allows 2,000 order actions a day (every open, close, stop move and partial close counts). The floor sends about 3 to 5 per trade, so a busy day is around a hundred. As a seatbelt it counts them per FTMO day (through restarts) and stops new trades at 1,000 and stop moves at 1,500; closing positions is always allowed.
 
@@ -608,35 +637,39 @@ What the floor does on 1-Step:
 
 ### The long run: every desk on 22 months of real prices
 
-A few weeks of your own prices can't tell an edge from luck, so every trading desk was also replayed minute by minute through the floor's own code on Oanda's real 1-minute bars: July 2018 to mid-May 2020 (EURUSD and GBPUSD from January 2018), 15,296 trades in all with the desks' current rules (see *More setups* below). The replay includes the committee (whose market brain reads days of history, as on the floor), FTMO's costs and the desk's learning.
+A few weeks of your own prices can't tell an edge from luck, so every trading desk was also replayed minute by minute through the floor's own code on Oanda's real 1-minute bars: July 2018 to mid-May 2020 (EURUSD from January 2018), 11,593 trades in all. The replay runs the desks the way the floor runs them now: their own way, with the top-down rule, FTMO's costs and each desk's learning.
 
 | Desk | Market | Trades | Per trade (90% range) | Quarters up | Verdict |
 |---|---|---|---|---|---|
-| Marcus | NAS100 | 865 | −0.08R (−0.14 to −0.02) | 1 of 8 | loses |
-| Amara | XAUUSD | 1,999 | −0.14R (−0.18 to −0.10) | 0 of 8 | loses |
-| James | SPX500 | 1,996 | −0.14R (−0.18 to −0.10) | 1 of 8 | loses |
-| Priya | EURUSD | 1,279 | −0.23R (−0.28 to −0.18) | 0 of 10 | loses |
-| Lucas | USOIL | 4,207 | −0.15R (−0.17 to −0.12) | 0 of 8 | loses |
-| Jake | GBPUSD | 1,193 | −0.19R (−0.24 to −0.14) | 0 of 10 | loses |
-| Layla | EURUSD | 1,242 | −0.17R (−0.22 to −0.13) | 1 of 10 | loses |
-| Ryan | XAUUSD | 914 | −0.20R (−0.25 to −0.13) | 0 of 8 | loses |
-| Mia | XAUUSD | 1,017 | −0.21R (−0.27 to −0.15) | 0 of 8 | loses |
-| Nico | NAS100 | 584 | +0.03R (−0.04 to +0.10) | 4 of 8 | unclear |
+| Marcus | NAS100 | 635 | −0.04R (−0.12 to +0.04) | 3 of 8 | no edge |
+| Amara | XAUUSD | 1,987 | −0.22R (−0.26 to −0.17) | 0 of 8 | loses |
+| James | SPX500 | 2,155 | −0.22R (−0.26 to −0.18) | 0 of 8 | loses |
+| Priya | EURUSD | 2,425 | −0.41R (−0.45 to −0.37) | 0 of 10 | loses |
+| Lucas | USOIL | 4,099 | −0.29R (−0.32 to −0.26) | 0 of 8 | loses |
+| Tyler | NAS100 | 47 | +0.46R (−0.05 to +0.96) | 8 of 8 | too few trades |
+| Sienna | SPX500 | 39 | +0.69R (+0.03 to +1.46) | 4 of 8 | too few trades |
+| Theo | XAUUSD | 49 | +0.00R (−0.41 to +0.45) | 4 of 8 | too few trades |
+| Zara | EURUSD | 95 | +0.08R (−0.23 to +0.41) | 4 of 10 | too few trades |
+| Diego | USOIL | 62 | −0.16R (−0.54 to +0.25) | 4 of 8 | too few trades |
+
+A verdict needs 100 trades, and a day trader takes one a day at most, on the days its setup shows up: 22 months gives each one 40 to 95. Together they made +46R over 292 trades.
+
+The older desks lose more a trade here than when they were first replayed (−0.08R to −0.23R then) because trading their own way leaves out the floor's cost rule: a stop too tight for the market's spread and commission isn't widened any more, and those costs eat a bigger share of each trade.
 
 The record ships with the floor (`server/research/baseline.json`), and the account brain uses it with the nightly review:
 
 - **loses** (the whole 90% range below zero): paper only, in training too. The exception is a nightly review that finds a real edge on your own prices (its whole 90% range above zero); then the desk trades half size until that edge lasts. A few promising weeks aren't enough against thousands of losing trades.
-- **no edge** or **unclear** (not significant either way, a hair below or above zero, like Nico): half size, until the nightly review says more.
-- **No long-run record** (Sofia on USDJPY, Viktor and Chen on crypto, and the research desks): the nightly review decides, as before.
+- **no edge** or **unclear** (not significant either way, a hair below or above zero, like Marcus): half size, until the nightly review says more.
+- **No long-run record, or too few trades for one** (Sofia on USDJPY, Viktor and Chen on crypto, the research desks, the day traders): the nightly review decides, as before.
 - Your own TradingView alerts are your call.
 
 The desk table, the Today card (*Loses over the long run*), the account's rule list and the Nightly review card's **Long run** column show it.
 
-**What it does to the account.** The account was replayed with every desk's trades in time order, 0.5% risk a trade, FTMO 1-Step $10,000:
+**What it did to the account** (measured on the earlier record, before the Day Trading Desk and the top-down rule). The account was replayed with every desk's trades in time order, 0.5% risk a trade, FTMO 1-Step $10,000:
 - **Training as it ran:** −27.3% over the 22 months, with a 27.5% drawdown, past FTMO's 10% max loss. It wasn't stacked risk: the worst day was −0.9%. It was a steady bleed from desks that lose a little on every trade.
 - **Rules that change almost nothing here:** one position per correlated group, a 1.5% open-risk cap, a −1.5% daily stop and 5 positions at most.
 - **The committee's grade:** it didn't separate winners from losers (A −0.11R, B −0.10R, C −0.16R a trade, and only 2% of trades got an A or a B).
-- **With the long-run record and the quarter size deep in drawdown:** +0.7%, with a 1.9% drawdown (only Nico, at half size, is left on the account).
+- **With the long-run record and the quarter size deep in drawdown:** +0.7%, with a 1.9% drawdown (only Nico, the Nasdaq scalper, was left on the account, at half size).
 
 To check that this isn't hindsight, the desks were judged on the first half only (to May 2019, where the same nine come out as losers). The account was then replayed on the second half, which the judging never saw: −9.9% with a 10.1% drawdown as it ran, +1.2% with a 1.5% drawdown with the record.
 
@@ -663,15 +696,10 @@ Each strategy's entry filters are settings now (`static RULES` in its file; a de
 | Marcus | ORB range 1–12 ATR (was 1.5–9), no volume filter | 775 → 865 | −0.082R → −0.083R |
 | James | fades the ±1.5σ VWAP band (was 2σ), RSI ±12 (was ±18), ADX under 32 (was 28) | 1,154 → 1,996 | −0.115R → −0.140R |
 | Priya | squeezes of 4 bars (was 6) | 918 → 1,279 | −0.214R → −0.235R |
-| Jake | the 5- and 1-minute swings as liquidity too | 580 → 1,193 | −0.179R → −0.189R |
-| Layla | the same | 687 → 1,242 | −0.146R → −0.174R |
-| Ryan | the same, and London's killzone an hour longer (to 11:00 London) | 393 → 914 | −0.174R → −0.195R |
-| Mia | the same, and New York's an hour longer (to 12:00 New York) | 364 → 1,017 | −0.190R → −0.211R |
-| Nico | New York's killzone an hour longer (to 12:00 New York) | 505 → 584 | +0.004R → +0.028R |
 
-Nico keeps his liquidity map. The wider one doubled his trades (1,022) but turned them slightly negative (−0.026R). He is the one desk the account still takes with practice off, so only the change that made him better was kept. Amara and Lucas keep their rules. Amara's looser sweeps added trades that lost about 0.29R each. Lucas already trades about 7 times a day, and a flatter trend filter added only 4% more trades, and worse ones. More scalps per killzone added nothing for any scalper. In all, the trading desks take about 32% more trades. Keep in mind that more trades from desks that lose means more losses, in proportion. On paper that costs nothing. On the Free Trial with practice on, it's a faster drift down. On a paid challenge these desks stay off the account until the evidence changes.
+Amara and Lucas keep their rules. Amara's looser sweeps added trades that lost about 0.29R each. Lucas already trades about 7 times a day, and a flatter trend filter added only 4% more trades, and worse ones. In all, the trading desks took about 32% more trades. (The scalpers were in this test too; they lost with every setting and have since been retired.) Keep in mind that more trades from desks that lose means more losses, in proportion. On paper that costs nothing. On the Free Trial with practice on, it's a faster drift down. On a paid challenge these desks stay off the account until the evidence changes.
 
-To try other values on your own history: `scripts/scalp-test.js` replays one desk with any profile, for example `replay({ profile: { ...desk, rules: { volume: 1.3 } }, bars })`.
+To try other values on your own history: `scripts/replay.js` replays one desk with any profile, for example `replay({ profile: { ...desk, rules: { volume: 1.3 } }, bars })`.
 
 ### Ready for a paid challenge? `npm run edge`
 
@@ -747,7 +775,7 @@ A switch in the FTMO tab's Connection card, off until you switch it on. When it'
 
 The first card on the FTMO tab answers that in one sentence (while training on FTMO, trades are rarely held back: the card then mostly tells you what the desks are watching and when the busy hours start), for example *"No trades on FTMO yet today. Everything is connected and armed, and the desks are working: 3 trades were held back from the account, mostly: committee grade too low."* Below it:
 
-- **The market hours in your own time:** where New York is now (the Asia session overnight is the quietest; the London open and the New York open are the busy windows), when those open in your time zone, and whether the scalpers' killzones are open.
+- **The market hours in your own time:** where New York is now (the Asia session overnight is the quietest; the London open and the New York open are the busy windows), when those open in your time zone, and whether the day traders' killzones are open.
 - **The day's funnel, for the desks on the account:** trade ideas the desks found → turned down (by the committee, or by what a desk has learned) → paper trades → held back from the account → sent to FTMO.
 - **Why trades stayed on paper today,** counted by reason, with what each reason means. The usual one: the committee grades every idea A, B or C, and only A and B-grade trades go to the account. A C ("not convinced") stays on paper, so the desk keeps measuring.
 - **Every desk on the account:** what it's doing right now, its ideas, paper trades and FTMO trades today, and the latest reason it didn't trade the account.
@@ -772,10 +800,10 @@ The FTMO tab's **Alerts on your phone** card sends Telegram messages from your o
 - a trade opened on the account, **with a picture of the setup and why the desk took it**:
   - **The picture:** the chart the desk traded on, drawn TradingView style. It shows the last two hours of 1-minute candles, an arrow on the entry candle, and the long/short position tool (entry, the stop with its dollar risk, the target with its dollar gain and R). It also shows the desk's own setup levels in amber (the swept liquidity pool, the opening range, the Supertrend and so on) and the market's nearest support and resistance in grey.
   - **The caption:**
-    - the desk's reason (*Why: London scalp: ran the Asia low, trapped and shifted*);
+    - the desk's reason (*Why: W ↑ · D ↑ · 4H ↓ bullish bias · London open: swept the Asia low, 5-minute shift with displacement; target the previous day high (4.2R)*);
     - the evidence behind it (*The case: the higher-timeframe trend is up, with the trade; structure agrees*);
     - the checklist it ticked;
-    - what the committee said (*Mia agrees · Lucas is cautious · Elena: Approved, full size*);
+    - what the committee said (*Theo agrees · Lucas is cautious · Elena: Approved, full size*);
     - the floor's memory of trades like it;
     - a link that opens the market on TradingView.
 
@@ -940,7 +968,7 @@ npm run service -- install  # run the floor non-stop as a background service (st
 npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow (MOCK_PNL=-100 rehearses a drawdown)
 npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
 npm run backtest -- 5  # fast-forward 5 simulated sessions (news + research lab included) and print each desk's results
-npm run scalp-test     # replay the Scalping Desk on the real 1-minute bars saved in data/history
+npm run daytrade-test  # replay the Day Trading Desk on the real 1-minute bars saved in data/history
 npm run edge           # every desk on your saved history: who has an edge, and the odds of passing a challenge
 npm run baseline -- --dir path/to/history   # every desk on months of real 1-minute bars: the long-run record the floor ships with
 npm run weekend -- --dir path/to/crypto     # every switching desk on real crypto weekends: the weekend record

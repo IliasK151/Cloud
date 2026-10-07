@@ -24,7 +24,7 @@ export class AgentPanel {
       root: $('agent-panel'), avatar: $('ap-avatar'), name: $('ap-name'), title: $('ap-title'), status: $('ap-status'),
       greet: $('ap-greet'), text: $('ap-text'), replay: $('ap-replay'),
       day: $('ap-day'), unreal: $('ap-unreal'), total: $('ap-total'), limit: $('ap-limit'),
-      bias: $('ap-bias'), strategy: $('ap-strategy'), stage: $('ap-stage'), thesis: $('ap-thesis'),
+      bias: $('ap-bias'), strategy: $('ap-strategy'), stage: $('ap-stage'), thesis: $('ap-thesis'), topDown: $('ap-topdown'),
       confBar: $('ap-conf-bar'), conf: $('ap-conf'), checklist: $('ap-checklist'), positions: $('ap-positions'),
       levels: $('ap-levels'), stats: $('ap-stats'), flatten: $('ap-flatten'), pause: $('ap-pause'),
       chartMeta: $('ap-chart-meta'), chartBox: $('ap-chart'), tv: $('ap-tv'), tvLink: $('ap-tv-link'),
@@ -453,6 +453,13 @@ export class AgentPanel {
     this.el.bias.className = `bias ${st.bias}`;
     this.el.stage.textContent = st.stage;
     this.el.thesis.textContent = st.thesis;
+    // Top-down first: the market's weekly / daily / 4-hour read and what it allows this desk.
+    const td = a.topDown;
+    this.el.topDown.hidden = !td;
+    if (td) {
+      this.el.topDown.className = `topdown ${td.bias || ''}`;
+      this.el.topDown.innerHTML = `<b>Top-down</b> ${escapeHtml(td.text)}${td.ready && td.rule && td.bias ? ` <span class="muted">· ${td.bias === 'LONG' ? 'buys only' : 'sells only'}</span>` : ''}`;
+    }
     this.el.confBar.style.width = `${st.confidence}%`;
     this.el.conf.textContent = `${st.confidence}%`;
     this.el.checklist.innerHTML = (st.checklist || []).map((c) => `<li class="${c.ok ? 'ok' : ''}">${escapeHtml(c.label)}</li>`).join('');
