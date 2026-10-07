@@ -236,7 +236,7 @@ export class AccountBrain {
       })(),
       (() => {
         const base = lt.baseline;
-        const judged = (lt.fund?.agents || []).filter((a) => p.desks?.[a.id] && base?.forDesk?.(a.id));
+        const judged = (lt.fund?.agents || []).filter((a) => (lt.deskOn ? lt.deskOn(a.id) : p.desks?.[a.id]) && base?.forDesk?.(a.id));
         if (!judged.length) return null;
         const recs = judged.map((a) => base.forDesk(a.id));
         const span = spanText(Math.min(...recs.map((d) => d.from)), Math.max(...recs.map((d) => d.to)));
@@ -557,10 +557,12 @@ export class AccountBrain {
   deskStatus(agent, st = this.state()) {
     const lt = this.live;
     const p = lt.profile;
-    if (!p?.desks?.[agent.id]) return { state: 'off', label: 'Off', text: `Not switched on for the FTMO account: ${noPaper(lt) ? 'with FTMO only on, it doesn\'t trade' : 'paper only'}` };
+    if (lt.dayDeskOnly && !agent.profile.dayTrader && !(agent.profile.tvDesk && p?.desks?.[agent.id])) return { state: 'off', label: 'Off · Day Trading Desk only', text: `Only the Day Trading Desk trades the FTMO account (the "Day Trading Desk only" switch, Connection card): ${noPaper(lt) ? 'with FTMO only on, this desk doesn\'t trade' : 'this desk trades paper only'}` };
+    if (!(lt.deskOn ? lt.deskOn(agent.id, agent.profile.tvDesk ? 'TV' : '') : p?.desks?.[agent.id])) return { state: 'off', label: 'Off', text: `Not switched on for the FTMO account: ${noPaper(lt) ? 'with FTMO only on, it doesn\'t trade' : 'paper only'}` };
     if (!lt.eligible(agent.id)) return noPaper(lt) ? { state: 'paper', label: 'Not trading', text: `${lt.ineligibleReason(agent.id).replace(/ — paper only\.?$/, '')}. With FTMO only on, it doesn't trade.` } : { state: 'paper', label: 'Paper only', text: lt.ineligibleReason(agent.id) };
     const open = this.#links().find((l) => l.agentId === agent.id && !l.previousSession && ['open', 'closing', 'pending'].includes(l.state));
     if (open) return { state: 'live', label: 'LIVE', text: `Live on MT5: ${open.side} ${open.volumeNow ?? open.volume0} ${open.brokerSymbol}` };
+    if (lt.dayDeskOnly && agent.profile.tvDesk) return { state: 'ready', label: 'Your alerts only', text: `Day Trading Desk only: your own TradingView alerts go to the FTMO account through ${agent.profile.name.split(' ')[0]}; ${noPaper(lt) ? 'her own Supertrend trades don\'t trade' : 'her own Supertrend trades stay on paper'}.` };
     if (lt.halt) return { state: 'halted', label: 'Halted', text: lt.halt.reason };
     if (st?.ruleStop && lt.armed) return { state: 'stopped', label: 'Stopped today', text: st.ruleStop };
     if (lt.ownWay) {

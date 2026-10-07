@@ -179,6 +179,8 @@ async function main() {
   if (live?.mode === 'live' && live.connected && live.profile) {
     if (live.ownWay) good('The desks trade their own way: each takes its own strategy\'s signals, with only FTMO\'s own rules around it.');
     else if (live.ownWay === false) good('The desks trade the institutional way: the committee and the account plan decide what reaches the account (FTMO tab → Desks trade their own way).');
+    if (live.dayDeskOnly) good('Day Trading Desk only is on: only Tyler, Sienna, Theo, Zara and Diego trade the FTMO account (plus your own TradingView alerts).');
+    else if (live.dayDeskOnly === false) good('Day Trading Desk only is off: the desks switched on in the desk table trade the FTMO account.');
     if (live.ftmoOnly) good('FTMO only is on: every trade the desks take goes to the FTMO account, nothing trades on paper.');
     else if (live.ftmoOnly === false) warn('FTMO only is off: the desks trade on paper too, and only some of their trades go to FTMO (FTMO tab → FTMO only).');
     if (live.ftmoOnlyBlock) {

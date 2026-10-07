@@ -17,7 +17,7 @@ import { autoMap } from '../server/live/symbolMap.js';
 const GOLD = { bid: 3800, ask: 3800.2, digits: 2, point: 0.01, tickSize: 0.01, tickValue: 1, tickValueLoss: 1, volMin: 0.01, volStep: 0.01, volMax: 50, stopsLevel: 0, bars: [] };
 const tick = () => new Promise((r) => setImmediate(r));
 
-function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], dataDir = null, ftmoOnly = false, ownWay = false } = {}) {
+function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], dataDir = null, ftmoOnly = false, ownWay = false, dayDeskOnly = false } = {}) {
   const clock = new MarketClock('live');
   const session = new Session(clock);
   session.isFlattenWindow = () => false; // tests must not depend on the time of day
@@ -28,7 +28,7 @@ function setup({ mode = 'live', committee = 'off', quotes = {}, symbols = [], da
   const fund = new Fund({ config: { startingCapital: 100_000_000, feed: mode, fundName: 'Test' }, md, clock, session, broker, risk, committee });
   const bridge = new Mt5Bridge();
   dataDir ||= fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
-  const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} }, ftmoOnly, ownWay });
+  const live = new LiveTrader({ fund, md, bridge, clock, mode, dataDir, token: 't', log: { warn() {} }, ftmoOnly, ownWay, dayDeskOnly });
   clearInterval(live.timer);
   md.applyTick('XAUUSD', 3800.1, 1, clock.now());
 
@@ -1983,3 +1983,54 @@ test('their own way: a desk trades its own signal, only FTMO\'s own rules around
   assert.equal(JSON.parse(fs.readFileSync(live.file, 'utf8')).ownWay, true);
 });
 
+
+test('Day Trading Desk only: the day traders alone trade the FTMO account, every trade they take is an FTMO trade', async () => {
+  const { fund, live, sync, mt5, chen, dataDir } = setup({ ftmoOnly: true, ownWay: true, dayDeskOnly: true });
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 }); // a Free Trial: every desk's switch starts on
+  assert.equal(live.arm().ok, true);
+  const v = live.view();
+  assert.equal(v.dayDeskOnly, true);
+  const desk = (id) => v.desks.find((d) => d.id === id);
+  assert.equal(desk('theo').enabled, true, 'the day traders are on');
+  assert.equal(desk('amara').enabled, false, 'every other desk is off the account, whatever its switch');
+  assert.equal(desk('amara').dayDeskOff, true);
+  assert.equal(desk('chen').alertsOnly, true);
+  assert.equal(live.brain.deskStatus(chen).label, 'Your alerts only');
+  assert.equal(live.brain.deskStatus(fund.byId.get('amara')).label, 'Off · Day Trading Desk only');
+  assert.match(live.setDesk('amara', true).error, /Only the Day Trading Desk trades the FTMO account/);
+
+  // Amara's gold sweep isn't taken at all (FTMO only): nothing on paper, and she says why.
+  const amara = fund.byId.get('amara');
+  assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'sweep', symbol: 'XAUUSD' }), false);
+  assert.equal(amara.position('XAUUSD'), null);
+  assert.match(amara.setup.stage, /^Not taken \(FTMO only\): only the Day Trading Desk trades the FTMO account/);
+  assert.ok(live.view().today.reasons.some(([why]) => why === 'Day Trading Desk only'), JSON.stringify(live.view().today.reasons));
+
+  // Theo's day trade is taken, and it goes to MT5.
+  const theo = fund.byId.get('theo');
+  assert.equal(theo.openTrade({ side: 'LONG', stop: 3790, target: 3830, reason: 'London open: swept the Asia low', partialAt: 0 }), true);
+  await tick();
+  live.reconcile();
+  const opens = sync().filter((c) => c[0] === 'open');
+  assert.equal(opens.length, 1);
+  assert.equal(opens[0][7], String(MAGIC_BASE + 23));
+  // MT5 refuses it: cancelled, not the desk's record, nothing to learn from.
+  mt5.acks.push({ id: opens[0][1], ok: false, msg: 'Market closed' });
+  sync();
+  assert.equal(theo.position('XAUUSD'), null);
+  assert.equal(theo.lifetime.trades, 0, 'only trades on the account count');
+  assert.equal(theo.learner.summary().studied, 0, 'nothing learned from a trade the account didn\'t take');
+
+  // Your own TradingView alert through Chen still goes (her switch is on).
+  theo.cooldownBars = 0;
+  assert.equal(chen.handleSignal({ action: 'buy', symbol: 'XAUUSD', stop: 3795, target: 3810 }).ok, true);
+
+  // Switched off: the desk table decides again; the choice survives a restart.
+  assert.equal(live.setDayDeskOnly(false).ok, true);
+  assert.equal(live.view().desks.find((d) => d.id === 'amara').enabled, true);
+  live.save();
+  await new Promise((r) => setTimeout(r, 300));
+  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'live.json'), 'utf8'));
+  assert.equal(saved.dayDeskOnly, false);
+});

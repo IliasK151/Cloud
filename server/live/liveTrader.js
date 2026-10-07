@@ -61,7 +61,7 @@ const INELIGIBLE = {
 // Paper stays the "brain": when an enabled desk opens, scales out, trails or closes a trade,
 // the same action is sent to MT5 with lots sized for the prop account's risk rules.
 export class LiveTrader extends EventEmitter {
-  constructor({ fund, md, bridge, clock, mode, dataDir, token, log = console, ftmoOnly = false, ownWay = false }) {
+  constructor({ fund, md, bridge, clock, mode, dataDir, token, log = console, ftmoOnly = false, ownWay = false, dayDeskOnly = false }) {
     super();
     this.fund = fund;
     this.md = md;
@@ -78,6 +78,9 @@ export class LiveTrader extends EventEmitter {
     // FTMO only (gate()): the floor starts with it on (server/index.js) unless the boss
     // switched it off; the desks ask before every trade.
     this.ftmoOnly = typeof this.state.ftmoOnly === 'boolean' ? this.state.ftmoOnly : !!ftmoOnly;
+    // Day Trading Desk only (on by default on the floor, index.js): the FTMO account is the day
+    // traders' alone. The other desks stay off it, whatever their switch in the desk table.
+    this.dayDeskOnly = typeof this.state.dayDeskOnly === 'boolean' ? this.state.dayDeskOnly : !!dayDeskOnly;
     fund.env.tradeGate = (agent, intent) => this.gate(agent, intent);
     fund.env.ftmoOnly = () => this.ftmoOnly && this.mode === 'live';
     // Their own way (on unless the boss switched it off; server/index.js): each desk trades its
@@ -149,7 +152,7 @@ export class LiveTrader extends EventEmitter {
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       const links = [...this.links.values()].slice(-200).map(({ previousSession, ...l }) => l);
-      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, ftmoOnly: this.ftmoOnly, ownWay: this.ownWay, peaks: this.state.peaks || {}, costs: this.state.costs || {}, backfill: this.state.backfill || {}, actions: this.bridge.actions, links };
+      const data = { profiles: this.state.profiles, halts: this.state.halts, armed: this.state.armed || {}, ftmoOnly: this.ftmoOnly, ownWay: this.ownWay, dayDeskOnly: this.dayDeskOnly, peaks: this.state.peaks || {}, costs: this.state.costs || {}, backfill: this.state.backfill || {}, actions: this.bridge.actions, links };
       try {
         fs.writeFileSync(`${this.file}.tmp`, JSON.stringify(data, null, 1));
         fs.renameSync(`${this.file}.tmp`, this.file);
@@ -183,6 +186,17 @@ export class LiveTrader extends EventEmitter {
 
   eligible(agentId) {
     return !INELIGIBLE[agentId];
+  }
+
+  // Does this desk trade the FTMO account? With Day Trading Desk only on, the day traders do
+  // (unless one is switched off in the desk table) and no other desk does, except for your own
+  // TradingView alerts (tag 'TV') through a desk you switched on. Otherwise: the desk table.
+  deskOn(agentId, tag = '') {
+    const p = this.profile;
+    if (!p || !this.eligible(agentId)) return false;
+    if (!this.dayDeskOnly) return !!p.desks?.[agentId];
+    if (this.fund.byId.get(agentId)?.profile.dayTrader) return p.desks?.[agentId] !== false;
+    return tag === 'TV' && !!p.desks?.[agentId];
   }
 
   ineligibleReason(agentId) {
@@ -279,6 +293,9 @@ export class LiveTrader extends EventEmitter {
     if (!p) return { ok: false, error: 'Set up the account first' };
     if (!this.fund.byId.has(agentId)) return { ok: false, error: 'Unknown desk' };
     if (enabled && !this.eligible(agentId)) return { ok: false, error: INELIGIBLE[agentId] };
+    if (enabled && this.dayDeskOnly && !this.fund.byId.get(agentId).profile.dayTrader && !this.fund.byId.get(agentId).profile.tvDesk) {
+      return { ok: false, error: 'Only the Day Trading Desk trades the FTMO account. Switch "Day Trading Desk only" off first (FTMO tab, Connection card).' };
+    }
     p.desks[agentId] = !!enabled;
     this.save();
     const name = this.fund.byId.get(agentId).profile.name;
@@ -378,7 +395,7 @@ export class LiveTrader extends EventEmitter {
     if (acc.connected === false) return { ok: false, error: 'MT5 is not connected to its trade server. Log in again in MT5 (File → Login to Trade Account).' };
     if (!acc.tradeAllowed || !acc.expertAllowed) return { ok: false, error: 'This MT5 account does not allow (automated) trading right now.' };
     if (!acc.algoAllowed) return { ok: false, error: 'Algo Trading is off in MT5. Turn on the "Algo Trading" button and tick "Allow Algo Trading" in the EA settings.' };
-    if (!Object.values(p.desks).some(Boolean)) return { ok: false, error: 'Enable at least one desk first' };
+    if (!this.fund.agents.some((a) => this.deskOn(a.id))) return { ok: false, error: 'Enable at least one desk first' };
     if (p.type !== 'trial' && String(confirm ?? '').trim() !== this.login) {
       return { ok: false, error: `Type the account number ${this.login} to confirm live trading on a ${ACCOUNT_TYPES[p.type].label}` };
     }
@@ -620,7 +637,7 @@ export class LiveTrader extends EventEmitter {
     this.bridge.watch(Object.values(map).filter(Boolean));
     // MT5 syncs faster while a desk on the account is about to trade (a setup waiting for its
     // trigger, a pending entry, a paper position to follow); slower otherwise, to save battery.
-    this.bridge.urgent = !!p && this.armed && this.fund.agents.some((a) => p.desks?.[a.id] && this.eligible(a.id)
+    this.bridge.urgent = !!p && this.armed && this.fund.agents.some((a) => this.deskOn(a.id)
       && (a.setup?.armed || a.pending || a.book.positions.size));
     this.#learnCosts();
     if (!p) return this.emit('change');
@@ -707,7 +724,7 @@ export class LiveTrader extends EventEmitter {
     const paper = {};
     // The paper side of the desks switched on for the account, to compare with FTMO.
     for (const a of this.fund.agents) {
-      if (!p.desks?.[a.id] || !this.eligible(a.id)) continue;
+      if (!this.deskOn(a.id)) continue;
       paper[a.id] = { name: a.profile.name, desk: a.profile.desk, trades: a.day.trades, wins: a.day.wins };
     }
     this.reports.snapshot(this.reportDay(), {
@@ -875,7 +892,7 @@ export class LiveTrader extends EventEmitter {
   // a stop (`intent.stop`) only whether the account can take anything from this desk now.
   gate(agent, intent = {}) {
     if (!this.ftmoOnly || this.mode !== 'live' || intent.testAlert) return null;
-    const why = this.#accountReady(agent);
+    const why = this.#accountReady(agent, intent.tag);
     if (why) return this.#refuse(agent, intent.symbol, why);
     if (!Number.isFinite(intent.stop) || !Number.isFinite(intent.entry)) return null;
     const plan = {
@@ -895,12 +912,13 @@ export class LiveTrader extends EventEmitter {
     return null;
   }
 
-  #accountReady(agent) {
+  #accountReady(agent, tag = '') {
     const block = this.#accountBlock();
     if (block) return block;
     if (!this.eligible(agent.id)) return INELIGIBLE[agent.id].replace(/ — paper only\.?$/, '');
-    if (!this.profile.desks?.[agent.id]) return 'this desk is switched off for the FTMO account (FTMO tab)';
-    return null;
+    if (this.deskOn(agent.id, tag)) return null;
+    if (this.dayDeskOnly && !agent.profile.dayTrader) return 'only the Day Trading Desk trades the FTMO account (FTMO tab)';
+    return 'this desk is switched off for the FTMO account (FTMO tab)';
   }
 
   // Counted on the day's report (the "Today on the account" card says why nothing went), at
@@ -944,6 +962,18 @@ export class LiveTrader extends EventEmitter {
     this.#note(v
       ? 'The desks trade their own way: each takes its strategy\'s signals as it sees them. No committee, no account-plan holds or size cuts, no cost, news or loss-limit rules from outside. FTMO\'s own rules stay: the loss guard, a stop-loss on every order, Best Day, news on a funded account'
       : 'The desks trade the institutional way again: the committee, the account plan, the cost and news rules and the risk desk\'s loss limits are back', 'risk');
+    return { ok: true };
+  }
+
+  setDayDeskOnly(on) {
+    const v = on === true || on === 'true';
+    if (v === this.dayDeskOnly) return { ok: true };
+    this.dayDeskOnly = v;
+    this.state.dayDeskOnly = v;
+    this.save();
+    this.#note(v
+      ? 'Day Trading Desk only switched ON: only Tyler, Sienna, Theo, Zara and Diego trade the FTMO account. The other desks stay off it (your own TradingView alerts still go)'
+      : 'Day Trading Desk only switched OFF: the desks switched on in the desk table trade the FTMO account', 'risk');
     return { ok: true };
   }
 
@@ -1012,7 +1042,7 @@ export class LiveTrader extends EventEmitter {
     const closedToday = closed.filter(isToday);
     const openProfit = openLink?.profit ?? 0;
     return {
-      enabled: !!this.profile?.desks?.[agentId] && this.eligible(agentId),
+      enabled: this.deskOn(agentId, this.fund.byId.get(agentId)?.profile.tvDesk ? 'TV' : ''),
       day: closedToday.reduce((s, l) => s + (l.pnl || 0), 0) + openProfit,
       total: closed.reduce((s, l) => s + (l.pnl || 0), 0) + openProfit,
       trades: closedToday.length + (openLink ? 1 : 0),
@@ -1031,13 +1061,12 @@ export class LiveTrader extends EventEmitter {
     const now = this.clock.now();
     const liveKeys = new Set();
     for (const agent of this.fund.agents) {
-      const enabled = this.eligible(agent.id) && p.desks[agent.id];
       for (const pos of agent.book.positions.values()) {
         const key = this.#paperKey(agent, pos);
         liveKeys.add(key);
         const link = this.links.get(key);
         if (!link) {
-          if (enabled && now - pos.trade.openTime <= ENTRY_WINDOW_MS) this.#openLive(agent, pos, key);
+          if (this.deskOn(agent.id, pos.trade?.tag) && now - pos.trade.openTime <= ENTRY_WINDOW_MS) this.#openLive(agent, pos, key);
           continue;
         }
         if (link.state !== 'open' || this.#busy(link)) continue;
@@ -1294,7 +1323,7 @@ export class LiveTrader extends EventEmitter {
   describeFor(agentId) {
     const p = this.profile;
     const agent = this.fund.byId.get(agentId);
-    if (!agent || !p?.desks?.[agentId] || !this.eligible(agentId)) return null;
+    if (!agent || !this.deskOn(agentId)) return null;
     const open = [...this.links.values()].find((l) => l.agentId === agentId && l.state === 'open' && !l.previousSession);
     if (open) {
       const pnl = open.profit ?? 0;
@@ -1428,6 +1457,7 @@ export class LiveTrader extends EventEmitter {
       armedAt: this.armedAt,
       rememberedArmed: !!this.state.armed?.[this.login],
       ftmoOnly: this.ftmoOnly,
+      dayDeskOnly: this.dayDeskOnly,
       ftmoOnlyBlock,
       ownWay: this.ownWay,
       halt: this.halt,
@@ -1448,7 +1478,11 @@ export class LiveTrader extends EventEmitter {
         return {
           id: a.id, name: a.profile.name, desk: a.profile.desk, symbols: a.symbols,
           eligible: this.eligible(a.id), reason: INELIGIBLE[a.id] || null,
-          enabled: !!p?.desks?.[a.id],
+          enabled: this.deskOn(a.id, a.profile.tvDesk ? 'TV' : ''),
+          // Day Trading Desk only: off the account whatever its switch (the TradingView desk
+          // still sends your own alerts).
+          dayDeskOff: this.dayDeskOnly && !a.profile.dayTrader && !a.profile.tvDesk,
+          alertsOnly: this.dayDeskOnly && !!a.profile.tvDesk,
           brokerSymbol: p?.symbolMap?.[a.symbol] ?? null,
           live: b.open,
           pnlToday: b.day,

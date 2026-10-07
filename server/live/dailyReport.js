@@ -20,6 +20,7 @@ const CATEGORIES = [
   [/isn't armed/i, 'FTMO trading not armed'],
   [/account is halted/i, 'Account halted'],
   [/switched off for the FTMO account/i, 'Desk switched off for FTMO'],
+  [/only the Day Trading Desk trades/i, 'Day Trading Desk only'],
   [/Pairs trades|Market making relies/i, 'Can\'t trade a prop account'],
   [/neural brain passed/i, 'Neural brain\'s paper experiment'],
   [/weekend crypto:/i, 'Weekend crypto: enough positions open'],

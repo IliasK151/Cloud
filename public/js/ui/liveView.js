@@ -74,6 +74,7 @@ export class LiveView {
       if (t.matches('[data-plan-switch]')) onPlanSwitch(t, this.store.live?.plan);
       if (t.matches('[data-stay-armed]')) this.#onStayArmed(t);
       if (t.matches('[data-ftmo-only]')) this.#post('ftmo-only', { on: t.checked }).then((r) => { if (!r.ok) t.checked = !t.checked; });
+      if (t.matches('[data-day-desk-only]')) this.#post('day-desk-only', { on: t.checked }).then((r) => { if (!r.ok) t.checked = !t.checked; });
       if (t.matches('[data-own-way]')) this.#onOwnWay(t);
       if (t.id === 'tg-enabled') this.#alertsPost('settings', { enabled: t.checked }).then((r) => this.#afterAlerts(r));
       if (t.matches('[data-tg-kind]')) this.#alertsPost('settings', { kinds: { [t.dataset.tgKind]: t.checked } }).then((r) => this.#afterAlerts(r));
@@ -475,6 +476,7 @@ export class LiveView {
         <div><span>Market data</span><b>${p && v.mode === 'live' ? 'Priced from your MT5 feed' : 'Public feeds'}</b></div>
         <div><span>Live execution</span><b>${liveState}</b></div>
       </div>
+      ${acc ? '<p class="fine">Not sure which account this is? FTMO\'s Client Area (trader.ftmo.com → Accounts) lists it: <b>Free Trial</b> (free, 14 days), <b>FTMO Challenge</b> or <b>Verification</b> (the paid evaluation), or <b>FTMO Account</b> (funded, once you\'ve passed). If you never paid FTMO, it\'s the Free Trial. Set the same type with Edit setup.</p>' : ''}
       <div class="btn-row">
         ${v.armed ? '<button class="btn" data-act="disarm">Disarm</button>' : `<button class="btn arm" data-act="arm" ${canArm ? '' : 'disabled'}>Arm live trading</button>`}
         <button class="btn danger" data-act="kill" ${v.connected ? '' : 'disabled'}>Close all & disarm</button>
@@ -495,6 +497,12 @@ export class LiveView {
         <div><b>Desks trade their own way: ${v.ownWay ? 'ON' : 'OFF'}</b><small>${v.ownWay
           ? 'Each desk takes its own strategy\'s signals as it sees them, at your risk per trade. No committee, no account-plan holds or size cuts, no cost, news or loss-limit rules from outside. FTMO\'s own rules stay: the loss guard, a stop-loss on every order, Best Day, news on a funded account.'
           : 'The institutional way: the committee grades every idea, and the account plan below decides what reaches the account and at what size.'}</small></div>
+      </div>` : ''}
+      ${v.mode === 'live' && v.dayDeskOnly !== undefined ? `<div class="plan-switch stay-armed">
+        <label class="switch"><input type="checkbox" data-day-desk-only ${v.dayDeskOnly ? 'checked' : ''} aria-label="Day Trading Desk only"><span></span></label>
+        <div><b>Day Trading Desk only: ${v.dayDeskOnly ? 'ON' : 'OFF'}</b><small>${v.dayDeskOnly
+          ? 'Only Tyler, Sienna, Theo, Zara and Diego trade your FTMO account. The other desks stay off it (with FTMO only on, they don\'t trade at all). Your own TradingView alerts still go.'
+          : 'The desks switched on in the desk table below trade your FTMO account.'}</small></div>
       </div>` : ''}
       ${v.mode === 'live' && v.ftmoOnly !== undefined ? `<div class="plan-switch stay-armed">
         <label class="switch"><input type="checkbox" data-ftmo-only ${v.ftmoOnly ? 'checked' : ''} aria-label="FTMO only"><span></span></label>
@@ -653,8 +661,8 @@ export class LiveView {
           return `<tr>
             <td><span class="desk-cell"><i style="background:${prof?.accent ?? '#888'}"></i><span>${escapeHtml(d.name)}<small>${escapeHtml(d.desk)}</small></span></span></td>
             <td>${escapeHtml(d.symbols[0])} → ${d.brokerSymbol ? `<b>${escapeHtml(d.brokerSymbol)}</b>` : '<span class="muted">not mapped</span>'}${d.id === 'chen' ? '<br><span class="muted">+ your TradingView alerts</span>' : ''}${prof?.lab ? '<br><span class="muted">market follows its research · half size while on probation</span>' : ''}${prof?.dayTrader ? `<br><span class="muted">day trades top-down · ${escapeHtml(prof.sessions || '')} (New York time) · one trade a day, 3R+</span>` : ''}</td>
-            <td>${d.eligible ? `<label class="switch" title="${d.enabled ? 'Trading FTMO' : 'Paper only'}"><input type="checkbox" data-desk="${d.id}" ${d.enabled ? 'checked' : ''} ${p ? '' : 'disabled'} aria-label="${escapeHtml(d.name)} trades FTMO"><span></span></label>` : `<span class="muted" title="${escapeHtml(d.reason)}">Paper only ⓘ</span>`}</td>
-            <td class="ftmo-status">${d.enabled && d.eligible ? ftmoStatus(d, { detail: true }) : '<span class="muted">—</span>'}</td>
+            <td>${!d.eligible ? `<span class="muted" title="${escapeHtml(d.reason)}">Paper only ⓘ</span>` : d.dayDeskOff ? '<span class="muted" title="Day Trading Desk only is on (Connection card)">Off ⓘ</span>' : `<label class="switch" title="${d.enabled ? 'Trading FTMO' : 'Paper only'}"><input type="checkbox" data-desk="${d.id}" ${d.enabled ? 'checked' : ''} ${p ? '' : 'disabled'} aria-label="${escapeHtml(d.name)} trades FTMO"><span></span></label>`}</td>
+            <td class="ftmo-status">${d.dayDeskOff ? '<span class="muted">Day Trading Desk only</span>' : d.enabled && d.eligible ? `${ftmoStatus(d, { detail: true })}` : '<span class="muted">—</span>'}</td>
             <td>${d.live ? `${d.live.side} ${d.live.volume} ${escapeHtml(d.live.symbol)}` : '<span class="muted">—</span>'}</td>
             <td class="r ${signClass(d.pnlToday)}">${d.pnlToday ? money(d.pnlToday, { sign: true }) : '<span class="muted">—</span>'}</td>
           </tr>`;

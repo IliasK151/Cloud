@@ -75,6 +75,7 @@ const MEANING = {
   'Committee grade too low': 'The committee grades every idea A, B or C. Only A and B-grade trades go to the account; a C ("not convinced") stays on paper so the desk keeps measuring.',
   'Desk not proven yet': 'The desk needs 10+ trades on real prices with a positive edge first, or switch off "Proven desks only" below.',
   'Correlated position already open': 'One position per correlated group: both US indices are one bet, so are the coins and the FX pairs.',
+  'Day Trading Desk only': 'Only the five day traders trade the FTMO account (the switch in the Connection card). The other desks stay off it.',
   'Against the top-down bias': 'Every desk reads the weekly, daily and 4-hour structure first and only trades with that bias.',
   'Another desk is in that market': 'One desk per market at a time: the desks don\'t pile into the same move.',
   'Enough trades open at once': 'At most three trades open on the account at once: the desks don\'t all trade together.',
