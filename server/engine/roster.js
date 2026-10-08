@@ -2,10 +2,13 @@ import { DayTrader } from './strategies/dayTrader.js';
 import { PLAYBOOK, zonesText } from './daytrade.js';
 
 // Every desk on the floor is a day trader: top-down the way TJR trades (engine/daytrade.js),
-// one trade a day at 3R or more. Each market has two, one for the London open and one for the
-// New York open (rules.zones), so the two never take the same setup; Bitcoin has a third for
-// the Asia open. Tested on real 1-minute history (README, "Every desk a day trader").
-const LONDON = { zones: 'london' };
+// one trade a day at 3R or more. Each market has two, one for the London session and one for
+// the New York open (rules.zones), so the two never take the same setup; Bitcoin has a third
+// for the Asia open. The London desks work the whole London morning, 02:00–07:00 New York, up
+// to the New York open (on real history: more trades and more R than the 02:00–05:00 open
+// alone); the crypto London desks keep the open, where Bitcoin did better. Tested on real
+// 1-minute history (README, "The desks").
+const LONDON = { zones: 'londonday' };
 const NEW_YORK = { zones: 'ny' };
 // Crypto runs the same playbook, safer: half the risk per trade, and no setup whose spread and
 // commission would eat more than 0.4R (crypto's costs are many times FX's).
@@ -202,8 +205,9 @@ export const SEATS = [
   },
 ];
 
-// The session a desk works: its first killzone ('london', 'ny' or 'asia').
-export const sessionOf = (p) => String(p.rules?.zones || PLAYBOOK.zones).split(',')[0].trim();
+// The session a desk works ('london', 'ny' or 'asia'), from its first killzone.
+const SESSION_OF_ZONE = { london: 'london', londonday: 'london', ny: 'ny', nyidx: 'ny', nyday: 'ny', nyfull: 'ny', nypm: 'ny', asia: 'asia' };
+export const sessionOf = (p) => SESSION_OF_ZONE[String(p.rules?.zones || PLAYBOOK.zones).split(',')[0].trim()] || 'london';
 const SESSION_ORDER = ['london', 'ny', 'asia'];
 
 // The desks on the floor now (retired seats left out), seated by session: the London desks in

@@ -1,6 +1,6 @@
 # Meridian Trading Floor
 
-A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor, and **every one of them is a day trader**. They all trade the way TJR teaches: the weekly, daily and 4-hour bias first, then a sweep of the session's liquidity, a 5-minute break of structure and an entry back in the fair value gap, aiming for 3R or more, one trade a day at most. No scalping. Every market has a **London open desk and a New York open desk** (Bitcoin has an Asia desk too), and the seven crypto desks trade at half risk. **Every desk trades your FTMO account**, and **the desks don't pile in together**: one desk per market, one trade per correlated group, at most three at once. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. Each desk **trades its own way**: its own setups, with its own stops and targets, and every trade goes to your FTMO account with only FTMO's own rules around it. (The institutional way, where a **committee** argues every idea and an **account brain** decides what reaches your prop account, is one switch away.) You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their top-down read, the liquidity they're waiting for and their P&L out loud.
+A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor, and **every one of them is a day trader**. They all trade the way TJR teaches: the weekly, daily and 4-hour bias first, then a sweep of the session's liquidity, a 5-minute break of structure and an entry back in the fair value gap, aiming for 3R or more, one trade a day at most. No scalping. Every market has a **London session desk and a New York open desk** (Bitcoin has an Asia desk too), and the seven crypto desks trade at half risk. **Every desk trades your FTMO account**, and **the desks don't pile in together**: one desk per market, one trade per correlated group, at most three at once. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. Each desk **trades its own way**: its own setups, with its own stops and targets, and every trade goes to your FTMO account with only FTMO's own rules around it. (The institutional way, where a **committee** argues every idea and an **account brain** decides what reaches your prop account, is one switch away.) You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their top-down read, the liquidity they're waiting for and their P&L out loud.
 
 ![The trading floor](docs/floor.jpg)
 
@@ -54,7 +54,7 @@ In the meantime those markets wait, with no prices. The floor keeps retrying in 
 ## The floor
 
 - **A calm, modern floor:** polished concrete, walnut slat walls, linear pendants over every desk and floor-to-ceiling windows onto the city at dusk, with soft shadows and ambient occlusion.
-- **20 desks in four tiers**: the London open desks on the two front rows; behind them, raised behind glass rails, the New York open desks on two higher tiers, with Bitcoin's Asia desk at the very back. Each desk has a six-screen workstation. The screens are live: a TradingView-style chart with the desk's entry, stop and target drawn as a position box, the book and setup checklist, a DOM ladder with time & sales, a Bloomberg-style terminal with the desk's log, the intraday P&L curve, and market watch.
+- **20 desks in four tiers**: the London session desks on the two front rows; behind them, raised behind glass rails, the New York open desks on two higher tiers, with Bitcoin's Asia desk at the very back. Each desk has a six-screen workstation. The screens are live: a TradingView-style chart with the desk's entry, stop and target drawn as a position box, the book and setup checklist, a DOM ladder with time & sales, a Bloomberg-style terminal with the desk's log, the intraday P&L curve, and market watch.
 - **A name tag floats over every desk** with the trader, their desk, today's P&L and a status dot (scanning, armed, in trade, standing aside for news, halted). Click it to talk to them.
 - **The front wall** carries the LED video wall (NAV, day P&L, fund equity, the next market-moving news, desk P&L bars, markets), world clocks and a ticker tape.
 - **The traders are real characters,** each with their own look: faces with eyes that blink and follow what they're reading, hairstyles, suits, blazers and knitwear, glasses and trading headsets. Their hands work the keyboard and mouse (the arms use inverse kinematics), and between trades they sit back to read, rest their chin on a hand, take calls on the headset or sip their coffee. They fist-pump a winner, put their hands on their head after a loser and slump when risk halts them. When they trade, a speech bubble pops up over their head.
@@ -79,9 +79,9 @@ Tickers are read the way traders say them ("gold", "the Nasdaq", "dollar yen"), 
 
 ## The desks
 
-**Every desk is a day trader.** All twenty trade the same way, the way TJR teaches: the higher-timeframe bias first, then the session's liquidity, then the entry. No scalping: at most one trade a day each, held for minutes to hours, risking 1R to make 3R or more. Every market has **two desks, one for the London open and one for the New York open**, so the two never take the same setup; Bitcoin has a third for the Asia open. All of them trade your FTMO account.
+**Every desk is a day trader.** All twenty trade the same way, the way TJR teaches: the higher-timeframe bias first, then the session's liquidity, then the entry. No scalping: at most one trade a day each, held for minutes to hours, risking 1R to make 3R or more. Every market has **two desks, one for the London session and one for the New York open**, so the two never take the same setup; Bitcoin has a third for the Asia open. All of them trade your FTMO account.
 
-**London open** (02:00–05:00 New York), the two front rows, keys `1`–`0`:
+**London session** (02:00–07:00 New York: the whole London morning, up to the New York open; the three crypto London desks 02:00–05:00), the two front rows, keys `1`–`0`:
 
 | # | Trader | Market |
 | --- | --- | --- |
@@ -141,7 +141,11 @@ Then each market was tested session by session, to pick which killzones get a de
 
 Bitcoin's Asia open (with the earlier, stricter rule): 7 → 6 trades, +0.18R → +0.40R. The other killzones were tried too and barely trade: the Asia open on gold, oil and the indices, the New York afternoon, and 15-minute shifts instead of 5-minute ones gave a handful of trades in 20 months, mostly losers. That's why every desk works the London or the New York open.
 
-**Through the floor's own code** (every desk replayed minute by minute with its own session, costs and learning, `npm run baseline`): the fourteen desks with real history took **613 trades, +61R in all**. On the indices, gold, oil and FX (July 2018 to May 2020) that's 531 trades at **+0.08R a trade**; on Bitcoin (2017–2018) 82 trades at +0.21R. The best: Sienna +0.34R a trade over 52 trades, Lucas +0.30R over 24, James +0.25R over 39, Viktor +0.24R over 42. The worst: Zara (EURUSD, New York) −0.16R over 66 and Theo (gold, New York) −0.08R over 40. Every desk's numbers are in *The long run* below.
+**The whole London session.** The London desks first worked the London open only, 02:00–05:00 New York, so from 05:00 until the New York open at 07:00 no desk was looking while London still traded. Replayed to 07:00 instead, the London desks (crypto aside) took a third more trades and made more both halves: across the eleven tested desks 1.25 trades a day instead of 1.08, 28% quiet weekdays instead of 34%, +65R instead of +53R over the 20 months, with the worst drawdown 24R instead of 20R. So they work the whole London morning now. Bitcoin did worse with it (in 2018), so the three crypto London desks keep 02:00–05:00. Longer New York windows (to 12:00 or 14:00) did worse, so the New York desks keep 07:00–11:00.
+
+**The A+ zone entry (tested, off).** A second entry, after the boss's own A+ playbook: in the bias's direction price trades into a weekly or daily area of interest, and a 15-minute candle rejects it (an engulfing, or a pin bar with a long wick), in at once, the stop beyond the rejection, the target the liquidity on the other side at 2R or more. Added to the sweep it would take the eleven tested desks to 2.04 trades a day and 14% quiet weekdays, but its own trades lost a little in both halves (−0.02R and −0.05R a trade), the total fell to +52R and the worst drawdown rose to 37R (9% of the account at 0.25% a trade, close to FTMO's 10% max loss). On Bitcoin it lost 0.59R a trade in 2018. At 3R, or on 5-minute candles, it did worse. So it's off. A discretionary read of a zone is more than a candle rule; to test it on your own prices: `npm run daytrade-test -- --set zone=1` (and `zoneRR=3`, `zoneTf=M5`).
+
+**Through the floor's own code** (every desk replayed minute by minute with its own session, costs and learning, `npm run baseline`): the fourteen desks with real history took **694 trades, +70R in all**. On the indices, gold, oil and FX (July 2018 to May 2020) that's 612 trades at **+0.09R a trade**; on Bitcoin (2017–2018) 82 trades at +0.21R. The best: James +0.39R a trade over 51 trades, Sienna +0.34R over 52, Priya +0.28R over 82, Amara +0.26R over 39. The worst: Lucas (oil, London) −0.22R over 39 and Zara (EURUSD, New York) −0.16R over 66. Every desk's numbers are in *The long run* below.
 
 Read that carefully:
 - It's the shape you asked for: most trades lose about 1R, the winners pay 3R or more, and two out of three trades lose. Losing streaks of ten happen.
@@ -580,7 +584,7 @@ Together with FTMO only, every trade a desk takes is a trade on your FTMO accoun
 
 **Which P&L you're looking at.** Every desk also keeps paper trading with the fund's practice money, which runs to millions per desk (with FTMO only on, those are its FTMO trades, at the floor's own size). Once an FTMO account is connected, the top bar, desk list, desk signs, video wall and trader panels show **your FTMO account**: its equity, today's P&L and each desk's P&L on it. A desk that isn't switched on for the account says **paper**. The **FTMO / Paper** switch at the top flips the floor (and the dashboard) back to the paper fund, and the paper dashboard has a **Reset paper P&L** button.
 
-**Why a desk hasn't traded yet.** A desk only trades in its killzone (the London open, 02:00–05:00 New York, or the New York open, 07:00–11:00; Elena the Asia open, 20:00–23:00), and only when price sweeps liquidity against its bias and shifts. Most days a desk doesn't trade at all. No new trades open between 16:50 and 18:00 New York time, around the daily roll-over.
+**Why a desk hasn't traded yet.** A desk only trades in its window (the London session, 02:00–07:00 New York, the crypto London desks to 05:00; the New York open, 07:00–11:00; Elena the Asia open, 20:00–23:00), and only when price sweeps liquidity against its bias and shifts. Most days a desk doesn't trade at all. No new trades open between 16:50 and 18:00 New York time, around the daily roll-over.
 
 **No MT5 handy?** Run `npm run mock-mt5` in a **second** Terminal window while `npm start` runs in the first. It pretends to be an FTMO Free Trial terminal, so you can try the whole connect → set up → arm → trade flow. ("Floor not reachable" means the floor isn't running in the other window.)
 
@@ -620,12 +624,12 @@ A few weeks of your own prices can't tell an edge from luck, so every desk was a
 
 | Desk | Session | Market | Trades | Per trade (90% range) | Quarters up |
 |---|---|---|---|---|---|
-| Marcus | London | NAS100 | 35 | +0.04R (−0.47 to +0.59) | 5 of 8 |
-| James | London | SPX500 | 39 | +0.25R (−0.38 to +0.90) | 5 of 8 |
-| Amara | London | XAUUSD | 27 | +0.06R (−0.52 to +0.72) | 4 of 8 |
-| Lucas | London | USOIL | 24 | +0.30R (−0.48 to +1.15) | 4 of 8 |
-| Priya | London | EURUSD | 65 | +0.16R (−0.28 to +0.63) | 5 of 10 |
-| Hannah | London | GBPUSD | 67 | −0.01R (−0.40 to +0.46) | 7 of 10 |
+| Marcus | London | NAS100 | 43 | −0.01R (−0.50 to +0.51) | 3 of 8 |
+| James | London | SPX500 | 51 | +0.39R (−0.16 to +0.95) | 6 of 8 |
+| Amara | London | XAUUSD | 39 | +0.26R (−0.30 to +0.87) | 5 of 8 |
+| Lucas | London | USOIL | 39 | −0.22R (−0.75 to +0.41) | 3 of 8 |
+| Priya | London | EURUSD | 82 | +0.28R (−0.11 to +0.66) | 6 of 10 |
+| Hannah | London | GBPUSD | 84 | −0.06R (−0.41 to +0.32) | 6 of 10 |
 | Mei | London | BTCUSD | 23 | +0.11R (−0.64 to +0.94) | 4 of 7 |
 | Tyler | New York | NAS100 | 58 | +0.12R (−0.26 to +0.52) | 4 of 8 |
 | Sienna | New York | SPX500 | 52 | +0.34R (−0.17 to +0.94) | 3 of 8 |
@@ -637,7 +641,7 @@ A few weeks of your own prices can't tell an edge from luck, so every desk was a
 
 Sofia and Arjun (USDJPY), Chen and Kenji (Ether), Omar and Isabella (Solana): no real history here, so no record.
 
-A verdict needs 100 trades, and a day trader takes one a day at most, on the days its setup shows up: 22 months gives each one 17 to 67. So every desk is *too few trades* for now, and the record holds none of them back. Together: 613 trades, +61R. No desk's whole 90% range is above zero.
+A verdict needs 100 trades, and a day trader takes one a day at most, on the days its setup shows up: 22 months gives each one 17 to 84. So every desk is *too few trades* for now, and the record holds none of them back. Together: 694 trades, +70R. No desk's whole 90% range is above zero. (The London desks run 02:00–07:00 New York here; on the London open alone they took 271 trades for +30R, now 338 for +39R.)
 
 With the stricter displacement rule first chosen (0.5 of an ATR) the same replay gave 489 trades and +59R: the softer rule added 124 trades for +2R, and it moved the desks around. Tyler went from +0.46R a trade to +0.12R and Sienna from +0.69R to +0.34R; Priya (+0.02R → +0.16R), Lucas (+0.03R → +0.30R) and Hannah (−0.19R → −0.01R) improved; Zara went from +0.01R to −0.16R.
 
@@ -739,7 +743,7 @@ The first card on the FTMO tab answers that in one sentence (while training on F
 - **Why trades stayed on paper today,** counted by reason, with what each reason means. The usual one: the committee grades every idea A, B or C, and only A and B-grade trades go to the account. A C ("not convinced") stays on paper, so the desk keeps measuring.
 - **Every desk on the account:** what it's doing right now, its ideas, paper trades and FTMO trades today, and the latest reason it didn't trade the account. A desk with no setup says how far its day got, in one line: *W ↑ · D ↑ · 4H ↓: bullish bias; waiting for its window (London open 02:00–05:00 New York) and price to run a low*, *…swept the Asia low, but no 5-minute shift followed*, *…swept and shifted, but outside its window*, *No bias today: the higher timeframes disagree*, *Had a setup, cancelled: no pullback to 2401.0 within 60 minutes*. On a day with no trades the headline groups them (*Right now: 9 desks saw no liquidity swept against their bias; …*).
 
-**How often is a day quiet?** Often, by design: each desk takes one trade a day at most, and only after a sweep and a shift. Replayed on 20 months of real prices, the eleven tested London and New York desks trade **1.08 times a day** between them, and **34% of weekdays have no trade at all** (the longest quiet stretch: 4 weekdays). The crypto, yen, Ether and Solana desks add a little on top. That's with the softer displacement rule the floor uses now: the shift candle needs 0.3 of a 5-minute ATR of body, not the 0.5 first chosen. With 0.5 it was 0.83 trades a day and 43% quiet weekdays (54% with only the old five-desk Day Trading Desk on the account). The extra trades about broke even: the same total over the 20 months (+53R against +56R) and the same worst drawdown (20.5R against 20R), so a little less a trade on average (+0.12R against +0.16R).
+**How often is a day quiet?** Often, by design: each desk takes one trade a day at most, and only after a sweep and a shift. Replayed on 20 months of real prices, the eleven tested London and New York desks trade **1.25 times a day** between them, and **28% of weekdays have no trade at all** (the longest quiet stretch: 4 weekdays). The crypto, yen, Ether and Solana desks add a little on top. Two changes got it there from 0.83 trades a day and 43% quiet weekdays (54% with only the old five-desk Day Trading Desk on the account): the softer displacement rule (the shift candle needs 0.3 of a 5-minute ATR of body, not 0.5: 1.08 a day, about the same total and drawdown, a little less a trade) and the London desks working the whole London morning (see *The whole London session* above).
 
 The floor's desk rail shows the same in one line (*No trades on FTMO yet today. 1 held back (committee grade too low)*) with a button to the FTMO tab. Counts start at the beginning of the trading day (18:00 New York).
 

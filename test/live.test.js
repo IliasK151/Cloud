@@ -701,7 +701,7 @@ test('Today on the account: ideas, what the committee turned down, what stayed o
   assert.match(c.windows[0].local, /^10:00/);
   assert.match(c.windows[1].local, /^(16:30|04:30 PM)/);
   assert.deepEqual(c.killzones.map((k) => k.open), [true, false, false], 'the London open killzone');
-  assert.deepEqual(c.killzones.map((k) => k.name), ['London open', 'New York open', 'Asia open (Bitcoin)']);
+  assert.deepEqual(c.killzones.map((k) => k.name), ['London session', 'New York open', 'Asia open (Bitcoin)']);
   assert.equal(marketClock(Date.UTC(2026, 9, 3, 12, 0), 'Europe/Athens').weekend, true, 'Saturday');
   assert.match(marketClock(Date.UTC(2026, 9, 1, 14, 0), 'Europe/Athens').session, /New York session/);
 });

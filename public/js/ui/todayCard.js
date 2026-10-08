@@ -57,9 +57,10 @@ export function marketClock(ms, timeZone) {
     ny: `${String(p.h).padStart(2, '0')}:${String(p.m).padStart(2, '0')}`,
     local: localTime(ms, timeZone),
     session, quiet, weekend, windows,
-    // The desks' killzones: the London open 02:00–05:00 New York, the New York open 07:00–11:00
-    // and, for Bitcoin's Asia desk, the Asia open 20:00–23:00 (engine/daytrade.js).
-    killzones: [kz('London open', 2 * 60, 5 * 60), kz('New York open', 7 * 60, 11 * 60), kz('Asia open (Bitcoin)', 20 * 60, 23 * 60)],
+    // The desks' windows: the London session 02:00–07:00 New York (the crypto London desks the
+    // open, to 05:00), the New York open 07:00–11:00 and, for Bitcoin's Asia desk, the Asia open
+    // 20:00–23:00 (engine/daytrade.js).
+    killzones: [kz('London session', 2 * 60, 7 * 60), kz('New York open', 7 * 60, 11 * 60), kz('Asia open (Bitcoin)', 20 * 60, 23 * 60)],
   };
 }
 

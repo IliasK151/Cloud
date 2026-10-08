@@ -50,12 +50,23 @@ export const PLAYBOOK = {
   zones: 'london,ny', // the killzones (see KILLZONES)
   sweepKz: 0, // 1: the sweep itself must come inside a killzone (the open's stop run)
   maxCostR: null, // skip a setup whose spread and commission would eat more than this, in R
+  // The A+ zone entry (the boss's own playbook), alongside the sweep: in the bias's direction,
+  // price trades into a weekly or daily area of interest and a candle on zoneTf rejects it
+  // (an engulfing or a pin bar). In at once, the stop beyond the rejection, the target the
+  // liquidity on the other side at zoneRR or more. 0: off.
+  zone: 0,
+  zoneTf: 'M15',
+  zoneRR: 2,
 };
 
 // New York time, minutes since midnight.
 export const KILLZONES = {
   london: { id: 'london', label: 'London open', from: 2 * 60, to: 5 * 60 },
   ny: { id: 'ny', label: 'New York open', from: 7 * 60, to: 11 * 60 },
+  // The whole sessions: London until New York opens, New York until lunch, or its whole day.
+  londonday: { id: 'londonday', label: 'London session', from: 2 * 60, to: 7 * 60 },
+  nyday: { id: 'nyday', label: 'New York session', from: 7 * 60, to: 12 * 60 },
+  nyfull: { id: 'nyfull', label: 'New York session', from: 7 * 60, to: 14 * 60 },
   nyidx: { id: 'nyidx', label: 'New York open', from: 9 * 60 + 30, to: 11 * 60 + 30 },
   nypm: { id: 'nypm', label: 'New York afternoon', from: 13 * 60 + 30, to: 15 * 60 },
   asia: { id: 'asia', label: 'Asia open', from: 20 * 60, to: 23 * 60 },
@@ -72,6 +83,7 @@ export function zonesText(zones) {
 // A level's name inside a sentence: "the Asia low", "the previous day high", "the 3R".
 const lc = (label) => (/^(Asia|London|New York|\d)/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1));
 
+const aoiName = (z) => `${z.both ? 'weekly + daily' : z.tf === 'W' ? 'weekly' : 'daily'} AOI`;
 const bodyHi = (c) => Math.max(c.open, c.close);
 const bodyLo = (c) => Math.min(c.open, c.close);
 
@@ -107,7 +119,7 @@ export class DayPlaybook {
     this.events = []; // cancelled setups since the desk last looked (it says so on the floor)
     this.day = null;
     // What happened, all along: days with a bias, sweeps, shifts and why they didn't trade.
-    this.stats = { days: 0, biasDays: 0, sweeps: 0, deep: 0, stale: 0, shifts: 0, outside: 0, busy: 0, weak: 0, noGap: 0, located: 0, noTarget: 0, costly: 0, orders: 0 };
+    this.stats = { days: 0, biasDays: 0, sweeps: 0, deep: 0, stale: 0, shifts: 0, outside: 0, busy: 0, weak: 0, noGap: 0, located: 0, noTarget: 0, costly: 0, orders: 0, zoneTouches: 0, zoneBroken: 0, zoneWide: 0, zoneOrders: 0 };
     this.reset();
   }
 
@@ -124,6 +136,10 @@ export class DayPlaybook {
     this.dayBias = null;
     this.daySwept = null;
     this.dayCancels = [];
+    // The zone entry: zones already tried today, the zone price is in now.
+    this.zoneUsed = new Set();
+    this.zoneTouch = null;
+    this.zoneSeq = null;
   }
 
   // A closed 1-minute bar, after the book has it. Returns a new order { side, entry, stop,
@@ -206,8 +222,14 @@ export class DayPlaybook {
       }
     }
 
+    // The A+ zone entry, alongside the sweep.
+    if (R.zone) {
+      const z = this.#zoneSetup(book, bar, read, bias, kz);
+      if (z) return z;
+    }
+
     const sw = this.sweep[side];
-    if (!sw) return this.#idle(`${read.short}: ${long ? 'bullish' : 'bearish'} bias, waiting for price to run ${long ? 'a low' : 'a high'}`);
+    if (!sw) return this.#idle(this.zoneTouch ? `${read.short}: ${long ? 'bullish' : 'bearish'} bias, price is in the ${aoiName(this.zoneTouch.z)} at ${this.fmt(this.zoneTouch.z.level)}, waiting for a ${R.zoneTf === 'M5' ? '5' : '15'}-minute rejection` : `${read.short}: ${long ? 'bullish' : 'bearish'} bias, waiting for price to run ${long ? 'a low' : 'a high'}`);
 
     // The shift, read on the shift timeframe's candles as each one closes.
     this.why = `Swept the ${lc(sw.level.label)}; waiting for the ${R.tf === 'M15' ? '15' : '5'}-minute shift${sw.refLevel != null ? ` (a close ${long ? 'above' : 'below'} ${this.fmt(sw.refLevel)})` : ''}`;
@@ -299,6 +321,79 @@ export class DayPlaybook {
   }
 
   filled() { this.trades++; }
+
+  // The A+ zone entry: price in a weekly or daily AOI on the bias side, then a candle that
+  // rejects it. Each zone gets one try a day; a close well through it means the zone broke.
+  #zoneSetup(book, bar, read, bias, kz) {
+    const R = this.rules;
+    const long = bias === 'LONG';
+    for (const z of read.aois || []) {
+      const key = `${z.tf}|${z.level}`;
+      if (this.zoneUsed.has(key) || this.zoneTouch?.key === key) continue;
+      if (long ? bar.low <= z.hi && bar.high >= z.lo : bar.high >= z.lo && bar.low <= z.hi) {
+        this.zoneTouch = { key, z, at: bar.time, extreme: long ? bar.low : bar.high, candles: 0 };
+        this.stats.zoneTouches++;
+      }
+    }
+    const t = this.zoneTouch;
+    if (!t) return null;
+    t.extreme = long ? Math.min(t.extreme, bar.low) : Math.max(t.extreme, bar.high);
+    const candles = book.candles(R.zoneTf);
+    const c = candles.at(-1);
+    if (!c || c.seq === this.zoneSeq) return null; // once per closed candle
+    this.zoneSeq = c.seq;
+    const span = (R.zoneTf === 'M5' ? 5 : 15) * MIN;
+    if (c.time + span <= t.at) return null; // closed before price reached the zone
+    const atr = atrOf(candles);
+    if (!(atr > 0)) return null;
+    const z = t.z;
+    const drop = (stat) => {
+      if (stat) this.stats[stat]++;
+      this.zoneUsed.add(t.key);
+      this.zoneTouch = null;
+      return null;
+    };
+    if (long ? c.close < z.lo - 0.5 * atr : c.close > z.hi + 0.5 * atr) return drop('zoneBroken');
+    const prev = candles.at(-2);
+    const range = c.high - c.low;
+    const engulf = !!prev && (long
+      ? c.close > c.open && c.open <= bodyLo(prev) && c.close >= bodyHi(prev)
+      : c.close < c.open && c.open >= bodyHi(prev) && c.close <= bodyLo(prev));
+    const pin = range >= 0.5 * atr && (long ? bodyLo(c) - c.low >= 0.6 * range : c.high - bodyHi(c) >= 0.6 * range);
+    const atZone = long ? c.low <= z.hi + 0.1 * atr : c.high >= z.lo - 0.1 * atr;
+    if (!(engulf || pin) || !atZone) {
+      if (++t.candles >= 4) this.zoneTouch = null; // no rejection within the hour: let it go
+      return null;
+    }
+    // A rejection outside its window doesn't count, and doesn't use the zone up for the day.
+    if (!kz) {
+      this.zoneTouch = null;
+      return null;
+    }
+    if (this.pending || this.trades >= R.maxPerDay) return drop();
+    const entry = c.close;
+    const stop = long ? Math.min(c.low, t.extreme) - R.stopBuf * atr : Math.max(c.high, t.extreme) + R.stopBuf * atr;
+    const risk = Math.abs(entry - stop);
+    if (!(risk > 0) || risk > 3 * atr) return drop('zoneWide');
+    const cost = R.maxCostR && this.costR ? this.costR(entry, stop) : null;
+    if (cost != null && cost > R.maxCostR) return drop('costly');
+    const rr = (x) => Math.abs(x.price - entry) / risk;
+    const tgt = this.#targets(book, read, long, entry, long ? c.high : c.low).find((x) => rr(x) >= R.zoneRR && rr(x) <= R.maxRR)
+      || { label: `${R.zoneRR}R`, price: long ? entry + R.zoneRR * risk : entry - R.zoneRR * risk };
+    const how = engulf ? 'engulfing' : 'pin bar';
+    const order = {
+      side: bias, entry, stop, target: tgt.price, market: true, risk, rr: rr(tgt), at: bar.time, zone: kz.id, model: 'zone',
+      swept: aoiName(z), sweptPrice: z.level, extreme: t.extreme, targetLabel: tgt.label, bias: read.short,
+      reason: `${read.short} ${long ? 'bullish' : 'bearish'} bias · ${kz.label}: rejection from the ${aoiName(z)} at ${this.fmt(z.level)} (${R.zoneTf === 'M5' ? '5' : '15'}-minute ${how}); target the ${lc(tgt.label)} (${rr(tgt).toFixed(1)}R)`,
+    };
+    order.entryText = this.fmt(entry);
+    this.stats.zoneOrders++;
+    this.lastSetup = order;
+    this.zoneUsed.add(t.key);
+    this.zoneTouch = null;
+    this.why = `Setup: ${order.reason}`;
+    return order;
+  }
 
   #cancel(why) {
     this.pending = null;

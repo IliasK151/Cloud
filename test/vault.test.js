@@ -85,7 +85,7 @@ test('the vault: a note per desk, trade, day, market and lesson, linked for Obsi
   assert.match(desk, /\| Kept in the book \| 2 \| 1 \| 50% \|/);
   assert.match(desk, /\[\[Marcus - Sit out the Asian session\]\] · active/);
   assert.match(desk, /## Recent trades\n- \[\[/);
-  assert.match(desk, /Entry rules: bias majority · .* · minRR 3 · .* · zones london · sweepKz 0\n/);
+  assert.match(desk, /Entry rules: bias majority · .* · minRR 3 · .* · zones londonday · sweepKz 0 · zone 0 · zoneTf M15 · zoneRR 2\n/);
   const home = read(dir, 'Home.md');
   assert.match(home, /\| \[\[Marcus Reid\]\] \| NAS100 \| 2 \| 1 \|/);
   assert.match(home, /\[\[What works\]\] · \[\[What loses\]\]/);

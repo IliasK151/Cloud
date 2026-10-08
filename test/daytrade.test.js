@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SEATS, ROSTER, publicProfile } from '../server/engine/roster.js';
+import { SEATS, ROSTER, publicProfile, sessionOf } from '../server/engine/roster.js';
 import { Structure, TopDownBook, nyMinute, tradingDayOf } from '../server/engine/topdown.js';
 import { DayPlaybook, PLAYBOOK, killzoneAt, zonesText } from '../server/engine/daytrade.js';
 import { DayTrader } from '../server/engine/strategies/dayTrader.js';
@@ -39,18 +39,23 @@ test('every desk is a day trader: a London and a New York desk on every market, 
     assert.ok(!p.weekendSymbol, 'the playbook was tested on its own markets, not weekend crypto');
     assert.equal(p.rules.zones.split(',').length, 1, `${p.id} works one session`);
   }
-  // Every market: one desk for the London open, one for the New York open, so the two never
+  // Every market: one desk for the London session, one for the New York open, so the two never
   // take the same setup. Bitcoin has a third, for the Asia open.
-  const bySession = (zone) => ROSTER.filter((p) => p.rules.zones === zone).map((p) => p.symbols[0]).sort();
+  const bySession = (session) => ROSTER.filter((p) => sessionOf(p) === session).map((p) => p.symbols[0]).sort();
   const markets = ['BTCUSD', 'ETHUSD', 'EURUSD', 'GBPUSD', 'NAS100', 'SOLUSD', 'SPX500', 'USDJPY', 'USOIL', 'XAUUSD'];
   assert.deepEqual(bySession('london'), markets);
   assert.deepEqual(bySession('ny'), markets.filter((m) => m !== 'GBPUSD'), 'Cable lost in both halves of the New York test: no desk there');
   assert.deepEqual(bySession('asia'), ['BTCUSD']);
   // Seated by session: the London desks first (the front rows, keys 1–0), then New York, then Asia.
-  assert.deepEqual(ROSTER.map((p) => p.rules.zones), [...Array(10).fill('london'), ...Array(9).fill('ny'), 'asia']);
+  assert.deepEqual(ROSTER.map(sessionOf), [...Array(10).fill('london'), ...Array(9).fill('ny'), 'asia']);
+  // The London desks work the whole London morning, up to the New York open; the crypto London
+  // desks the open only (Bitcoin did better there).
+  for (const p of ROSTER.filter((x) => sessionOf(x) === 'london')) assert.equal(p.rules.zones, p.crypto ? 'london' : 'londonday', p.id);
   // The FTMO tab says when each one trades.
   const byId = (id) => publicProfile(ROSTER.find((p) => p.id === id));
-  assert.equal(byId('marcus').sessions, 'London open 02:00–05:00');
+  assert.equal(byId('marcus').sessions, 'London session 02:00–07:00');
+  assert.equal(byId('marcus').session, 'london');
+  assert.equal(byId('mei').sessions, 'London open 02:00–05:00');
   assert.equal(byId('tyler').sessions, 'New York open 07:00–11:00');
   assert.equal(byId('elena').sessions, 'Asia open 20:00–23:00');
   assert.equal(byId('tyler').session, 'ny');
@@ -232,6 +237,27 @@ test('the playbook stays out: a bearish bias doesn\'t buy a swept low, a run tha
   }
   assert.equal(ny.stats.outside, 1);
   assert.ok([...said].includes('Price swept the Asia low and shifted, outside the killzones: no trade'), [...said].join('\n'));
+});
+
+test('the A+ zone entry (off by default, tested and lost): a rejection candle from a daily AOI on the bias side', () => {
+  assert.equal(PLAYBOOK.zone, 0, 'off: on real history it lost in both halves');
+  const book = biasedBook('LONG');
+  const read = book.read;
+  book.read = () => ({ ...read(), aois: [{ tf: 'D', level: 2400, lo: 2399.5, hi: 2400.5, touches: 3, both: false }] });
+  const pb = new DayPlaybook({ zones: 'london', zone: 1 });
+  let order = null;
+  for (const b of goldDay()) {
+    book.feed(b);
+    order ||= pb.onBar(book, b);
+  }
+  assert.ok(order, pb.why);
+  assert.equal(order.model, 'zone');
+  assert.equal(order.market, true, 'in at the close of the rejection candle');
+  assert.equal(order.side, 'LONG');
+  assert.ok(order.stop < 2398.6, 'stop beyond the rejection');
+  assert.ok(order.rr >= 2);
+  assert.match(order.reason, /London open: rejection from the daily AOI at 2400 \(15-minute pin bar\); target the /);
+  assert.equal(pb.stats.zoneOrders, 1);
 });
 
 test('a quiet day explains itself: each desk\'s day in one line, grouped on the report card and the phone', async () => {

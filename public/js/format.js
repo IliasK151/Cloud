@@ -53,7 +53,7 @@ export function initials(name) {
 
 // Every desk day trades one session: the London open, the New York open or the Asia open.
 export const SESSIONS = {
-  london: { label: 'London open', key: 'L', hours: '02:00–05:00 New York' },
+  london: { label: 'London session', key: 'L', hours: '02:00–07:00 New York (crypto 02:00–05:00)' },
   ny: { label: 'New York open', key: 'N', hours: '07:00–11:00 New York' },
   asia: { label: 'Asia open', key: 'A', hours: '20:00–23:00 New York' },
 };
