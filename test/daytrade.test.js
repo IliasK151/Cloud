@@ -234,6 +234,71 @@ test('the playbook stays out: a bearish bias doesn\'t buy a swept low, a run tha
   assert.ok([...said].includes('Price swept the Asia low and shifted, outside the killzones: no trade'), [...said].join('\n'));
 });
 
+test('a quiet day explains itself: each desk\'s day in one line, grouped on the report card and the phone', async () => {
+  const at = (day, h, m) => nyWallToMs(2026, 10, day, h, m);
+  const story = (pb, ms) => pb.story(ms);
+  // A London desk on the gold day: waiting for its window, the sweep, the setup, the trade.
+  const book = biasedBook('LONG');
+  const pb = new DayPlaybook({ zones: 'london' });
+  const seen = {};
+  for (const b of goldDay()) {
+    book.feed(b);
+    const order = pb.onBar(book, b);
+    const ms = (b.time + 60) * 1000;
+    if (b.time === sec(13, 20, 0)) seen.evening = story(pb, ms);
+    if (b.time === sec(14, 2, 37)) seen.swept = story(pb, ms);
+    if (order) seen.setup = story(pb, ms);
+  }
+  assert.equal(seen.evening.key, 'waiting');
+  assert.match(seen.evening.text, /^W ↑ · D ↑ · 4H ↑: bullish bias; waiting for its window \(London open 02:00–05:00 New York\) and price to run a low$/);
+  assert.equal(seen.swept.key, 'swept');
+  assert.match(seen.swept.text, /swept the Asia low, waiting for the 5-minute shift$/);
+  assert.equal(seen.setup.key, 'setup');
+  assert.match(seen.setup.text, /^Setup waiting for the pullback to 2400\.9 \(stop /);
+  pb.filled();
+  assert.equal(pb.story(at(14, 6, 0)).key, 'traded');
+  // The next trading day, before a bar of it: its market hasn't opened.
+  assert.equal(pb.story(at(15, 9, 0)).key, 'closed');
+
+  // A New York desk saw the same shift, but in the London open: outside its window.
+  const ny = new DayPlaybook({ zones: 'ny' });
+  const b2 = biasedBook('LONG');
+  for (const b of goldDay()) { b2.feed(b); ny.onBar(b2, b); }
+  assert.equal(ny.story(at(14, 12, 0)).key, 'outside');
+  // A bearish desk: nothing ran a high for it to sell after.
+  const bear = new DayPlaybook({ zones: 'london' });
+  const b3 = biasedBook('SHORT');
+  for (const b of goldDay()) { b3.feed(b); bear.onBar(b3, b); }
+  assert.equal(bear.story(at(14, 2, 55)).key, 'watching');
+  const late = bear.story(at(14, 12, 0));
+  assert.equal(late.key, 'nosweep');
+  assert.match(late.text, /bearish bias, but price didn't run a high for it to sell after$/);
+  // A run that keeps going is a breakdown, not a sweep.
+  const deep = new DayPlaybook({ zones: 'london' });
+  const b4 = biasedBook('LONG');
+  for (const b of goldDay({ deep: true })) { b4.feed(b); deep.onBar(b4, b); }
+  assert.equal(deep.story(at(14, 12, 0)).key, 'breakdown');
+  // No bias at all.
+  const flat = new DayPlaybook({ zones: 'london' });
+  const b5 = biasedBook('LONG');
+  const read = b5.read;
+  b5.read = () => ({ ...read(), bias: null, short: 'W ↑ · D ↓ · 4H –' });
+  for (const b of goldDay()) { b5.feed(b); flat.onBar(b5, b); }
+  assert.match(flat.story(at(14, 12, 0)).text, /^No bias today \(W ↑ · D ↓ · 4H –\): the higher timeframes disagree, so no trade$/);
+
+  // The day's report groups them, and the phone summary says why nothing traded.
+  const { storyGroups, summarize } = await import('../server/live/dailyReport.js');
+  const { dailyAlertText } = await import('../server/live/liveTrader.js');
+  const paper = {};
+  const names = ['Marcus Reid', 'Sofia Laurent', 'Amara Okafor', 'James Whitfield', 'Priya Sharma', 'Theo Hart'];
+  names.forEach((name, i) => { paper[`d${i}`] = { name, trades: 0, wins: 0, story: i < 4 ? late : i === 4 ? flat.story(at(14, 12, 0)) : ny.story(at(14, 12, 0)) }; });
+  const groups = storyGroups(paper);
+  assert.deepEqual(groups.map((g) => [g.key, g.names.length]), [['nosweep', 4], ['nobias', 1], ['outside', 1]]);
+  const s = summarize({ day: '2026-10-14', desks: {}, skipped: {}, events: [], trades: [], paper, account: null });
+  const text = dailyAlertText(s);
+  assert.match(text, /No trades reached the account\. Why: 4 desks: no liquidity swept against their bias; Priya: no bias \(the higher timeframes disagree\); Theo: swept and shifted outside their window\./);
+});
+
 // A live-mode desk on its own market with a hand-made top-down read.
 function deskEnv(profile, book) {
   const clock = { mode: 'live', speed: 1, t: 0, now() { return this.t; } };
@@ -266,6 +331,11 @@ test('a day trader on the floor: waits for the pullback, takes it with its stop 
   assert.match(agent.setup.topDown, /bullish bias/);
   assert.ok(agent.setup.checklist.slice(0, 5).every((c) => c.ok), JSON.stringify(agent.setup.checklist));
   assert.match(agent.pitch(), /I have a buy setup on XAUUSD/);
+  assert.equal(agent.dayStory().key, 'setup', 'its day in one line');
+  const t = clock.t;
+  clock.t = nyWallToMs(2026, 10, 17, 12, 0); // Saturday: no gold prices today
+  assert.equal(agent.dayStory().key, 'closed');
+  clock.t = t;
   // The pullback fills it: no partial at 1R, no trailing; stop and target as planned.
   md.applyTick('XAUUSD', p.entry, 1, clock.t);
   agent.onTick('XAUUSD', p.entry);

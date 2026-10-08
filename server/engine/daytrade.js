@@ -115,6 +115,12 @@ export class DayPlaybook {
     this.trades = 0;
     this.lastSetup = null;
     this.why = 'Waiting for the day to start';
+    // The day so far, for story(): the funnel at the start of the day, the bias it had, the
+    // last level swept against it and the setups cancelled.
+    this.dayStart = { ...this.stats };
+    this.dayBias = null;
+    this.daySwept = null;
+    this.dayCancels = [];
   }
 
   // A closed 1-minute bar, after the book has it. Returns a new order { side, entry, stop,
@@ -124,9 +130,9 @@ export class DayPlaybook {
     const ms = bar.time * 1000 + 60_000; // the bar's close
     const day = tradingDayOf(ms - 1);
     if (day !== this.day) {
+      this.stats.days++;
       this.reset();
       this.day = day;
-      this.stats.days++;
       this.biasSeen = false;
     }
     const read = book.read();
@@ -157,6 +163,7 @@ export class DayPlaybook {
     if (!read.ready) return this.#idle(read.text);
     if (!bias) return this.#idle(`${read.short}: no clear bias, no trade`);
     if (!this.biasSeen) { this.biasSeen = true; this.stats.biasDays++; }
+    this.dayBias = bias;
     if (!(atr > 0)) return this.#idle('Building the 5-minute chart');
 
     // Sweeps: price trading through a level on the bias side (sell-side under a bullish bias).
@@ -173,6 +180,7 @@ export class DayPlaybook {
         if (!s || bar.time - s.at > R.shiftWithin * MIN || (long ? lv.price < s.level.price : lv.price > s.level.price)) {
           if (!s) this.stats.sweeps++;
           this.sweep[side] = { level: lv, at: bar.time, extremeAt: bar.time, extreme, refLevel: null };
+          this.daySwept = lv.label;
         }
       }
     }
@@ -292,6 +300,7 @@ export class DayPlaybook {
   #cancel(why) {
     this.pending = null;
     this.why = `Setup cancelled: ${why}`;
+    this.dayCancels.push(why);
     const ev = { kind: 'cancel', why };
     this.events.push(ev);
     if (this.events.length > 20) this.events.shift();
@@ -334,6 +343,46 @@ export class DayPlaybook {
       if (long ? p > legEnd : p < legEnd) out.push({ label: `${id === 'H4' ? '4-hour' : 'daily'} ${long ? 'high' : 'low'}`, price: p });
     }
     return out.sort((a, b) => Math.abs(a.price - entry) - Math.abs(b.price - entry));
+  }
+
+  // The desk's day so far in one line: how far its setup got, and why it hasn't traded.
+  // `key` groups desks for the day's summary (DAY_STORY below).
+  story(ms = Date.now()) {
+    const R = this.rules;
+    const read = this.read;
+    // No bar yet on today's trading day: the market is closed (the weekend) or hasn't opened.
+    if (!read || this.day !== tradingDayOf(ms)) return { key: 'closed', text: 'No prices yet today: its market is closed or hasn\'t opened' };
+    if (this.trades) return { key: 'traded', text: `Took its trade${this.lastSetup ? `: ${this.lastSetup.reason}` : ''}` };
+    if (this.pending) return { key: 'setup', text: `Setup waiting for the pullback to ${this.pending.entryText} (stop ${this.fmt(this.pending.stop)}, target ${this.fmt(this.pending.target)})` };
+    if (this.dayCancels.length) return { key: 'cancelled', text: `Had a setup, cancelled: ${this.dayCancels.at(-1)}` };
+    if (!read.ready) return { key: 'noread', text: `No top-down read yet: ${lc(read.text || 'not enough history behind it')}` };
+    if (!this.biasSeen) return { key: 'nobias', text: `No bias today (${read.short}): the higher timeframes disagree, so no trade` };
+    const d = {};
+    for (const k of Object.keys(this.stats)) d[k] = this.stats[k] - (this.dayStart?.[k] ?? 0);
+    const long = this.dayBias === 'LONG';
+    const b = `${read.short}: ${long ? 'bullish' : 'bearish'} bias`;
+    const lvl = this.daySwept ? `the ${lc(this.daySwept)}` : (long ? 'a low' : 'a high');
+    const tf = R.tf === 'M15' ? '15' : '5';
+    if (d.costly) return { key: 'costly', text: `${b}; swept ${lvl} and shifted, but the costs were too big for the stop` };
+    if (d.noTarget) return { key: 'shiftno', text: `${b}; swept ${lvl} and shifted, but no liquidity ${R.minRR}R away to target` };
+    if (d.weak || d.noGap || d.located) return { key: 'shiftno', text: `${b}; swept ${lvl} and shifted, but ${d.weak ? 'without a strong candle (no displacement)' : d.noGap ? 'the move left no fair value gap' : 'not in the right part of the daily range'}` };
+    if (d.outside) return { key: 'outside', text: `${b}; swept ${lvl} and shifted, but outside its window (${zonesText(R.zones)} New York)` };
+    // Where the day is against its window (the trading day starts at 18:00 New York).
+    const since = (x) => (x - 18 * 60 + 1440) % 1440;
+    const now = since(nyMinute(ms));
+    const zones = String(R.zones).split(',').map((id) => KILLZONES[id.trim()]).filter(Boolean);
+    const win = `${zonesText(R.zones)} New York`;
+    const inWindow = zones.some((z) => now >= since(z.from) && now < since(z.from) + (z.to - z.from));
+    const before = zones.length && now < Math.min(...zones.map((z) => since(z.from)));
+    const over = !inWindow && !before;
+    const run = long ? 'a low' : 'a high';
+    const sw = this.sweep.LONG || this.sweep.SHORT;
+    if (sw && !over) return { key: 'swept', text: `${b}; swept the ${lc(sw.level.label)}, waiting for the ${tf}-minute shift` };
+    if (sw || d.stale) return { key: 'noshift', text: `${b}; swept ${lvl}, but no ${tf}-minute shift ${over ? 'in its window' : 'followed'}` };
+    if (d.deep) return { key: 'breakdown', text: `${b}; price ran through ${lvl} and kept going (a breakdown, not a sweep)` };
+    if (inWindow) return { key: 'watching', text: `${b}; in its window now (${win}), waiting for price to run ${run}` };
+    if (before) return { key: 'waiting', text: `${b}; waiting for its window (${win}) and price to run ${run}` };
+    return { key: 'nosweep', text: `${b}, but price didn't run ${run} for it to ${long ? 'buy' : 'sell'} after` };
   }
 
   // For the desk's card: what it is waiting for.

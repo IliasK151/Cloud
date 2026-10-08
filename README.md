@@ -735,7 +735,9 @@ The first card on the FTMO tab answers that in one sentence (while training on F
 - **The market hours in your own time:** where New York is now (the Asia session overnight is the quietest; the London open and the New York open are the busy windows), when those open in your time zone, and whether the day traders' killzones are open.
 - **The day's funnel, for the desks on the account:** trade ideas the desks found → turned down (by the committee, or by what a desk has learned) → paper trades → held back from the account → sent to FTMO.
 - **Why trades stayed on paper today,** counted by reason, with what each reason means. The usual one: the committee grades every idea A, B or C, and only A and B-grade trades go to the account. A C ("not convinced") stays on paper, so the desk keeps measuring.
-- **Every desk on the account:** what it's doing right now, its ideas, paper trades and FTMO trades today, and the latest reason it didn't trade the account.
+- **Every desk on the account:** what it's doing right now, its ideas, paper trades and FTMO trades today, and the latest reason it didn't trade the account. A desk with no setup says how far its day got, in one line: *W ↑ · D ↑ · 4H ↓: bullish bias; waiting for its window (London open 02:00–05:00 New York) and price to run a low*, *…swept the Asia low, but no 5-minute shift followed*, *…swept and shifted, but outside its window*, *No bias today: the higher timeframes disagree*, *Had a setup, cancelled: no pullback to 2401.0 within 60 minutes*. On a day with no trades the headline groups them (*Right now: 9 desks saw no liquidity swept against their bias; …*).
+
+**How often is a day quiet?** Often, by design: each desk takes one trade a day at most, and only after a sweep and a shift. Replayed on 20 months of real prices, the eleven tested London and New York desks traded 0.83 times a day between them, and **43% of weekdays had no trade at all** (the longest quiet stretch: 6 weekdays). With only the five-desk Day Trading Desk on the account it was 54%. The crypto, yen, Ether and Solana desks add a little on top. A softer displacement rule (a shift candle of 0.3 of an ATR instead of 0.5) would take that to 1.08 trades a day and 34% quiet days, but the extra trades about broke even (the same total, +53R against +56R, with the same drawdown), so the floor keeps the stricter rule.
 
 The floor's desk rail shows the same in one line (*No trades on FTMO yet today. 1 held back (committee grade too low)*) with a button to the FTMO tab. Counts start at the beginning of the trading day (18:00 New York).
 
@@ -746,6 +748,7 @@ The Dashboard shows a report card for each FTMO server day (the day FTMO's daily
 - **the account:** starting balance to equity, day P&L, daily and max loss used;
 - **each desk switched on for the account:** its trades on FTMO, won and lost, P&L, average R, and how many of its trades stayed on paper, next to its paper trades that day;
 - **why trades stayed on paper**, counted by reason (committee grade too low, a correlated position already open, max open positions, news blackout, desk not proven yet and so on), with the latest examples;
+- **how the desks' day went:** each desk's day in one line (above), and grouped (*no liquidity swept against their bias: 9 · no bias: 2 · swept and shifted outside their window: 1*), so a day with no trades says why;
 - **account events:** arming, disarming, risk-guard stops, MT5 dropping out and coming back, orders MT5 rejected.
 
 Pick any earlier day from the list. Each day is saved in `data/reports/` (one JSON file per day), so you can compare days and see which strategies earn their place.
@@ -784,7 +787,7 @@ The FTMO tab's **Alerts on your phone** card sends Telegram messages from your o
 - the risk guard or profit target stopping trading;
 - MT5 silent for a minute (Mac asleep, MT5 closed, internet down), and back again;
 - armed, disarmed, re-armed after a restart;
-- the day's report card when the FTMO server day ends.
+- the day's report card when the FTMO server day ends (on a day with no trades, why: *No trades reached the account. Why: 9 desks: no liquidity swept against their bias; Marcus, Sofia: no bias …*).
 
 Some brokers report a market order's fill price as 0. The floor then waits for the next sync, under 2 seconds later, and sends the position's real open price instead.
 

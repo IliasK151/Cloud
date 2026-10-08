@@ -1,6 +1,7 @@
 import { TraderAgent } from '../agent.js';
 import { DayPlaybook, PLAYBOOK, KILLZONES, zonesText } from '../daytrade.js';
 import { tradeCostR } from '../../market/symbols.js';
+import { tradingDayOf } from '../topdown.js';
 
 const lcLabel = (label) => (/^(Asia|London|New York)/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1));
 
@@ -139,6 +140,20 @@ export class DayTrader extends TraderAgent {
 
   pitch() {
     return this.#pitch() + this.#alertsLine();
+  }
+
+  // The desk's day so far in one line (engine/daytrade.js story()): how far its setup got and
+  // why it hasn't traded. The Today card and the daily report show it.
+  dayStory() {
+    if (this.noPrices?.()) return { key: 'noprices', text: `No real prices for ${this.symbol} right now, so it stands aside` };
+    const now = this.env.clock.now();
+    const today = tradingDayOf(now);
+    const last = this.bars().at(-1);
+    // No bar today: its market is closed (the weekend) or hasn't opened.
+    if (!last || tradingDayOf(last.time * 1000 + 59_999) !== today) return { key: 'closed', text: `No prices yet today: ${this.symbol} is closed or hasn't opened` };
+    // Today's prices are in, but the playbook hasn't read a new bar since the floor started.
+    if (this.pb.day !== today) return { key: 'starting', text: 'Reading today\'s prices (the floor just started)' };
+    return this.pb.story(now);
   }
 
   #pitch() {

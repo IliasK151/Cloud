@@ -8,7 +8,7 @@ import { autoMap, candidatesFor } from './symbolMap.js';
 import { SYMBOL_IDS, SYMBOLS } from '../market/symbols.js';
 import { SEATS } from '../engine/roster.js';
 import { AccountBrain } from './accountBrain.js';
-import { DailyReports, closedTrades } from './dailyReport.js';
+import { DailyReports, closedTrades, storyLine } from './dailyReport.js';
 import { ACTION_LIMITS } from './bridge.js';
 import { MAX_BROKER_BARS } from '../research/history.js';
 import { locateExpertsFolders } from '../../scripts/install-ea.js';
@@ -723,7 +723,7 @@ export class LiveTrader extends EventEmitter {
     // The paper side of the desks switched on for the account, to compare with FTMO.
     for (const a of this.fund.agents) {
       if (!this.deskOn(a.id)) continue;
-      paper[a.id] = { name: a.profile.name, desk: a.profile.desk, trades: a.day.trades, wins: a.day.wins };
+      paper[a.id] = { name: a.profile.name, desk: a.profile.desk, trades: a.day.trades, wins: a.day.wins, story: a.dayStory?.() ?? null };
     }
     this.reports.snapshot(this.reportDay(), {
       login: this.login, server: acc.server, type: ACCOUNT_TYPES[p.type]?.label ?? p.type, size: p.size,
@@ -1531,7 +1531,7 @@ export function dailyAlertText(s) {
   const pnl = fmtUsd(s.dayPnl ?? 0, { sign: true });
   const lines = [`📊 Daily report ${s.day}: ${pnl} on the account`];
   if (s.trades) lines.push(`${s.trades} trade${s.trades === 1 ? '' : 's'}, ${s.wins} win${s.wins === 1 ? '' : 's'}${s.avgR != null ? `, average ${s.avgR >= 0 ? '+' : '−'}${Math.abs(s.avgR).toFixed(2)}R` : ''}.`);
-  else lines.push('No trades reached the account.');
+  else lines.push(`No trades reached the account.${s.stories?.length ? ` Why: ${storyLine(s.stories)}.` : ''}`);
   if (s.best) lines.push(`Best: ${s.best.name.split(' ')[0]} ${fmtUsd(s.best.pnl, { sign: true })}.${s.worst ? ` Worst: ${s.worst.name.split(' ')[0]} ${fmtUsd(s.worst.pnl, { sign: true })}.` : ''}`);
   if (s.skipped) lines.push(`Held back on paper: ${s.skipped} (${s.topReasons.map(([k, n]) => `${k.toLowerCase()} ${n}`).join(', ')}).`);
   if (s.halted) lines.push('The risk guard stopped trading during the day.');

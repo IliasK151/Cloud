@@ -124,6 +124,39 @@ const MEANING_FTMO_ONLY = {
 };
 const meaningOf = (k, ftmoOnly) => (ftmoOnly && MEANING_FTMO_ONLY[k]) || MEANING[k] || '';
 
+// How far each desk's setup got today (its story, engine/daytrade.js), grouped: the same groups
+// as the daily report (live/dailyReport.js STORY_GROUPS), in the present tense.
+const STORY_GROUPS = {
+  traded: 'took a trade',
+  setup: 'have a setup waiting for its entry',
+  cancelled: 'had a setup that didn\'t fill',
+  costly: 'found a setup too costly for its stop',
+  shiftno: 'saw a shift without displacement, a fair value gap or a target',
+  outside: 'swept and shifted outside their window',
+  swept: 'swept liquidity and wait for the 5-minute shift',
+  noshift: 'swept, but no 5-minute shift followed',
+  breakdown: 'saw price break through instead of sweeping',
+  watching: 'are in their window, waiting for a sweep',
+  waiting: 'wait for their window to open',
+  nosweep: 'saw no liquidity swept against their bias',
+  nobias: 'have no bias (the higher timeframes disagree)',
+  noread: 'need more history for a top-down read',
+  noprices: 'have no real prices',
+  closed: 'have their market closed',
+  starting: 'are reading today\'s prices (the floor just started)',
+};
+export function groupStories(rows) {
+  const by = new Map();
+  for (const r of rows) {
+    const k = r.story?.key;
+    if (!k) continue;
+    const g = by.get(k) || { key: k, label: STORY_GROUPS[k] || k, names: [] };
+    g.names.push(r.name.split(' ')[0]);
+    by.set(k, g);
+  }
+  return [...by.values()].sort((a, b) => b.names.length - a.names.length);
+}
+
 export function todaySummary(store, now = Date.now()) {
   const v = store.live;
   if (!v?.profile) return null;
@@ -152,12 +185,14 @@ export function todaySummary(store, now = Date.now()) {
     return {
       id: d.id, name: d.name, desk: d.desk, status: a?.status || '—', stage: a?.setup?.stage || '',
       ideas: day.ideas || 0, vetoed: day.vetoed || 0, paper: day.entries || 0, sent: mine.sent || 0, held: mine.held || 0,
-      why, account: d.status,
+      why, story: day.story || null, account: d.status,
     };
   }).sort((x, y) => (y.why?.live ? 1 : 0) - (x.why?.live ? 1 : 0) || y.sent - x.sent || y.ideas - x.ideas);
 
   const top = t.reasons?.[0]?.[0] || null;
   const training = !!v.plan?.training;
+  // Each desk's day in one line, grouped (the same groups as the daily report).
+  const stories = groupStories(rows);
   // FTMO only: a trade FTMO can't take isn't taken at all, so nothing "stays on paper".
   const ftmoOnly = !!v.ftmoOnly && v.mode === 'live';
   const working = v.ownWay
@@ -179,7 +214,7 @@ export function todaySummary(store, now = Date.now()) {
   else if (paper && !training) headline = `No trades on FTMO yet today. ${working}: ${plural(paper, 'paper trade')} so far, none of ${paper === 1 ? 'it' : 'them'} qualified for the account.`;
   else if (ideas && v.ownWay) headline = `No trades on FTMO yet today. ${working}. They found ${plural(ideas, 'setup')}, none taken yet (see why below).`;
   else if (ideas) headline = `No trades on FTMO yet today. ${working}. They found ${plural(ideas, 'setup')} and the committee turned ${vetoed >= ideas ? (ideas === 1 ? 'it' : 'all of them') : vetoed} down (no reward worth the risk, news due, or a dead or wild market).`;
-  else headline = `No trades yet today. ${working}, but the market hasn't given them a setup that meets their rules yet.`;
+  else headline = `No trades yet today. ${working}, but the market hasn't given them a setup that meets their rules yet.${stories.length ? ` Right now: ${stories.slice(0, 3).map((g) => `${g.names.length > 3 ? `${g.names.length} desks` : g.names.join(', ')} ${g.label}`).join('; ')}.` : ''}`;
 
   return {
     headline, tone, top, meaning: top ? meaningOf(top, ftmoOnly) : '', ftmoOnly,
@@ -205,7 +240,7 @@ export function renderToday(store, { now = Date.now(), timeZone } = {}) {
       <td class="r num">${r.ideas}${r.vetoed ? `<small>${r.vetoed} no</small>` : ''}</td>
       <td class="r num">${r.paper}</td>
       <td class="r num ${r.sent ? 'pos' : ''}">${r.sent}</td>
-      <td class="why">${r.why ? `${escapeHtml(clip(r.why.text, 160))}${r.why.at ? ` <span class="muted">· ${ago(r.why.at, s.now)}</span>` : ''}` : '<span class="muted">No setup yet today</span>'}</td>
+      <td class="why">${r.why ? `${escapeHtml(clip(r.why.text, 160))}${r.why.at ? ` <span class="muted">· ${ago(r.why.at, s.now)}</span>` : ''}` : r.story ? `<span class="muted">${escapeHtml(clip(r.story.text, 160))}</span>` : '<span class="muted">No setup yet today</span>'}</td>
     </tr>`).join('');
   return `
     <h2>Today on the account</h2>

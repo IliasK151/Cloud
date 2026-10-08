@@ -62,7 +62,7 @@ export class ReportCard {
     const rows = desks.map((d) => {
       const pp = paper[d.id];
       return `<tr>
-        <td><b>${escapeHtml(d.name)}</b><small>${escapeHtml(d.desk || '')}</small></td>
+        <td><b>${escapeHtml(d.name)}</b><small>${escapeHtml(d.desk || '')}</small>${pp?.story ? `<small class="rep-story">${escapeHtml(pp.story.text)}</small>` : ''}</td>
         <td class="r">${d.trades || '<span class="muted">0</span>'}</td>
         <td class="r">${d.trades ? `${d.wins} / ${d.losses}` : '<span class="muted">—</span>'}</td>
         <td class="r ${signClass(d.pnl)}"><b>${d.trades ? money(d.pnl, { sign: true }) : '<span class="muted">—</span>'}</b></td>
@@ -109,6 +109,7 @@ export class ReportCard {
           ${trades ? `<h3>Closed trades</h3><div class="table-wrap"><table class="table compact"><tbody>${trades}</tbody></table></div>` : ''}
         </div>
         <div>
+          ${s.stories?.length ? `<h3>How the desks' day went</h3><div class="rep-stories">${s.stories.map((g) => `<div class="rep-reason"><span>${escapeHtml(g.label.charAt(0).toUpperCase() + g.label.slice(1))}<small>${escapeHtml(g.names.join(', '))}</small></span><i style="width:${Math.round((g.names.length / Math.max(...s.stories.map((x) => x.names.length))) * 100)}%"></i><b>${g.names.length}</b></div>`).join('')}</div>` : ''}
           <h3>Why trades stayed on paper</h3>
           ${reasonHtml}
           ${samples ? `<ul class="rep-list">${samples}</ul>` : ''}

@@ -848,6 +848,8 @@ html.eco .review-progress .spinner { animation: none; }
 .rep-reason { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 28px; align-items: center; gap: 8px; font-size: 12.5px; margin: 5px 0; }
 .rep-reason i { display: block; height: 6px; border-radius: 3px; background: var(--warn); opacity: 0.75; }
 .rep-reason b { text-align: right; font-variant-numeric: tabular-nums; }
+.rep-stories .rep-reason i { background: var(--accent, #3987e5); }
+.rep-stories .rep-reason span small, .rep-desks small.rep-story { display: block; color: var(--text-3); font-size: 11px; font-weight: 400; white-space: normal; }
 .rep-list { list-style: none; margin: 8px 0 12px; padding: 0; font-size: 12px; line-height: 1.5; }
 .rep-list li { padding: 3px 0; border-bottom: 1px solid var(--hairline); }
 @media (max-width: 1100px) { .rep-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .rep-grid { grid-template-columns: 1fr; } }

@@ -671,7 +671,7 @@ export class TraderAgent {
       lossLimit: this.risk.deskLossLimit(this),
       exposure: this.broker.grossExposure(this.id),
       stats: this.statsView(),
-      today: { ideas: this.day.ideas, vetoed: this.day.vetoed, skipped: this.day.skipped, entries: this.day.entries, whyNot: this.day.whyNot },
+      today: { ideas: this.day.ideas, vetoed: this.day.vetoed, skipped: this.day.skipped, entries: this.day.entries, whyNot: this.day.whyNot, story: this.dayStory?.() ?? null },
       learning: this.learner.summary(),
       news: this.newsView(),
       log: this.log.slice(-10),

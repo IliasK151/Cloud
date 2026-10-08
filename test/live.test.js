@@ -647,7 +647,9 @@ test('Today on the account: ideas, what the committee turned down, what stayed o
   committee.review = () => ({ ok: false, silent: true, reason: 'the target is only 0.6R, less than the risk', grade: '—' });
   assert.equal(amara.openTrade({ side: 'LONG', stop: 3790, target: 3806, reason: 'sweep', symbol: 'XAUUSD' }), false);
   committee.review = review;
-  assert.deepEqual(amara.snapshot().today, { ideas: 1, vetoed: 1, skipped: 0, entries: 0, whyNot: amara.day.whyNot });
+  const { story, ...today } = amara.snapshot().today;
+  assert.deepEqual(today, { ideas: 1, vetoed: 1, skipped: 0, entries: 0, whyNot: amara.day.whyNot });
+  assert.ok(story?.key && story.text, 'and how her day went, in one line');
   assert.match(amara.day.whyNot.text, /committee said no: the target is only 0\.6R/);
   s = todaySummary(store());
   assert.match(s.headline, /found 1 setup and the committee turned it down/);

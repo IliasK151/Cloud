@@ -52,6 +52,45 @@ const CATEGORIES = [
   [/simulated/i, 'No real prices'],
 ];
 
+// How each desk's day went (its story, engine/daytrade.js story(), as the floor last saw it
+// that day), grouped: what kept the desks from trading on a quiet day.
+export const STORY_GROUPS = {
+  traded: 'took a trade',
+  setup: 'setup waiting for its entry',
+  cancelled: 'had a setup that didn\'t fill',
+  costly: 'setup too costly for its stop',
+  shiftno: 'shifted, but without displacement, a fair value gap or a target',
+  outside: 'swept and shifted outside their window',
+  swept: 'swept, waiting for the 5-minute shift',
+  noshift: 'swept, but no 5-minute shift followed',
+  breakdown: 'price broke through the level instead of sweeping it',
+  watching: 'in their window, waiting for a sweep',
+  waiting: 'their window hadn\'t opened yet',
+  nosweep: 'no liquidity swept against their bias',
+  nobias: 'no bias (the higher timeframes disagree)',
+  noread: 'not enough history for a top-down read',
+  noprices: 'no real prices',
+  closed: 'market closed',
+  starting: 'just started',
+};
+
+export function storyGroups(paper = {}) {
+  const by = new Map();
+  for (const p of Object.values(paper || {})) {
+    const k = p?.story?.key;
+    if (!k) continue;
+    const g = by.get(k) || { key: k, label: STORY_GROUPS[k] || k, names: [] };
+    g.names.push(String(p.name || '').split(' ')[0]);
+    by.set(k, g);
+  }
+  return [...by.values()].sort((a, b) => b.names.length - a.names.length);
+}
+
+// "9 desks: no liquidity swept against their bias; Marcus, Sofia: no bias (…)"
+export function storyLine(groups, max = 5) {
+  return groups.slice(0, max).map((g) => `${g.names.length > 3 ? `${g.names.length} desks` : g.names.join(', ')}: ${g.label}`).join('; ');
+}
+
 export function skipCategory(reason = '') {
   for (const [re, label] of CATEGORIES) if (re.test(reason)) return label;
   return 'Other';
@@ -295,6 +334,7 @@ export function summarize(r) {
     best: ranked[0] || null,
     worst: ranked.length > 1 ? ranked[ranked.length - 1] : null,
     halted: (r.events || []).some((e) => e.kind === 'guard'),
+    stories: storyGroups(r.paper),
     list: closedTrades(r),
   };
 }
