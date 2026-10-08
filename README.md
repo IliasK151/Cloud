@@ -119,7 +119,7 @@ How each one trades (`server/engine/daytrade.js`):
 1. **Top-down bias.** The weekly, daily and 4-hour structure, read on candle bodies (closes), not wicks: higher highs and higher lows are bullish, lower highs and lower lows bearish. The trend only turns on a close through the protected level (below the higher low, above the lower high). The majority of the three is the bias, the higher timeframe outranking the lower (weekly and daily up with the 4-hour down is still bullish: the 4-hour is the pullback). No bias, no trade. It only ever trades with the bias.
 2. **Liquidity.** Where the stops rest: the previous day's and week's high and low, the Asia range (19:00–02:00 New York) and the London range (02:00–07:00).
 3. **The sweep.** Under a bullish bias it waits for price to run a low (sell-side liquidity) and come back; under a bearish one, a high. A run that keeps going, more than 5 five-minute ATRs past the level, is a breakdown, not a sweep, and is left alone.
-4. **The shift.** Within two hours of the sweep's extreme, a 5-minute candle closes through the last swing that led into the sweep (a change of character), with displacement: a strong candle (at least half a 5-minute ATR of body) in the move that leaves a fair value gap behind it. Inside the desk's killzone only.
+4. **The shift.** Within two hours of the sweep's extreme, a 5-minute candle closes through the last swing that led into the sweep (a change of character), with displacement: a strong candle (at least 0.3 of a 5-minute ATR of body) in the move that leaves a fair value gap behind it. Inside the desk's killzone only.
 5. **The entry.** A limit order back in the fair value gap, waiting up to an hour. The stop goes just beyond the sweep's extreme. The target is the liquidity on the other side (an untouched session or previous-day/week high or low, or the 4-hour or daily range extreme) that pays **at least 3R** (up to 10R); with none there, 3R.
 6. **Management.** No scaling out, no trailing: the stop or the target, and flat by 16:50 New York. One trade a day.
 
@@ -127,32 +127,32 @@ Each desk's card shows its top-down read, the liquidity it's watching, the sweep
 
 **Tested on real history, honestly.** The rules were chosen on Oanda's real 1-minute bars in six markets, judged on months they weren't chosen on: October 2018 to August 2019 to choose, September 2019 to May 2020 to check. About 20 variants were tried (bias rules, location filters, entries, minimum R, displacement, killzones, break-even stops). The defaults are the plainest version that held up in both halves, not the best-looking one. Costs included.
 
-Then each market was tested session by session, to pick which killzones get a desk. Per trade, choosing months → checking months:
+Then each market was tested session by session, to pick which killzones get a desk. Per trade, choosing months → checking months, with the displacement rule the floor uses now (0.3 of an ATR, see *How often is a day quiet?* below):
 
 | Market | London open | New York open |
 | --- | --- | --- |
-| NAS100 | 14 → 10 trades, −0.06R → +0.44R | 19 → 19, +0.44R → +0.72R |
-| SPX500 | 11 → 14, +0.40R → +0.18R | 21 → 14, +0.19R → +0.97R |
-| XAUUSD | 9 → 7, +0.96R → −1.10R | 18 → 14, −0.05R → +0.11R |
-| USOIL | 11 → 6, −0.38R → +0.87R | 26 → 16, −0.56R → +0.57R |
-| EURUSD | 20 → 16, +0.57R → −0.30R | 26 → 19, +0.27R → +0.04R |
-| GBPUSD | 24 → 18, −0.33R → +0.10R | 16 → 19, −0.64R → −0.33R (no desk) |
-| BTCUSD (2017 → 2018) | 10 → 7, +0.62R → −1.21R | 20 → 19, +0.04R → −0.27R |
+| NAS100 | 19 → 12 trades, −0.02R → +0.19R | 27 → 24, +0.26R → +0.43R |
+| SPX500 | 17 → 19, +0.15R → +0.13R | 30 → 18, −0.14R → +0.69R |
+| XAUUSD | 11 → 13, +0.58R → −0.49R | 21 → 17, −0.12R → +0.15R |
+| USOIL | 13 → 7, +0.27R → +0.57R | 31 → 22, −0.26R → +0.28R |
+| EURUSD | 26 → 23, +0.57R → +0.23R | 33 → 22, +0.02R → −0.06R |
+| GBPUSD | 31 → 22, −0.13R → −0.02R | 16 → 22, −0.64R → −0.23R (no desk) |
+| BTCUSD (2017 → 2018) | 11 → 9, +0.47R → −1.19R | 23 → 23, −0.04R → −0.21R |
 
-Bitcoin's Asia open: 7 → 6 trades, +0.18R → +0.40R. The other killzones were tried too and barely trade: the Asia open on gold, oil and the indices, the New York afternoon, and 15-minute shifts instead of 5-minute ones gave a handful of trades in 20 months, mostly losers. That's why every desk works the London or the New York open.
+Bitcoin's Asia open (with the earlier, stricter rule): 7 → 6 trades, +0.18R → +0.40R. The other killzones were tried too and barely trade: the Asia open on gold, oil and the indices, the New York afternoon, and 15-minute shifts instead of 5-minute ones gave a handful of trades in 20 months, mostly losers. That's why every desk works the London or the New York open.
 
-**Through the floor's own code** (every desk replayed minute by minute with its own session, costs and learning, `npm run baseline`): the fourteen desks with real history took **489 trades, +59R in all**. On the indices, gold, oil and FX (July 2018 to May 2020) that's 422 trades at **+0.11R a trade**; on Bitcoin (2017–2018) 67 trades at +0.17R. The best: Sienna +0.69R a trade over 39 trades, Tyler +0.46R over 47 (up in all 8 quarters), James +0.47R over 28. The worst: Hannah (GBPUSD, London) −0.19R over 57 and Theo (gold, New York) −0.17R over 33. Every desk's numbers are in *The long run* below.
+**Through the floor's own code** (every desk replayed minute by minute with its own session, costs and learning, `npm run baseline`): the fourteen desks with real history took **613 trades, +61R in all**. On the indices, gold, oil and FX (July 2018 to May 2020) that's 531 trades at **+0.08R a trade**; on Bitcoin (2017–2018) 82 trades at +0.21R. The best: Sienna +0.34R a trade over 52 trades, Lucas +0.30R over 24, James +0.25R over 39, Viktor +0.24R over 42. The worst: Zara (EURUSD, New York) −0.16R over 66 and Theo (gold, New York) −0.08R over 40. Every desk's numbers are in *The long run* below.
 
 Read that carefully:
 - It's the shape you asked for: most trades lose about 1R, the winners pay 3R or more, and two out of three trades lose. Losing streaks of ten happen.
-- It's a small sample per desk: one or two trades a month each. Most desks' results swing from one half to the other (gold's London desk: +0.96R, then −1.10R). It isn't a proven edge yet.
-- The indices' New York desks did best in both halves. USDJPY, Ether and Solana have no real history here, so they weren't tested on their own.
+- It's a small sample per desk: one or two trades a month each. Most desks' results swing from one half to the other (gold's London desk: +0.58R, then −0.49R). It isn't a proven edge yet.
+- In the session test four desks were up in both halves (Nasdaq New York, S&P 500 London, oil London, EURUSD London); gold, EURUSD and GBPUSD in New York were not. USDJPY, Ether and Solana have no real history here, so they weren't tested on their own.
 - Size it for the streaks: at 0.5% risk a trade, 18R of drawdown is 9%, close to FTMO's 10% max loss. At the floor's default 0.25% it's 4.5%.
 - Twenty desks don't mean twenty trades at once: no pile-ups (below) keeps it to one desk per market, one per correlated group and three trades at most on the account.
 
 `npm run daytrade-test` prints each desk's funnel (days with a bias, sweeps, breakdowns, shifts, why a shift didn't trade) and its results on the bars your floor saved (`--dir` for another folder, `--desk tyler`, `--set minRR=4,zones=ny` to try other rules).
 
-**In demo mode** the clock only runs New York's cash session, so there every desk works it from 09:30 to 15:00, and the New York opening range (09:30–10:00) counts as liquidity too, because the demo has no Asia or London range to sweep. Expect a quiet demo: in six simulated days the whole floor took four trades. The desks still show their read, the liquidity they watch and every setup as it forms.
+**In demo mode** the clock only runs New York's cash session, so there every desk works it from 09:30 to 15:00, and the New York opening range (09:30–10:00) counts as liquidity too, because the demo has no Asia or London range to sweep. Expect a quiet demo: in six simulated days the whole floor took 15 trades. The desks still show their read, the liquidity they watch and every setup as it forms.
 
 ### Crypto day traders: the same playbook, safer
 
@@ -163,7 +163,7 @@ They trade it **safer**, because crypto moves harder and costs more:
 - **no setup whose spread and commission would eat more than 0.4R** (a crypto CFD's round trip costs about ten times an FX pair's);
 - **one crypto trade on the account at a time** (the coins move together: the no-pile-ups rule).
 
-**Tested on Bitcoin** (the only real crypto 1-minute history here: Bitstamp 2017 and Kraken 2018, costs included), through the floor's own code: Mei (London) +0.19R a trade over 18 trades, Viktor (New York) +0.12R over 36, Elena (Asia) +0.30R over 13. Most of it came in 2017, the bull run; in 2018, the bear market, the London desk lost (−0.24R a trade), the New York desk about broke even and the Asia desk made money. Ether and Solana weren't tested on their own, so they're likely to behave like Bitcoin, with more noise. Treat crypto as the riskier part of the floor, which is why it trades at half size.
+**Tested on Bitcoin** (the only real crypto 1-minute history here: Bitstamp 2017 and Kraken 2018, costs included), through the floor's own code: Mei (London) +0.11R a trade over 23 trades, Viktor (New York) +0.24R over 42, Elena (Asia) +0.25R over 17. In 2018, the bear market, the London desk lost (−0.47R a trade) while the New York and Asia desks made money. Ether and Solana weren't tested on their own, so they're likely to behave like Bitcoin, with more noise. Treat crypto as the riskier part of the floor, which is why it trades at half size.
 
 ### Top-down first: every desk
 
@@ -620,24 +620,26 @@ A few weeks of your own prices can't tell an edge from luck, so every desk was a
 
 | Desk | Session | Market | Trades | Per trade (90% range) | Quarters up |
 |---|---|---|---|---|---|
-| Marcus | London | NAS100 | 26 | −0.04R (−0.62 to +0.65) | 2 of 7 |
-| James | London | SPX500 | 28 | +0.47R (−0.38 to +1.36) | 6 of 8 |
-| Amara | London | XAUUSD | 19 | +0.14R (−0.60 to +0.95) | 4 of 8 |
-| Lucas | London | USOIL | 21 | +0.03R (−0.73 to +0.93) | 4 of 8 |
-| Priya | London | EURUSD | 49 | +0.02R (−0.44 to +0.52) | 5 of 10 |
-| Hannah | London | GBPUSD | 57 | −0.19R (−0.61 to +0.27) | 5 of 10 |
-| Mei | London | BTCUSD | 18 | +0.19R (−0.71 to +1.18) | 4 of 7 |
-| Tyler | New York | NAS100 | 47 | +0.46R (−0.05 to +0.96) | 8 of 8 |
-| Sienna | New York | SPX500 | 39 | +0.69R (+0.03 to +1.46) | 4 of 8 |
-| Theo | New York | XAUUSD | 33 | −0.17R (−0.59 to +0.26) | 4 of 8 |
-| Diego | New York | USOIL | 46 | −0.03R (−0.46 to +0.45) | 4 of 8 |
-| Zara | New York | EURUSD | 57 | +0.01R (−0.36 to +0.43) | 4 of 10 |
-| Viktor | New York | BTCUSD | 36 | +0.12R (−0.36 to +0.69) | 3 of 8 |
-| Elena | Asia | BTCUSD | 13 | +0.30R (−0.64 to +1.37) | 2 of 6 |
+| Marcus | London | NAS100 | 35 | +0.04R (−0.47 to +0.59) | 5 of 8 |
+| James | London | SPX500 | 39 | +0.25R (−0.38 to +0.90) | 5 of 8 |
+| Amara | London | XAUUSD | 27 | +0.06R (−0.52 to +0.72) | 4 of 8 |
+| Lucas | London | USOIL | 24 | +0.30R (−0.48 to +1.15) | 4 of 8 |
+| Priya | London | EURUSD | 65 | +0.16R (−0.28 to +0.63) | 5 of 10 |
+| Hannah | London | GBPUSD | 67 | −0.01R (−0.40 to +0.46) | 7 of 10 |
+| Mei | London | BTCUSD | 23 | +0.11R (−0.64 to +0.94) | 4 of 7 |
+| Tyler | New York | NAS100 | 58 | +0.12R (−0.26 to +0.52) | 4 of 8 |
+| Sienna | New York | SPX500 | 52 | +0.34R (−0.17 to +0.94) | 3 of 8 |
+| Theo | New York | XAUUSD | 40 | −0.08R (−0.47 to +0.34) | 3 of 8 |
+| Diego | New York | USOIL | 58 | +0.06R (−0.35 to +0.48) | 5 of 8 |
+| Zara | New York | EURUSD | 66 | −0.16R (−0.48 to +0.21) | 3 of 10 |
+| Viktor | New York | BTCUSD | 42 | +0.24R (−0.21 to +0.76) | 5 of 8 |
+| Elena | Asia | BTCUSD | 17 | +0.25R (−0.60 to +1.20) | 3 of 7 |
 
 Sofia and Arjun (USDJPY), Chen and Kenji (Ether), Omar and Isabella (Solana): no real history here, so no record.
 
-A verdict needs 100 trades, and a day trader takes one a day at most, on the days its setup shows up: 22 months gives each one 13 to 57. So every desk is *too few trades* for now, and the record holds none of them back. Together: 489 trades, +59R. Only Sienna's whole 90% range is above zero, and only just.
+A verdict needs 100 trades, and a day trader takes one a day at most, on the days its setup shows up: 22 months gives each one 17 to 67. So every desk is *too few trades* for now, and the record holds none of them back. Together: 613 trades, +61R. No desk's whole 90% range is above zero.
+
+With the stricter displacement rule first chosen (0.5 of an ATR) the same replay gave 489 trades and +59R: the softer rule added 124 trades for +2R, and it moved the desks around. Tyler went from +0.46R a trade to +0.12R and Sienna from +0.69R to +0.34R; Priya (+0.02R → +0.16R), Lucas (+0.03R → +0.30R) and Hannah (−0.19R → −0.01R) improved; Zara went from +0.01R to −0.16R.
 
 The record ships with the floor (`server/research/baseline.json`), and in the institutional way (below) the account brain uses it with the nightly review:
 
@@ -737,7 +739,7 @@ The first card on the FTMO tab answers that in one sentence (while training on F
 - **Why trades stayed on paper today,** counted by reason, with what each reason means. The usual one: the committee grades every idea A, B or C, and only A and B-grade trades go to the account. A C ("not convinced") stays on paper, so the desk keeps measuring.
 - **Every desk on the account:** what it's doing right now, its ideas, paper trades and FTMO trades today, and the latest reason it didn't trade the account. A desk with no setup says how far its day got, in one line: *W ↑ · D ↑ · 4H ↓: bullish bias; waiting for its window (London open 02:00–05:00 New York) and price to run a low*, *…swept the Asia low, but no 5-minute shift followed*, *…swept and shifted, but outside its window*, *No bias today: the higher timeframes disagree*, *Had a setup, cancelled: no pullback to 2401.0 within 60 minutes*. On a day with no trades the headline groups them (*Right now: 9 desks saw no liquidity swept against their bias; …*).
 
-**How often is a day quiet?** Often, by design: each desk takes one trade a day at most, and only after a sweep and a shift. Replayed on 20 months of real prices, the eleven tested London and New York desks traded 0.83 times a day between them, and **43% of weekdays had no trade at all** (the longest quiet stretch: 6 weekdays). With only the five-desk Day Trading Desk on the account it was 54%. The crypto, yen, Ether and Solana desks add a little on top. A softer displacement rule (a shift candle of 0.3 of an ATR instead of 0.5) would take that to 1.08 trades a day and 34% quiet days, but the extra trades about broke even (the same total, +53R against +56R, with the same drawdown), so the floor keeps the stricter rule.
+**How often is a day quiet?** Often, by design: each desk takes one trade a day at most, and only after a sweep and a shift. Replayed on 20 months of real prices, the eleven tested London and New York desks trade **1.08 times a day** between them, and **34% of weekdays have no trade at all** (the longest quiet stretch: 4 weekdays). The crypto, yen, Ether and Solana desks add a little on top. That's with the softer displacement rule the floor uses now: the shift candle needs 0.3 of a 5-minute ATR of body, not the 0.5 first chosen. With 0.5 it was 0.83 trades a day and 43% quiet weekdays (54% with only the old five-desk Day Trading Desk on the account). The extra trades about broke even: the same total over the 20 months (+53R against +56R) and the same worst drawdown (20.5R against 20R), so a little less a trade on average (+0.12R against +0.16R).
 
 The floor's desk rail shows the same in one line (*No trades on FTMO yet today. 1 held back (committee grade too low)*) with a button to the FTMO tab. Counts start at the beginning of the trading day (18:00 New York).
 

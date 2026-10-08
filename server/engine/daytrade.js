@@ -39,7 +39,10 @@ export const PLAYBOOK = {
   maxDepth: 5, // how far past the level the sweep may run, in the timeframe's ATRs
   shiftWithin: 120, // minutes from the sweep's extreme to the shift
   fillWithin: 60, // minutes the limit order waits
-  disp: 0.5, // the shift candle's body, at least this many ATRs (0: any close through)
+  // The shift candle's body, at least this many ATRs (0: any close through). 0.3, not the 0.5
+  // first chosen: on real history it took the tested desks from 0.83 to 1.08 trades a day
+  // (quiet weekdays from 43% to 34%) for about the same total R and the same drawdown.
+  disp: 0.3,
   gap: 1, // 1: the move off the sweep must leave a fair value gap
   stopBuf: 0.2, // the stop's distance beyond the sweep's extreme, in ATRs
   maxPerDay: 1, // trades a day
