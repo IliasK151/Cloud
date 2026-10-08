@@ -154,7 +154,7 @@ Read that carefully:
 - Size it for the streaks: at 0.5% risk a trade, 18R of drawdown is 9%, close to FTMO's 10% max loss. At the floor's default 0.25% it's 4.5%.
 - Twenty desks don't mean twenty trades at once: no pile-ups (below) keeps it to one desk per market, one per correlated group and three trades at most on the account.
 
-`npm run daytrade-test` prints each desk's funnel (days with a bias, sweeps, breakdowns, shifts, why a shift didn't trade) and its results on the bars your floor saved (`--dir` for another folder, `--desk tyler`, `--set minRR=4,zones=ny` to try other rules).
+`npm run daytrade-test` prints each desk's funnel (days with a bias, sweeps, breakdowns, shifts, why a shift didn't trade) and its results on the bars your floor saved (`--dir` for another folder, `--desk tyler`, `--set minRR=4,zones=ny` to try other rules). Results are in R, where 1R is what one trade risks from entry to stop: at the account's default 0.25% per trade, −6R is −1.5% of the account. It's a replay on saved prices, so nothing is traded. With a handful of trades the total says little; it takes about 100.
 
 **In demo mode** the clock only runs New York's cash session, so there every desk works it from 09:30 to 15:00, and the New York opening range (09:30–10:00) counts as liquidity too, because the demo has no Asia or London range to sweep. Expect a quiet demo: in six simulated days the whole floor took 15 trades. The desks still show their read, the liquidity they watch and every setup as it forms.
 
@@ -221,7 +221,11 @@ The desks' top-down read needs months of bars behind it (the weekly structure es
 
 **History.** In live mode the floor loads about two weeks of real 1-minute bars (Binance, Yahoo Finance), keeps them in `data/history/` and extends them with every new bar, so the read gets better the longer the floor runs. Once MT5 prices a market, the broker's own bars are used, and older history is shifted onto the broker's price level. Only real data is ever saved there. A feed that doesn't answer within 90 seconds is skipped, so one stalled request never keeps the desks waiting: they start on the saved bars and MT5's own (6,000 one-minute bars per market), and the store keeps growing with every new bar. In demo mode the floor generates 30 past sessions with the same simulator and calendar.
 
-**Months of your broker's prices.** Once MT5 prices a market, the floor pages back through MT5's own history, 10,000 minutes at a time, until it holds 100,000 one-minute bars of your broker's prices per market (about ten weeks of a 24-hour market). It stops early when MT5 has nothing older. It keeps them in `data/history/`, so a restart doesn't download them again, and each desk's top-down read is rebuilt from them as they arrive. Paging needs the MeridianBridge EA 1.3 (the FTMO tab offers the update) and MT5's *Max bars in chart* at 100000 (Tools → Options → Charts; the FTMO tab warns when it's lower). The nightly review and `npm run edge` use the same bars.
+**Months of your broker's prices.** Once MT5 prices a market, the floor pages back through MT5's own history, 10,000 minutes at a time, until it holds 100,000 one-minute bars of your broker's prices per market (about ten weeks of a 24-hour market). It keeps them in `data/history/`, so a restart doesn't download them again, and each desk's top-down read is rebuilt from them as they arrive. Paging needs the MeridianBridge EA 1.3 (the FTMO tab offers the update) and MT5's *Max bars in chart* at 100000 (Tools → Options → Charts; the FTMO tab warns when it's lower). The nightly review and `npm run edge` use the same bars.
+
+MT5 hands over only what it has downloaded so far and fetches the rest from the broker in the background. So a short or empty page doesn't end the paging: the floor asks again two minutes later, from where the bars ran out, up to five times without anything older. After that it calls it all MT5 holds, and still asks again every six hours. (Before this, one short page stopped the paging for a week, which left most markets with about two weeks of bars.)
+
+**Too little history means no trades.** A desk's top-down read needs about 3–4 weeks of 1-minute bars before the daily and 4-hour structure give a bias. The weekly needs about 2 months. On real history the read was ready after 13–28 days, typically 16–21. With less, the desk has no bias, so it doesn't trade. When a market has under 4 weeks saved, the FTMO tab says so and `npm run doctor` lists each market's days. To hurry MT5 along, open a 1-minute chart of the market and hold the Home key until it stops scrolling back: MT5 downloads older bars as you go. `npm run daytrade-test` flags a market with under 6 weeks of bars, because most of its days are the read warming up.
 
 (The five-person Quant Research Lab that used to search for strategies on this history became day traders too. Its backtester, `server/research/`, is still in the code.)
 
@@ -806,6 +810,7 @@ Setup takes about 2 minutes: in Telegram open **@BotFather**, send `/newbot` and
 - the dashboard's live feed;
 - MT5 (including the exact reason it's being refused, such as a wrong bridge token);
 - whether it's doing its job: armed, FTMO only, the trades sent to FTMO today and what held the others back, any desk whose market isn't on your broker, and "Stay armed after a restart";
+- how many days of your broker's history each market has saved (the desks' top-down read needs about 4 weeks), and whether the floor is still asking MT5 for more;
 - the Obsidian vault and phone alerts;
 - the TradingView address.
 
@@ -822,6 +827,7 @@ It then prints what to fix. It only reads; it never trades. The FTMO tab shows t
 | The FTMO tab says "Algo Trading is off" | Turn on the Algo Trading toolbar button and tick *Allow Algo Trading* in the EA's settings |
 | Can't drag the file into the Experts folder | Use the MetaEditor paste method or `npm run install-ea` (step 4 above) |
 | A market shows "not mapped" | Pick the matching MT5 symbol in **Edit setup → Symbols on your account** |
+| The FTMO tab says "Only a few weeks or less of your broker's prices are saved for …", or `npm run daytrade-test` shows *Days with a top-down bias: 0* | Too little history for the desks' top-down read, so those desks have no bias and don't trade. Keep MT5 and the floor running: the floor keeps asking MT5 for older bars. To hurry it, open a 1-minute chart of each of those markets in MT5 and hold the Home key until it stops scrolling back. Check *Max bars in chart* is 100000 (Tools → Options → Charts). `npm run doctor` shows each market's days |
 | A desk says **NO PRICES** / the FTMO tab says "No real prices for …" | That market's live feed isn't answering (e.g. Yahoo HTTP 429) and nothing is simulated. Map it to your MT5 symbol in **Edit setup** and your broker's prices take over within seconds |
 
 ---

@@ -39,6 +39,15 @@ export function eaOutdated(version, latest = LATEST_EA) {
 }
 const ENTRY_WINDOW_MS = 90_000; // never chase a desk's paper entry older than this
 const HISTORY_PAGE = 10_000; // 1-minute bars per history page from MT5 (about 600 KB)
+// MT5 downloads older bars from the broker in the background: a short or empty page means
+// "not yet" as often as "no more", so ask again a few times before stopping, and again later.
+const HISTORY_RETRY_MS = 2 * 60_000;
+const HISTORY_TRIES = 5;
+const HISTORY_RECHECK_MS = 6 * 3_600_000;
+// A desk's top-down read needs about 3–4 weeks of 1-minute history behind it (the daily and
+// 4-hour structure; the weekly about 2 months). Less than this and the desks can't trade it.
+const SHORT_HISTORY_DAYS = 28;
+const OLD_EA = 'the EA sent the same bars again (EA 1.3 or later pages back through months of history)';
 const DISCONNECT_ALERT_MS = 60_000; // MT5 silent this long → tell the boss
 const MISSING_SYNCS_TO_CLOSE = 3;
 const PLAN_KEYS = ['minGrade', 'dailyStopPct', 'maxTradesPerDay', 'streakStop', 'stayArmed', ...PLAN_SWITCHES];
@@ -557,21 +566,29 @@ export class LiveTrader extends EventEmitter {
   // weeks (what the public feeds give) is too little to tell an edge from luck. Page back
   // through MT5's history, HISTORY_PAGE bars at a time, until the store holds MAX_BROKER_BARS,
   // MT5 has nothing older, or the EA can't page (before 1.3 it sends its latest bars again).
-  // A restart doesn't download it again: the store saves what it has.
+  // The desks' top-down read is built from the same store, so this is what lets them trade.
+  // MT5 hands over what it has downloaded so far and fetches the rest in the background: a
+  // short or empty page is asked again (HISTORY_TRIES times, HISTORY_RETRY_MS apart), and a
+  // market that stopped short is asked again every HISTORY_RECHECK_MS. A restart doesn't
+  // download it again: the store saves what it has.
   #backfill(id, brokerSymbol) {
     const h = this.history;
     if (!h?.ready || typeof h.addBrokerHistory !== 'function' || this.md.ownerOf(id) !== 'mt5') return;
+    const now = Date.now();
     let b = this.backfill.get(brokerSymbol);
     if (!b) {
-      b = { next: 1, lastOldest: Infinity, pages: 0, done: false, why: null, inFlight: null };
+      b = { next: 1, lastOldest: Infinity, pages: 0, idle: 0, waitUntil: 0, done: false, why: null, inFlight: null, recheckAt: null };
       this.backfill.set(brokerSymbol, b);
-      // Already in data/history from an earlier run: full, or all MT5 held when it last paged
-      // (within a week; the store has kept growing bar by bar since).
+      // Already in data/history from an earlier run: full, or paged within the last few hours
+      // (the store has kept growing bar by bar since).
       const rec = this.state.backfill?.[brokerSymbol];
       const have = h.brokerBars(id);
-      if (have >= 0.95 * MAX_BROKER_BARS || (rec && Date.now() - rec.at < 7 * 86_400_000 && have >= 0.9 * rec.have)) Object.assign(b, { done: true, why: 'already saved' });
+      if (have >= 0.95 * MAX_BROKER_BARS) Object.assign(b, { done: true, why: 'already saved' });
+      else if (rec && now - rec.at < HISTORY_RECHECK_MS && have >= 0.9 * rec.have) Object.assign(b, { done: true, why: rec.why || 'already saved', recheckAt: rec.at + HISTORY_RECHECK_MS });
     }
-    if (b.done || b.inFlight != null || this.bridge.historyPending(brokerSymbol)) return;
+    // Stopped short a while ago: MT5 may have downloaded more since. Carry on from there.
+    if (b.done && b.recheckAt && now >= b.recheckAt) Object.assign(b, { done: false, why: null, idle: 0, waitUntil: 0, recheckAt: null });
+    if (b.done || b.inFlight != null || now < b.waitUntil || this.bridge.historyPending(brokerSymbol)) return;
     b.inFlight = b.next;
     this.bridge.requestHistory(brokerSymbol, HISTORY_PAGE, b.next);
   }
@@ -591,22 +608,47 @@ export class LiveTrader extends EventEmitter {
         oldest = Math.min(oldest, r.oldest);
       }
     }
-    if (!n) b.why = b.pages === 1 ? 'MT5 sent no history' : 'MT5 has nothing older';
-    else if (!(oldest < b.lastOldest)) b.why = 'the EA sent the same bars again (EA 1.3 or later pages back through months of history)';
-    else {
+    const now = Date.now();
+    if (n && oldest < b.lastOldest) {
+      // Older bars than before. New bars only push MT5's positions further back, so carrying
+      // on from here overlaps a little and never leaves a gap.
       b.lastOldest = oldest;
-      b.next += HISTORY_PAGE;
-      if (bars.length < HISTORY_PAGE) b.why = 'all the history MT5 holds';
-      else if (b.next > MAX_BROKER_BARS) b.why = 'full';
-    }
+      b.next += bars.length;
+      b.idle = 0;
+      if (b.next > MAX_BROKER_BARS) b.why = 'full';
+      else if (bars.length < HISTORY_PAGE) b.waitUntil = now + HISTORY_RETRY_MS; // all MT5 had so far
+    } else if (n && bars.length >= HISTORY_PAGE && b.pages > 1) b.why = OLD_EA;
+    else if (++b.idle >= HISTORY_TRIES) b.why = b.lastOldest === Infinity ? 'MT5 sent no history' : 'all the history MT5 holds';
+    else b.waitUntil = now + HISTORY_RETRY_MS;
     if (!b.why) return;
     b.done = true;
+    if (b.why !== 'full') b.recheckAt = now + HISTORY_RECHECK_MS;
     const have = Math.max(0, ...ids.map((id) => this.history?.brokerBars(id) || 0));
-    this.state.backfill = { ...(this.state.backfill || {}), [brokerSymbol]: { at: Date.now(), have, why: b.why } };
+    const before = this.state.backfill?.[brokerSymbol]?.have || 0;
+    this.state.backfill = { ...(this.state.backfill || {}), [brokerSymbol]: { at: now, have, why: b.why } };
     this.save();
     const days = have ? Math.round((have / 1440) * 10) / 10 : 0;
     this.log.info?.(`[research] ${brokerSymbol}: ${have.toLocaleString('en-US')} bars of your broker's history (${b.why})`);
-    if (have) this.#note(`${ids.join(', ')}: the research lab and the nightly review now have ${have.toLocaleString('en-US')} minutes (about ${days} days of trading) of your broker's own prices`, 'info');
+    if (have > before * 1.02) this.#note(`${ids.join(', ')}: the desks' top-down read, the research lab and the nightly review now have ${have.toLocaleString('en-US')} minutes (about ${days} days of trading) of your broker's own prices`, 'info');
+  }
+
+  // How much of the broker's history is saved per mapped market, and how the paging stands:
+  // the desks need weeks of it before their top-down read gives a bias.
+  historyDepth(now = Date.now()) {
+    const h = this.history;
+    const map = this.profile?.symbolMap;
+    if (!h?.ready || !map || this.mode !== 'live') return [];
+    const out = [];
+    for (const [id, brokerSymbol] of Object.entries(map)) {
+      if (!brokerSymbol || this.md.ownerOf(id) !== 'mt5') continue;
+      const { n, from } = h.span?.(id) || {};
+      const days = from ? Math.floor((now / 1000 - from) / 86_400) : 0;
+      const b = this.backfill.get(brokerSymbol);
+      const rec = this.state.backfill?.[brokerSymbol];
+      const state = !b ? 'waiting' : !b.done ? 'paging' : b.why === OLD_EA ? 'old-ea' : 'done';
+      out.push({ id, brokerSymbol, bars: n || 0, days, short: days < SHORT_HISTORY_DAYS, state, why: b?.why ?? rec?.why ?? null, recheckAt: b?.recheckAt ?? null });
+    }
+    return out;
   }
 
   // Markets added to the floor after the account was set up (GBPUSD, say) are mapped to the
@@ -1405,8 +1447,12 @@ export class LiveTrader extends EventEmitter {
     if (issue) warnings.unshift(issue.text);
     // MT5 hands over no more history than "Max bars in chart" allows.
     if (acc && this.bridge.maxBars && this.bridge.maxBars < MAX_BROKER_BARS) {
-      warnings.push(`MT5 keeps only ${this.bridge.maxBars.toLocaleString('en-US')} bars per chart, so the research lab and the nightly review get days of your broker's prices instead of months. In MT5: Tools → Options → Charts → Max bars in chart → 100000, then restart MT5.`);
+      warnings.push(`MT5 keeps only ${this.bridge.maxBars.toLocaleString('en-US')} bars per chart, so the desks' top-down read, the research lab and the nightly review get days of your broker's prices instead of months. In MT5: Tools → Options → Charts → Max bars in chart → 100000, then restart MT5.`);
     }
+    // Too little history and the desks have no top-down read: no bias, so no trades.
+    const depth = this.historyDepth();
+    const short = depth.filter((d) => d.short);
+    if (acc && short.length) warnings.push(shortHistoryText(short));
     const caps = this.bridge.caps;
     if (caps && p) {
       if (caps.maxRiskPct > 0 && p.riskPerTradePct > caps.maxRiskPct) warnings.push(`The EA refuses orders risking more than ${caps.maxRiskPct}% but the account is set to ${p.riskPerTradePct}% per trade. Lower the risk in Edit setup, or raise "Max risk per order" in the EA's inputs.`);
@@ -1436,6 +1482,7 @@ export class LiveTrader extends EventEmitter {
       eaCaps: this.bridge.caps,
       ea: this.#eaView(),
       bridgeIssue: issue ? { kind: issue.kind, text: issue.text, at: issue.at, count: issue.count } : null,
+      history: depth,
       token: this.token,
       account: acc,
       isFtmo,
@@ -1511,6 +1558,17 @@ export function entryReasons(plan, committee, nameOf = (id) => id) {
 export function brainLevels(read) {
   if (!read) return [];
   return [...(read.resistance || []).slice(0, 2), ...(read.support || []).slice(0, 2)].filter((l) => Number.isFinite(l?.price)).map((l) => ({ label: l.label, price: l.price }));
+}
+
+// Markets with too little saved history for the desks' top-down read, and what to do about it.
+export function shortHistoryText(short) {
+  const list = short.map((d) => `${d.id} (${d.days} day${d.days === 1 ? '' : 's'})`).join(', ');
+  const one = short.length === 1;
+  let how;
+  if (short.some((d) => d.state === 'old-ea')) how = 'The EA on the chart can\'t page back through history: update it (FTMO tab → Copy EA code → MetaEditor → Compile).';
+  else if (short.some((d) => d.state !== 'done')) how = 'The floor is asking MT5 for older bars now; MT5 downloads them from your broker as it is asked.';
+  else how = 'MT5 has sent all it had so far; the floor asks again every few hours.';
+  return `Only a few weeks or less of your broker's prices are saved for ${list}. A desk's top-down read needs about 3–4 weeks of 1-minute history (the weekly trend about 2 months), so desks on ${one ? 'that market' : 'those markets'} have no bias yet and don't trade. ${how} To hurry MT5 along: open a 1-minute chart of ${one ? 'it' : 'each'} and hold the Home key until it stops scrolling back (MT5 downloads older bars as you go), and keep MT5 open.`;
 }
 
 // "Today on FTMO": every closed trade with its P&L, like MT5's history, and the total.

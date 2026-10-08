@@ -1688,34 +1688,70 @@ test('months of history: the floor pages back through MT5 until it has enough, M
   assert.equal(bridge.historyWanted.has('XAUUSD'), false, 'and doesn\'t ask again');
   assert.deepEqual(added.map((a) => a.n), [10_000, 10_000, 10_000]);
 
-  // MT5 holds less than asked: what it has is all there is.
+  // MT5 holds less than asked: it is still downloading from the broker, more often than not.
+  // The floor asks again a couple of minutes later, from where the bars ran out.
   live.backfill.clear();
   live.state.backfill = {};
   store.have = 0;
+  added.length = 0;
+  const later = () => { live.backfill.get('XAUUSD').waitUntil = 0; sync(); };
   sync();
   sync({ history: { XAUUSD: page(1, 4000) } });
-  assert.equal(live.backfill.get('XAUUSD').why, 'all the history MT5 holds');
-  // A restart within a week with that history saved: no download again.
-  assert.equal(live.state.backfill.XAUUSD.have, 4000);
-  live.backfill.clear();
-  sync();
-  assert.equal(live.backfill.get('XAUUSD').why, 'already saved');
-  assert.equal(bridge.historyWanted.has('XAUUSD'), false);
+  const b = live.backfill.get('XAUUSD');
+  assert.equal(b.done, false, 'a short page isn\'t the end of the history');
+  assert.equal(b.next, 4001);
+  assert.equal(bridge.historyWanted.has('XAUUSD'), false, 'not straight away: MT5 needs time to download');
+  later();
+  assert.deepEqual(pick(bridge.historyWanted.get('XAUUSD')), { count: 10_000, start: 4001 });
+  // MT5 downloaded more meanwhile: the floor carries on from there.
+  sync({ history: { XAUUSD: page(4001, 6000) } });
+  assert.equal(b.next, 10_001);
+  later();
+  sync({ history: { XAUUSD: page(10_001) } });
+  assert.deepEqual(pick(bridge.historyWanted.get('XAUUSD')), { count: 10_000, start: 20_001 }, 'a full page: straight on to the next');
   // Nothing that far back: MT5 never answers the page, and the bridge gives up on it.
-  live.backfill.clear();
-  live.state.backfill = {};
-  sync();
-  sync({ history: { XAUUSD: page(1) } });
   // MT5 away for ten minutes (asleep): that's no answer, it simply wasn't asked.
   bridge.historyWanted.get('XAUUSD').since -= 600_000;
   sync();
-  assert.equal(live.backfill.get('XAUUSD').done, false);
-  // Asked again and again over a minute and a half, never answered: MT5 has nothing older.
-  Object.assign(bridge.historyWanted.get('XAUUSD'), { asks: 3, firstAsked: Date.now() - 120_000 });
+  assert.equal(b.done, false);
+  // Asked again and again over a minute and a half, never answered: maybe not downloaded yet,
+  // so ask again a few times, a couple of minutes apart, before calling it all MT5 holds.
+  const giveUp = () => { Object.assign(bridge.historyWanted.get('XAUUSD'), { asks: 3, firstAsked: Date.now() - 120_000 }); sync(); };
+  for (let i = 1; i < 5; i++) {
+    giveUp();
+    assert.equal(b.done, false, `no answer ${i}: ask again`);
+    assert.equal(bridge.historyWanted.has('XAUUSD'), false, 'after a pause');
+    later();
+    assert.deepEqual(pick(bridge.historyWanted.get('XAUUSD')), { count: 10_000, start: 20_001 });
+  }
+  giveUp();
+  assert.equal(b.done, true);
+  assert.equal(b.why, 'all the history MT5 holds');
+  assert.deepEqual(added.map((a) => a.n).filter(Boolean), [4000, 6000, 10_000]);
+  assert.equal(live.state.backfill.XAUUSD.have, 20_000);
+  // A few hours on, MT5 may have more: ask again from where it stopped.
   sync();
+  assert.equal(bridge.historyWanted.has('XAUUSD'), false);
+  b.recheckAt = Date.now() - 1;
+  sync();
+  assert.deepEqual(pick(bridge.historyWanted.get('XAUUSD')), { count: 10_000, start: 20_001 });
+  sync({ history: { XAUUSD: page(20_001, 3000) } });
+  assert.equal(b.done, false);
+  assert.equal(b.next, 23_001);
+  // A restart within those hours with that history saved: no download again.
+  live.state.backfill.XAUUSD = { at: Date.now(), have: store.have, why: 'all the history MT5 holds' };
+  live.backfill.clear();
+  sync();
+  assert.equal(live.backfill.get('XAUUSD').why, 'all the history MT5 holds');
   assert.equal(live.backfill.get('XAUUSD').done, true);
-  assert.equal(live.backfill.get('XAUUSD').why, 'MT5 has nothing older');
+  assert.equal(bridge.historyWanted.has('XAUUSD'), false);
+  // Longer ago than that: page through again (MT5 may have downloaded more since).
+  live.state.backfill.XAUUSD.at = Date.now() - 7 * 3_600_000;
+  live.backfill.clear();
+  sync();
+  assert.deepEqual(pick(bridge.historyWanted.get('XAUUSD')), { count: 10_000, start: 1 });
   // Saved from an earlier run: no download at all.
+  bridge.historyWanted.delete('XAUUSD');
   live.backfill.clear();
   live.state.backfill = {};
   store.have = 99_000;
@@ -1766,9 +1802,39 @@ test('the bridge asks for history pages politely: one at a time, never while an 
 test('the FTMO tab says when MT5 keeps too few bars to give months of history', () => {
   const { live, sync } = setup();
   sync({ maxBars: 5000 });
-  assert.ok(live.view().warnings.some((w) => /MT5 keeps only 5,000 bars per chart, so the research lab and the nightly review get days of your broker's prices instead of months\. In MT5: Tools → Options → Charts → Max bars in chart → 100000/.test(w)));
+  assert.ok(live.view().warnings.some((w) => /MT5 keeps only 5,000 bars per chart, so the desks' top-down read, the research lab and the nightly review get days of your broker's prices instead of months\. In MT5: Tools → Options → Charts → Max bars in chart → 100000/.test(w)));
   sync({ maxBars: 100_000 });
   assert.ok(!live.view().warnings.some((w) => /bars per chart/.test(w)));
+});
+
+test('the FTMO tab says when a market has too little history for the desks\' top-down read', () => {
+  const { live, sync, fund } = setup();
+  sync();
+  live.setup({ program: '2-step', type: 'trial', size: 100_000 });
+  const now = Math.floor(Date.now() / 60_000) * 60;
+  fund.env.md.claim('XAUUSD', 'mt5', Array.from({ length: 60 }, (_, i) => ({ time: now - (60 - i) * 60, open: 3800, high: 3801, low: 3799, close: 3800, volume: 1 })), 'LIVE');
+  let from = now - 14 * 86_400;
+  live.history = { ready: true, brokerBars: () => 14_500, addBrokerHistory: () => null, span: (id) => (id === 'XAUUSD' ? { n: 14_500, from } : { n: 0, from: null }) };
+  sync();
+  const v = live.view();
+  const gold = v.history.find((d) => d.id === 'XAUUSD');
+  assert.equal(gold.days, 14);
+  assert.equal(gold.short, true);
+  assert.equal(gold.state, 'paging', 'the floor is asking MT5 for older bars');
+  const w = v.warnings.find((x) => /^Only a few weeks or less of your broker's prices are saved for XAUUSD \(14 days\)/.test(x));
+  assert.ok(w, v.warnings.join('\n'));
+  assert.match(w, /top-down read needs about 3–4 weeks of 1-minute history .* have no bias yet and don't trade\. The floor is asking MT5 for older bars now/);
+  assert.match(w, /open a 1-minute chart of it and hold the Home key/);
+  // Two months saved: nothing to say.
+  from = now - 60 * 86_400;
+  assert.ok(!live.view().warnings.some((x) => /^Only a few weeks/.test(x)));
+  assert.equal(live.view().history.find((d) => d.id === 'XAUUSD').short, false);
+});
+
+test('a short-history warning says what is holding the history back', async () => {
+  const { shortHistoryText } = await import('../server/live/liveTrader.js');
+  assert.match(shortHistoryText([{ id: 'NAS100', days: 14, state: 'old-ea' }]), /update it \(FTMO tab → Copy EA code/);
+  assert.match(shortHistoryText([{ id: 'NAS100', days: 14, state: 'done' }, { id: 'SPX500', days: 1, state: 'done' }]), /NAS100 \(14 days\), SPX500 \(1 day\)\. .*desks on those markets .*MT5 has sent all it had so far; the floor asks again every few hours\. .*chart of each/);
 });
 
 test('the research history keeps months of the broker\'s own bars, and the broker\'s bars win', async () => {

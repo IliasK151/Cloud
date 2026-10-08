@@ -25,6 +25,8 @@ import { ROSTER } from '../server/engine/roster.js';
 import { config } from '../server/config.js';
 import { replay, loadBars } from './replay.js';
 
+// Fewer calendar days of bars than this and the replay mostly measures the read warming up.
+const SHORT_TEST_DAYS = 42;
 const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
 const fmtR = (x) => (x == null ? '—' : `${x >= 0 ? '+' : ''}${x.toFixed(2)}R`);
 
@@ -58,8 +60,11 @@ function print(p, s, bars, symbol) {
   const from = new Date(bars[0].time * 1000).toISOString().slice(0, 10);
   const to = new Date(bars.at(-1).time * 1000).toISOString().slice(0, 10);
   const f = s.funnel || {};
+  const span = Math.round((bars.at(-1).time - bars[0].time) / 86_400);
   console.log(`\n  ${p.name} · ${p.desk} · ${symbol} · ${bars.length.toLocaleString('en-US')} real 1-minute bars, ${days} days (${from} → ${to})`);
   console.log(`    Days with a top-down bias: ${f.biasDays ?? 0} of ${f.days ?? 0}`);
+  // The read needs 3–4 weeks of bars before it gives a bias: on less, the test says little.
+  if (span < SHORT_TEST_DAYS) console.log(`    ⚠ Only ${span} days of history: the top-down read needs about 3–4 weeks before it gives a bias, so most of these days had none and this result says little. Let MT5 send months of history (npm run doctor shows how far it is) and run this again.`);
   console.log(`    Liquidity swept against the bias: ${f.sweeps ?? 0} · ran through (a breakdown, not a sweep): ${f.deep ?? 0} · never shifted: ${f.stale ?? 0}`);
   console.log(`    5-minute shifts: ${f.shifts ?? 0} · outside the killzones: ${f.outside ?? 0} · no displacement: ${f.weak ?? 0} · no fair value gap: ${f.noGap ?? 0} · already traded that day: ${f.busy ?? 0}${f.costly ? ` · costs too high for the stop: ${f.costly}` : ''}`);
   console.log(`    Setups: ${f.orders ?? 0}`);
@@ -119,7 +124,11 @@ async function main() {
     trades += s.trades;
     sumR += s.sumR;
   }
-  console.log(`\n  All day traders: ${trades} trades, ${trades ? `${sumR >= 0 ? '+' : ''}${sumR.toFixed(2)}R in total` : 'no trades'}\n`);
+  console.log(`\n  All day traders: ${trades} trades, ${trades ? `${sumR >= 0 ? '+' : ''}${sumR.toFixed(2)}R in total` : 'no trades'}`);
+  // R is what one trade risks (its stop): at 0.25% risk per trade, −4R is −1% of the account.
+  if (trades) console.log(`  (1R = what one trade risks, from entry to stop. At the account's default 0.25% per trade, ${sumR >= 0 ? '+' : ''}${sumR.toFixed(1)}R is ${sumR >= 0 ? '+' : '−'}${(Math.abs(sumR) * 0.25).toFixed(1)}% of the account. A replay on saved prices: nothing was traded.)`);
+  if (trades && trades < 30) console.log(`  ${trades} trades is far too few to judge a method: it takes about 100 before the total means much.`);
+  console.log('');
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {

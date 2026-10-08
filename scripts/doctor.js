@@ -157,7 +157,7 @@ async function main() {
       );
     }
     // Old code and "not trading at all" are said below, with the rest of what the floor is doing.
-    const said = (x) => /demo mode|still running the code from before your last git pull|aren't trading at all/.test(x);
+    const said = (x) => /demo mode|still running the code from before your last git pull|aren't trading at all|^Only a few weeks or less of your broker's prices/.test(x);
     for (const w of (live.warnings || []).filter((x) => !said(x)).slice(0, 4)) {
       if (live.bridgeIssue && w === live.bridgeIssue.text) continue;
       // The waiting markets are listed above; only the advice on fixing them is new here.
@@ -203,6 +203,18 @@ async function main() {
     // Each desk's market has to exist on the broker.
     for (const d of (live.desks || []).filter((x) => x.enabled && x.eligible && !x.brokerSymbol)) {
       warn(`${d.name} trades ${d.symbols?.[0] ?? 'a market'} right now, but it isn't mapped to a symbol on your broker, so it can't trade (FTMO tab → Edit setup → markets).`);
+    }
+    // The desks' top-down read is built from the saved history: weeks of it, or no bias at all.
+    const depth = live.history || [];
+    if (depth.length) {
+      const short = depth.filter((d) => d.short);
+      const state = (d) => ({ paging: 'asking MT5 for older bars now', waiting: 'not asked yet', 'old-ea': 'the EA can\'t page back: update it' }[d.state]
+        ?? (d.short ? `MT5 sent all it had (${d.why}); asking again ${d.recheckAt ? `in ${Math.max(1, Math.round((d.recheckAt - Date.now()) / 3_600_000))} h` : 'later'}` : ''));
+      if (short.length) bad(`Too little history for the desks' top-down read on ${short.map((d) => d.id).join(', ')}: no bias there, so no trades.`);
+      else good('Every market has weeks of your broker\'s history saved: enough for the desks\' top-down read.');
+      console.log('      Saved history per market (the top-down read needs about 4 weeks; the weekly trend about 2 months):');
+      for (const d of depth) console.log(`        ${d.id.padEnd(8)} ${String(d.days).padStart(3)} days  ${d.bars.toLocaleString('en-US').padStart(7)} bars${d.short || d.state !== 'done' ? `  ${state(d)}` : ''}`);
+      if (short.length) fixes.push('Keep MT5 and the floor running: the floor keeps asking MT5 for older bars. To hurry it, open a 1-minute chart of each short market in MT5 and hold the Home key until it stops scrolling back. Then npm run doctor again.');
     }
   }
   const vault = json(await get('/api/vault', auth));
