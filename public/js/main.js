@@ -9,7 +9,7 @@ import { Dashboard } from './ui/dashboard.js';
 import { TradingViewView } from './ui/tvView.js';
 import { LiveView } from './ui/liveView.js';
 import { BrainView } from './ui/brainView.js';
-import { escapeHtml, money } from './format.js';
+import { escapeHtml, money, ON_WINDOWS, OS } from './format.js';
 import { nextHigh, until } from './ui/news.js';
 
 const app = document.getElementById('app');
@@ -111,16 +111,16 @@ function voiceNoteText(st) {
   const n = st.neural;
   if (st.engine === 'off') return 'Traders answer in text only.';
   if (st.engine === 'natural') {
-    if (n.state === 'ready') return `Realistic voices are ready. They run on this Mac, and nothing you hear is sent anywhere.${n.lastError ? ` (Last problem: ${n.lastError}; Mac voices filled in.)` : ''}`;
-    if (n.state === 'installing') return `${n.step} Mac voices fill in meanwhile.`;
-    if (n.state === 'loading') return n.total ? `${n.step} ${mb(n.loaded)} of ${mb(n.total)}. Mac voices fill in meanwhile.` : `${n.step || 'Starting the voice engine…'} Mac voices fill in meanwhile.`;
-    if (n.state === 'error') return `Realistic voices aren't working: ${n.error} Mac voices are used meanwhile. Pick Realistic again to retry.`;
+    if (n.state === 'ready') return `Realistic voices are ready. They run on this ${OS.machine}, and nothing you hear is sent anywhere.${n.lastError ? ` (Last problem: ${n.lastError}; ${OS.voices} filled in.)` : ''}`;
+    if (n.state === 'installing') return `${n.step} ${OS.voices} fill in meanwhile.`;
+    if (n.state === 'loading') return n.total ? `${n.step} ${mb(n.loaded)} of ${mb(n.total)}. ${OS.voices} fill in meanwhile.` : `${n.step || 'Starting the voice engine…'} ${OS.voices} fill in meanwhile.`;
+    if (n.state === 'error') return `Realistic voices aren't working: ${n.error} ${OS.voices} are used meanwhile. Pick Realistic again to retry.`;
     return 'Setting up realistic voices… The first time, the floor installs its voice engine (about 400 MB) and downloads the voice model (about 90 MB). After that they start in seconds.';
   }
   const names = [...new Set(Object.values(st.assigned))];
   if (!st.systemVoices) return 'No English system voices found in this browser.';
   const basic = names.every((x) => !/premium|enhanced|natural|google/i.test(x));
-  return `Using ${names.slice(0, 4).join(', ')}${names.length > 4 ? '…' : ''}.${basic ? ' For better Mac voices open System Settings → Accessibility → Spoken Content → System voice → Manage Voices and add Premium voices such as Zoe, Ava, Evan or Serena.' : ''}`;
+  return `Using ${names.slice(0, 4).join(', ')}${names.length > 4 ? '…' : ''}.${basic ? (ON_WINDOWS ? ' For better Windows voices open the floor in Microsoft Edge: it has Microsoft\'s natural voices (Aria, Jenny, Guy).' : ' For better Mac voices open System Settings → Accessibility → Spoken Content → System voice → Manage Voices and add Premium voices such as Zoe, Ava, Evan or Serena.') : ''}`;
 }
 function syncVoiceUi(st = voice.status()) {
   voiceSeg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.engine === st.engine)));

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import os from 'node:os';
+import { MACHINE } from '../util/platform.js';
 
 // The local firewall: who may use the floor's dashboard, API and live feed.
 //
@@ -154,7 +155,7 @@ export class LocalGuard {
       if (this.networkPaths.includes(path)) return next();
       if (!local && !this.pwHash) {
         this.#refuse('network', req);
-        return res.status(403).type('text').send('This trading floor only opens on the Mac it runs on. To use it from another device, set FLOOR_PASSWORD (and HOST=0.0.0.0) in .env.');
+        return res.status(403).type('text').send(`This trading floor only opens on the ${MACHINE} it runs on. To use it from another device, set FLOOR_PASSWORD (and HOST=0.0.0.0) in .env.`);
       }
       if (!this.hostOk(req)) {
         this.#refuse('host', req);
@@ -298,6 +299,6 @@ function loginPage(message) {
 form{width:min(340px,90vw);padding:28px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:#141518}
 h1{font-size:18px;margin:0 0 6px}p{color:#b3b5ba;margin:0 0 18px;line-height:1.45}input{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid rgba(255,255,255,.15);background:#1a1b1f;color:#fff;font-size:15px}
 button{margin-top:14px;width:100%;padding:11px;border:0;border-radius:9px;background:#4c8dff;color:#fff;font-weight:700;font-size:14px;cursor:pointer}.err{color:#f0707a;margin:12px 0 0}</style></head>
-<body><form method="post" action="/login"><h1>Trading floor</h1><p>This floor is protected. Enter the password set in <code>FLOOR_PASSWORD</code> on the Mac.</p>
+<body><form method="post" action="/login"><h1>Trading floor</h1><p>This floor is protected. Enter the password set in <code>FLOOR_PASSWORD</code> on the ${MACHINE}.</p>
 <input type="password" name="password" autocomplete="current-password" autofocus required aria-label="Password"><button type="submit">Sign in</button>${message ? `<p class="err">${message}</p>` : ''}</form></body></html>`;
 }

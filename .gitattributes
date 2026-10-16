@@ -1,0 +1,7 @@
+# Windows batch files need Windows line endings (cmd.exe misreads labels and blocks without
+# them), in a git clone and in GitHub's ZIP download alike. Mac shell scripts need Unix ones.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.command text eol=lf
+*.sh text eol=lf

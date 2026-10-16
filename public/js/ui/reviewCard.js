@@ -1,4 +1,4 @@
-import { escapeHtml } from '../format.js';
+import { escapeHtml, OS } from '../format.js';
 
 // The nightly review card (FTMO tab): who has an edge on your own prices, what that means for
 // the account, and the chance of passing a challenge at each risk size. The review itself
@@ -151,5 +151,5 @@ export function renderReview(v, { now = Date.now() } = {}) {
     </table></div>
     ${long.size ? '<p class="fine">Long run: each desk replayed on many months of real 1-minute prices, thousands of trades. A desk that lost money there with confidence trades paper only, unless the nightly review finds a real edge (its whole 90% range above zero) on your own prices, and then at half size.</p>' : ''}
     ${odds}
-    <p class="fine">History, not a promise: the market changes, and a few weeks of minutes is a small sample. The more the floor has saved, the sharper it gets. Same report in Terminal: <code>npm run edge</code>.</p>`;
+    <p class="fine">History, not a promise: the market changes, and a few weeks of minutes is a small sample. The more the floor has saved, the sharper it gets. Same report in ${OS.terminal}: <code>npm run edge</code>.</p>`;
 }

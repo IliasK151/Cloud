@@ -74,3 +74,25 @@ export const STATUS_COLORS = {
   'IN TRADE': '#3d8ef0', ARMED: '#f2b01e', HALTED: '#e5484d', PAUSED: '#8b919c', COOLDOWN: '#ec835a',
   NEWS: '#a371f7', RESEARCHING: '#2dd4bf', 'NO EDGE': '#8b919c', 'LOADING DATA': '#8b919c', 'NO PRICES': '#8b919c',
 };
+
+// The computer the floor runs on. The dashboard opens on the same one (localhost), so the
+// browser's own system says which: the words, keys and steps follow it (a Mac or a Windows PC).
+export const ON_WINDOWS = /Windows/i.test(globalThis.navigator?.userAgent || '');
+export const OS = ON_WINDOWS
+  ? {
+    machine: 'PC',
+    mod: 'Ctrl',
+    terminal: 'PowerShell',
+    // Load new code into a floor that still runs the old one (after a git pull).
+    restart: 'double-click <b>update</b> in the trading-floor folder (it restarts the floor)',
+    restartText: 'double-click update in the trading-floor folder (it restarts the floor)',
+    voices: 'Windows voices',
+  }
+  : {
+    machine: 'Mac',
+    mod: 'Cmd',
+    terminal: 'Terminal',
+    restart: 'in Terminal: <code>cd ~/trading-floor && npm run service -- restart</code>',
+    restartText: 'in Terminal: cd ~/trading-floor && npm run service -- restart',
+    voices: 'Mac voices',
+  };

@@ -10,8 +10,8 @@
   },
   "scripts": {
     "start": "node server/index.js",
-    "live": "FEED=live node server/index.js",
-    "demo": "FEED=sim node server/index.js",
+    "live": "node server/index.js --live",
+    "demo": "node server/index.js --demo",
     "dev": "node --watch server/index.js",
     "test": "node --test test/*.test.js",
     "reset": "node scripts/reset.js",
@@ -23,7 +23,8 @@
     "doctor": "node scripts/doctor.js",
     "service": "node scripts/service.js",
     "mock-mt5": "node scripts/mock-mt5.js",
-    "install-ea": "node scripts/install-ea.js"
+    "install-ea": "node scripts/install-ea.js",
+    "move": "node scripts/move.js"
   },
   "license": "MIT",
   "dependencies": {

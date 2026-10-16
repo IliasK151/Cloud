@@ -12,6 +12,7 @@ import { DailyReports, closedTrades, storyLine } from './dailyReport.js';
 import { ACTION_LIMITS } from './bridge.js';
 import { MAX_BROKER_BARS } from '../research/history.js';
 import { locateExpertsFolders } from '../../scripts/install-ea.js';
+import { MACHINE, onWindows, RESTART_HINT } from '../util/platform.js';
 import { fmtUsd } from '../util/format.js';
 
 export const MAGIC_BASE = 771000;
@@ -311,7 +312,7 @@ export class LiveTrader extends EventEmitter {
   }
 
   // "Put the update into MT5": copy the EA this floor ships into MT5's Expert Advisors
-  // folder(s) on this Mac. Compiling it is one click in MetaEditor.
+  // folder(s) on this computer. Compiling it is one click in MetaEditor.
   installEa({ locate = locateExpertsFolders } = {}) {
     let folders = [];
     try {
@@ -319,7 +320,7 @@ export class LiveTrader extends EventEmitter {
     } catch {
       folders = [];
     }
-    if (!folders.length) return { ok: false, error: 'Couldn\'t find MetaTrader 5\'s Expert Advisors folder on this Mac (for example if MT5 runs in Parallels or on another PC). Use "Copy EA code" instead.' };
+    if (!folders.length) return { ok: false, error: `Couldn't find MetaTrader 5's Expert Advisors folder on this ${MACHINE} (for example if MT5 runs ${onWindows ? 'on another computer, or hasn\'t been opened yet' : 'in Parallels or on another PC'}). Use "Copy EA code" instead.` };
     const copied = [];
     let lastErr = null;
     for (const f of folders) {
@@ -1047,7 +1048,7 @@ export class LiveTrader extends EventEmitter {
       this.linkDown.alerted = true;
       const open = this.bridge.positions.filter((x) => this.#ours(x)).length;
       this.reports.event(this.reportDay(), 'disconnect', 'MT5 stopped syncing');
-      this.#alert('connection', `🔌 MT5 has stopped talking to the floor for a minute (MT5 closed, the Mac asleep or the internet down).${open ? ` ${open} open position${open === 1 ? '' : 's'} keep${open === 1 ? 's' : ''} ${open === 1 ? 'its' : 'their'} stop-loss on MT5.` : ''}`);
+      this.#alert('connection', `🔌 MT5 has stopped talking to the floor for a minute (MT5 closed, the ${MACHINE} asleep or the internet down).${open ? ` ${open} open position${open === 1 ? '' : 's'} keep${open === 1 ? 's' : ''} ${open === 1 ? 'its' : 'their'} stop-loss on MT5.` : ''}`);
     }
     if (up && this.linkDown) {
       if (this.linkDown.alerted) {
@@ -1433,7 +1434,7 @@ export class LiveTrader extends EventEmitter {
     const brokerSymbols = this.bridge.symbols;
     const links = [...this.links.values()];
     const warnings = [];
-    if (this.codeStale?.()) warnings.push('The floor is still running the code from before your last git pull, so some buttons on this page don\'t work yet. Load the new code: in Terminal, cd ~/trading-floor && npm run service -- restart (or, without the service, Ctrl+C and npm start), then reload this page.');
+    if (this.codeStale?.()) warnings.push(`The floor is still running the code from before your last git pull, so some buttons on this page don\'t work yet. Load the new code: ${RESTART_HINT}, then reload this page.`);
     if (this.mode !== 'live') warnings.push('You are in demo mode (simulated prices). Live FTMO trading needs npm start.');
     const isFtmo = !!acc && /ftmo/i.test(`${acc.server} ${acc.company}`);
     if (acc && !isFtmo) warnings.push(`MT5 is logged into ${acc.server} (${acc.company || 'another broker'}), which doesn't look like an FTMO account. In MT5 use File → Login to Trade Account with the login, password and server from your FTMO Client Area.`);

@@ -26,6 +26,7 @@ import { config } from '../server/config.js';
 import { mulberry32 } from '../server/util/random.js';
 import { riskSweep } from '../server/live/challengeSim.js';
 import { replay, loadBars } from './replay.js';
+import { isMain } from '../server/util/isMain.js';
 
 // The research lab researches its own strategies as it goes: those desks aren't replayed.
 const SKIP = new Set();
@@ -226,7 +227,7 @@ async function main() {
   } catch { /* read-only data folder: the printout is the report */ }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (isMain(import.meta.url)) {
   main().catch((err) => {
     console.error(`  The edge report failed: ${err.stack || err.message}`);
     process.exitCode = 1;

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Run the floor non-stop on this Mac, as a background service (a macOS LaunchAgent):
+// Run the floor non-stop on this computer, as a background service: a macOS LaunchAgent on a
+// Mac, or a hidden supervisor started from the Startup folder on Windows (serviceWindows.js):
 //
 //   npm run service -- install     start now, start again at every login, and restart by
 //                                  itself if it ever stops (the floor keeps the Mac awake)
@@ -156,7 +157,7 @@ export async function load(file, { run = launchctl, isLoaded = () => !!running()
   ].join('\n'));
 }
 
-function health(port) {
+export function health(port) {
   return new Promise((resolve) => {
     const req = http.get({ host: '127.0.0.1', port, path: '/api/health', headers: { Host: `127.0.0.1:${port}` }, timeout: 4000 }, (res) => {
       let body = '';
@@ -174,14 +175,14 @@ function health(port) {
   });
 }
 
-async function port() {
+export async function port() {
   const { config } = await import('../server/config.js');
   return config.port;
 }
 
 // The Obsidian vault has to be outside the folders macOS keeps services out of, or it stops
 // updating once the floor runs as a service.
-async function vaultLines() {
+export async function vaultLines() {
   const { config } = await import('../server/config.js');
   if (!config.vault) return [];
   const f = protectedFolder(config.vaultDir);
@@ -207,7 +208,7 @@ function running() {
 // The running floor started before the code on disk last changed (a git pull since).
 export const stale = (root, health, now = Date.now()) => Number.isFinite(health?.uptime) && codeIsNewer(root, now - health.uptime * 1000);
 
-const tail = (file, n) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').slice(-n).join('\n') : '(no log yet)');
+export const tail = (file, n) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').slice(-n).join('\n') : '(no log yet)');
 
 // MetaTrader 5 opens at login too, so the EA is back on its chart after a restart.
 function addMt5LoginItem() {
@@ -224,17 +225,23 @@ function addMt5LoginItem() {
 
 // After a `git pull` that added a dependency (e.g. the entry-chart renderer), install it
 // before the service restarts: the service runs the code as it is on disk.
-function ensureDeps(root = ROOT) {
+export function depsCurrent(root = ROOT) {
   const pkg = path.join(root, 'package.json');
   const marker = path.join(root, 'node_modules', '.package-lock.json');
   try {
-    if (fs.existsSync(marker) && fs.statSync(marker).mtimeMs >= fs.statSync(pkg).mtimeMs) return;
-  } catch { /* install below */ }
+    return fs.existsSync(marker) && fs.statSync(marker).mtimeMs >= fs.statSync(pkg).mtimeMs;
+  } catch {
+    return false;
+  }
+}
+
+export function ensureDeps(root = ROOT) {
+  if (depsCurrent(root)) return;
   console.log('\n  New packages for the floor: installing them first (about a minute)…');
   const npm = process.env.npm_execpath;
   try {
     if (npm) execFileSync(process.execPath, [npm, 'install', '--no-audit', '--no-fund'], { cwd: root, stdio: 'inherit' });
-    else execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: root, stdio: 'inherit' });
+    else execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--no-audit', '--no-fund'], { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' });
   } catch {
     console.log('  The install didn\'t finish (no internet?). The floor still runs; run npm install later.');
   }
@@ -372,8 +379,9 @@ function logs() {
 
 async function main() {
   const cmd = process.argv[2] || 'status';
+  if (process.platform === 'win32') return (await import('./serviceWindows.js')).main(cmd);
   if (process.platform !== 'darwin') {
-    console.log('\n  The background service is for macOS. On a Windows VPS, run the floor with Task Scheduler ("At startup", restart on failure) or NSSM; on Linux, with a systemd service.\n');
+    console.log('\n  The background service is for macOS and Windows. On Linux, run the floor with a systemd service.\n');
     return;
   }
   const cmds = { install, uninstall, status, restart, logs };

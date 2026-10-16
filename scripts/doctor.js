@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Connection doctor: checks every link the floor depends on and says, in plain words, what
 // is wrong and how to fix it. Run it while the floor is running (npm start in another
-// Terminal window):  npm run doctor
+// Terminal window):  npm run doctor   (on Windows: double-click doctor in the floor's folder)
 //
 // It only reads. It never sends anything to MT5 or TradingView and never places a trade.
 
@@ -15,6 +15,7 @@ const good = (t) => console.log(`  ✓ ${t}`);
 const warn = (t) => console.log(`  ▲ ${t}`);
 const bad = (t) => console.log(`  ✗ ${t}`);
 const tip = (t) => console.log(`      → ${t}`);
+const RELOAD = process.platform === 'win32' ? 'Ctrl+R or F5' : 'Cmd+R';
 const fixes = [];
 
 function get(path, headers = {}) {
@@ -53,10 +54,12 @@ async function main() {
       bad(`The floor is not running on port ${PORT}, so MT5 has nothing to connect to.`);
       const fs = await import('node:fs');
       const service = process.platform === 'darwin' ? await import('./service.js') : null;
-      if (service && fs.existsSync(service.plistPath())) {
+      if (process.platform === 'win32' && (await import('./serviceWindows.js')).installed()) {
+        tip('The background service is installed but the floor isn\'t up. See why with: npm run service -- status');
+      } else if (service && fs.existsSync(service.plistPath())) {
         tip('The background service is installed but the floor isn\'t up. See why with: npm run service -- status');
         if (service.protectedFolder(ROOT)) tip(`Fix: npm run service -- install   (macOS doesn't let services run from your ${service.protectedFolder(ROOT)}; this moves the floor to your home folder)`);
-      } else tip('Start it with: npm start   (or run it non-stop: npm run service -- install), then run npm run doctor again');
+      } else tip(process.platform === 'win32' ? 'Start it: double-click start in the trading-floor folder (or run it non-stop: npm run service -- install), then run the doctor again' : 'Start it with: npm start   (or run it non-stop: npm run service -- install), then run npm run doctor again');
     } else bad(`Could not reach the floor: ${health.error.message}`);
     return;
   }
@@ -67,12 +70,15 @@ async function main() {
     return;
   }
   good(`The floor is running (${h.mode === 'sim' ? 'demo mode, simulated prices' : 'live mode'}, up ${Math.round(h.uptime / 60)} min).`);
-  if (process.platform === 'darwin') {
-    const { plistPath } = await import('./service.js');
+  if (process.platform === 'darwin' || process.platform === 'win32') {
     const fs = await import('node:fs');
+    const installed = process.platform === 'win32'
+      ? (await import('./serviceWindows.js')).installed()
+      : fs.existsSync((await import('./service.js')).plistPath());
+    const where = process.platform === 'win32' ? 'a window of its own' : 'a Terminal window';
     if (h.service) good('It runs non-stop as a background service: starts at login, restarts itself if it stops.');
-    else if (fs.existsSync(plistPath())) warn('It runs in a Terminal window, not as the background service you installed: closing that window stops it. Check the service: npm run service -- status');
-    else warn('It runs in a Terminal window only: closing that window stops the floor. To run it non-stop: npm run service -- install');
+    else if (installed) warn(`It runs in ${where}, not as the background service you installed: closing that window stops it. Check the service: npm run service -- status`);
+    else warn(`It runs in ${where} only: closing that window stops the floor. To run it non-stop: npm run service -- install`);
   }
   for (const n of h.notes || []) if (/Waiting for real prices/.test(n)) warn(n);
 
@@ -98,7 +104,7 @@ async function main() {
   if (ws === 'ok') good('The live feed (what your browser connects to) works.');
   else {
     bad(`The live feed does not connect: ${ws}.`);
-    fixes.push('Reload the dashboard in your browser (Cmd+R). If it still says connecting, quit the browser tab and open http://localhost:' + PORT);
+    fixes.push(`Reload the dashboard in your browser (${RELOAD}). If it still says connecting, quit the browser tab and open http://localhost:${PORT}`);
   }
   const guard = json(await get('/api/tradingview/config', auth));
   const recent = (guard?.guard?.recent || []).filter((r) => Date.now() - r.at < 15 * 60_000);
@@ -112,7 +118,7 @@ async function main() {
       network: `another device on your network (${r.ip})`,
     }[r.kind];
     warn(`${browserRefusals.length} request(s) refused in the last 15 min, last one from ${why}, ${ago(r.at)}.`);
-    if (r.kind === 'key') fixes.push('Reload the dashboard tab (Cmd+R) so it picks up the new key.');
+    if (r.kind === 'key') fixes.push(`Reload the dashboard tab (${RELOAD}) so it picks up the new key.`);
     if (r.kind === 'host') fixes.push(`Open the floor at http://localhost:${PORT} (not by another name or IP).`);
     if (r.kind === 'network') fixes.push('To open the dashboard from another device, set HOST=0.0.0.0 and FLOOR_PASSWORD=<10+ characters> in .env, then restart.');
   }

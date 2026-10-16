@@ -7,7 +7,8 @@ import path from 'node:path';
 // once the floor runs as a service.
 const PROTECTED = ['Desktop', 'Documents', 'Downloads', path.join('Library', 'Mobile Documents')];
 
-export function protectedFolder(dir, home = os.homedir()) {
+export function protectedFolder(dir, home = os.homedir(), platform = process.platform) {
+  if (platform === 'win32') return null; // Windows has no such rule
   for (const p of PROTECTED) {
     const base = path.join(home, p);
     if (dir === base || dir.startsWith(base + path.sep)) return p.split(path.sep).at(-1);

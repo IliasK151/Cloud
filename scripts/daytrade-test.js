@@ -24,6 +24,7 @@ import path from 'node:path';
 import { ROSTER } from '../server/engine/roster.js';
 import { config } from '../server/config.js';
 import { replay, loadBars } from './replay.js';
+import { isMain } from '../server/util/isMain.js';
 
 // Fewer calendar days of bars than this and the replay mostly measures the read warming up.
 const SHORT_TEST_DAYS = 42;
@@ -131,7 +132,7 @@ async function main() {
   console.log('');
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (isMain(import.meta.url)) {
   main().catch((err) => {
     console.error(`  The day trading test failed: ${err.stack || err.message}`);
     process.exitCode = 1;

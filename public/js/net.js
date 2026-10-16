@@ -1,4 +1,5 @@
 import { store } from './store.js';
+import { OS } from './format.js';
 
 // WebSocket link to the local server with automatic reconnect.
 let ws = null;
@@ -89,7 +90,7 @@ export async function api(path, opts = {}) {
     let body = null;
     try { body = await res.json(); } catch { /* not JSON */ }
     if (res.status === 404 && body?.error === 'unknown action') {
-      throw new Error('the floor is still running its old code (from before your last git pull), so it doesn\'t know this button yet. In Terminal: cd ~/trading-floor && npm run service -- restart, then reload this page');
+      throw new Error(`the floor is still running its old code (from before your last git pull), so it doesn't know this button yet. Load the new code: ${OS.restartText}, then reload this page`);
     }
     throw new Error(body?.error ? `${res.status}: ${body.error}` : `${res.status} ${res.statusText}`);
   }

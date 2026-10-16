@@ -1,6 +1,6 @@
 # Meridian Trading Floor
 
-A 3D institutional trading floor that runs in your browser, served by a small server on your Mac. Twenty AI agents work the floor, and **every one of them is a day trader**. They all trade the way TJR teaches: the weekly, daily and 4-hour bias first, then a sweep of the session's liquidity, a 5-minute break of structure and an entry back in the fair value gap, aiming for 3R or more, one trade a day at most. No scalping. Every market has a **London session desk and a New York open desk** (Bitcoin has an Asia desk too), and the seven crypto desks trade at half risk. **Every desk trades your FTMO account**, and **the desks don't pile in together**: one desk per market, one trade per correlated group, at most three at once. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. Each desk **trades its own way**: its own setups, with its own stops and targets, and every trade goes to your FTMO account with only FTMO's own rules around it. (The institutional way, where a **committee** argues every idea and an **account brain** decides what reaches your prop account, is one switch away.) You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their top-down read, the liquidity they're waiting for and their P&L out loud.
+A 3D institutional trading floor that runs in your browser, served by a small server on your Mac or Windows PC. Twenty AI agents work the floor, and **every one of them is a day trader**. They all trade the way TJR teaches: the weekly, daily and 4-hour bias first, then a sweep of the session's liquidity, a 5-minute break of structure and an entry back in the fair value gap, aiming for 3R or more, one trade a day at most. No scalping. Every market has a **London session desk and a New York open desk** (Bitcoin has an Asia desk too), and the seven crypto desks trade at half risk. **Every desk trades your FTMO account**, and **the desks don't pile in together**: one desk per market, one trade per correlated group, at most three at once. Every desk respects the **economic calendar**: no new trades into big news, and flat before it. Each desk **trades its own way**: its own setups, with its own stops and targets, and every trade goes to your FTMO account with only FTMO's own rules around it. (The institutional way, where a **committee** argues every idea and an **account brain** decides what reaches your prop account, is one switch away.) You watch them live at their multi-monitor workstations, click one to zoom in, and they turn around and say **"Hello boss!"**, then walk you through their top-down read, the liquidity they're waiting for and their P&L out loud.
 
 ![The trading floor](docs/floor.jpg)
 
@@ -29,6 +29,75 @@ A 3D institutional trading floor that runs in your browser, served by a small se
 3. Your browser opens **http://localhost:3000**. That's the floor. The first time, a short welcome walks you through it: what you're looking at, how the traders should sound, and (optionally) connecting FTMO.
 
 **Prefer double-clicking?** Open the folder in Finder and double-click **`start.command`** (live) or **`start-demo.command`** (simulation). If Node.js is missing it opens the download page for you; otherwise it installs everything on the first run, starts the server and opens your browser. Close the window or press `Ctrl+C` to stop. The desks flatten and the track record is saved to `data/`.
+
+## Quick start (Windows)
+
+1. Open **PowerShell** (Start menu, type *PowerShell*, press Enter) and paste this line:
+
+   ```powershell
+   irm https://raw.githubusercontent.com/IliasK151/Cloud/HEAD/setup-windows.ps1 | iex
+   ```
+
+   It sets everything up and asks before the bigger steps:
+   - installs **Node.js** and **Git** if they're missing, with winget (Windows' own installer; Windows asks for permission once for each);
+   - downloads the floor into `C:\Users\<you>\trading-floor`, or updates it if it's already there;
+   - installs its packages;
+   - brings over the data you exported on your Mac, if it finds the file in Downloads (see [Moving from your Mac](#moving-from-your-mac-to-a-windows-pc));
+   - puts **Trading Floor** on your desktop, and in the Start menu next to *Update Trading Floor*, *Trading Floor doctor* and a demo;
+   - offers to run the floor non-stop in the background, which suits a PC you leave on all day.
+
+   Run it again any time: it only does what's missing. Nothing in it needs administrator rights.
+
+2. The floor opens at **http://localhost:3000**. Then connect MetaTrader 5 ([Trade your FTMO account](#trade-your-ftmo-account-metatrader-5)). MT5 runs natively on Windows, so it's lighter than on a Mac, and the FTMO tab's **Put the EA into MT5** button installs the bridge EA for you.
+
+**By hand instead:** install Node.js (the LTS, from <https://nodejs.org>) and Git (<https://git-scm.com/download/win>), then in PowerShell:
+
+```powershell
+git clone https://github.com/IliasK151/Cloud.git $HOME\trading-floor
+cd $HOME\trading-floor
+npm install
+npm start
+```
+
+(If PowerShell says *running scripts is disabled on this system* for npm, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or use Command Prompt. The setup does this for you.)
+
+**Double-click files** in the floor's folder (the Start menu has them too):
+
+| File | What it does |
+| --- | --- |
+| `start` | The floor with live prices. With the background service on, it just opens the floor |
+| `start-demo` | Simulated markets at 20× speed, works offline |
+| `update` | Gets the newest version (`git pull`), installs any new packages and restarts the service. This is the Windows version of `git pull && npm run service -- restart` |
+| `doctor` | Checks every connection while the floor runs, and says what to fix |
+
+Close the floor's window, or press Ctrl+C in it, to stop the floor: the desks flatten and the track record is saved to `data\`.
+
+- **Keep the folder in your user folder** (`C:\Users\<you>\trading-floor`), not on a Desktop or in Documents that OneDrive syncs. OneDrive would upload the floor's data, keys included, and it locks files the floor writes every few seconds. `start` warns if the folder is in OneDrive.
+- **Commands** run from the floor's folder: in PowerShell, `cd ~\trading-floor` first. Every `npm run …` in this README works the same on Windows.
+
+### Moving from your Mac to a Windows PC
+
+Everything the floor has saved comes along:
+- months of your broker's prices (the desks' top-down read needs weeks of them);
+- the FTMO account setup, the desks and every switch;
+- the track record, the floor's memory and the neural brain, and the nightly reviews;
+- TradingView and Telegram settings, and the bridge token.
+
+1. **On the Mac**, in the floor's folder:
+
+   ```bash
+   git pull
+   npm run service -- uninstall     # stops the floor for good (it closes its FTMO positions first)
+   npm run move -- export           # everything in one file on your Desktop
+   ```
+
+   The export refuses while the floor or its service is still on there: two floors must never trade the same FTMO account. You can quit MT5 on the Mac too.
+2. **Copy** `trading-floor-data-<date>.tgz` into the PC's **Downloads** folder, with a USB stick or your own cloud drive. It holds your keys and the Telegram bot token, so don't email or share it.
+3. **On the PC**, run the setup above: it finds the file and asks to bring it over. If the floor is set up already, stop it and run `npm run move -- import` in its folder. Whatever was in the PC's `data` folder before is kept in `data-before-import-…`.
+4. **Delete the file** from both computers.
+5. **Set up MT5 on the PC** ([below](#trade-your-ftmo-account-metatrader-5)). The bridge token is the same one, so paste the token from the FTMO tab into the EA as usual.
+
+The Obsidian vault comes along if it's in `data/vault` (the default); if you set `VAULT_DIR`, copy that folder yourself. Settings you put in `.env` stay behind: copy the lines you need.
 
 ### Live vs demo
 
@@ -539,7 +608,7 @@ The desks can trade your **FTMO Free Trial, Challenge, Verification or FTMO Acco
 1. Start the floor with `npm start` (live mode; demo mode never trades live).
 2. In the FTMO Client Area, start a **Free Trial** on **MetaTrader 5**. Install MT5 and log in with the credentials FTMO shows you.
 3. In MT5, go to **Tools → Options → Expert Advisors**. Tick **Allow algorithmic trading** and **Allow WebRequest for listed URL**, then add `http://127.0.0.1:3000`.
-4. Install the **MeridianBridge** Expert Advisor. On a Mac, MT5's folders usually don't accept drag-and-drop from Finder, so use one of these:
+4. Install the **MeridianBridge** Expert Advisor. **On Windows:** press **Put the EA into MT5** in the FTMO tab (or run `npm run install-ea`), then in MT5's Navigator right-click **Expert Advisors → Refresh**, right-click MeridianBridge → **Modify** → **Compile**. On a Mac, MT5's folders usually don't accept drag-and-drop from Finder, so use one of these:
    - **MetaEditor (easiest):** in MT5 press **F4**, then **File → New → Expert Advisor (template)** and name it `MeridianBridge`. Delete the template code, click **Copy EA code** in the floor's FTMO tab, paste it in (Cmd+V, or Ctrl+V / right-click → Paste) and press **Compile**.
    - **One command:** quit MT5 and run `npm run install-ea` in the trading-floor folder. It finds MT5's hidden `MQL5/Experts` folder and copies the file in. Reopen MT5, right-click **Expert Advisors → Refresh** in the Navigator, then right-click MeridianBridge → **Modify** → **Compile**.
 5. Drag **MeridianBridge** onto any chart. Paste the **bridge token** from the FTMO tab into the inputs, tick **Allow Algo Trading**, and switch on **Algo Trading** in the toolbar.
@@ -703,7 +772,7 @@ The FTMO tab's **Nightly review** card shows every desk's verdict and what it me
 npm run service -- install
 ```
 
-That turns the floor into a background service on your Mac: it starts right away, starts again at every login, restarts by itself within 30 seconds if it ever stops, and keeps the Mac awake. It also adds MetaTrader 5 to your Login Items, so MT5 (with the EA on its chart) comes back after a restart too. After that you don't use `npm start`: the floor is always on at http://localhost:3000, and double-clicking **Start Trading Floor** just opens it.
+That turns the floor into a background service on your Mac (Windows: [below](#run-it-non-stop)): it starts right away, starts again at every login, restarts by itself within 30 seconds if it ever stops, and keeps the Mac awake. It also adds MetaTrader 5 to your Login Items, so MT5 (with the EA on its chart) comes back after a restart too. After that you don't use `npm start`: the floor is always on at http://localhost:3000, and double-clicking **Start Trading Floor** just opens it.
 
 Run every command from inside the floor's folder (`cd ~/Desktop/trading-floor` first; from anywhere else npm says *Could not read package.json*).
 
@@ -726,13 +795,27 @@ To make it truly non-stop, once:
 
 A stop (uninstall, logging out, shutting down) closes the floor's FTMO positions on the way out, as Ctrl+C does.
 
+**On Windows** the same command, `npm run service -- install` (the setup offers it), runs the floor hidden in the background:
+- it starts now, and again at every login, from a small file in your Startup folder (no administrator rights needed);
+- it restarts the floor within 30 seconds if it ever stops;
+- it keeps the PC from going to sleep while the floor runs (the screen can still turn off);
+- it opens MetaTrader 5 at login too.
+
+`status`, `restart`, `logs` and `uninstall` work as on the Mac, and double-clicking `update` restarts it onto the new code by itself. To make it non-stop, once:
+- **FTMO tab:** switch on **Stay armed after a restart**.
+- **Settings → System → Power:** when plugged in, put the device to sleep after **Never**.
+- **Settings → Accounts → Sign-in options:** switch on *Use my sign-in info to automatically finish setting up after an update*, so the floor comes back after a Windows Update restart. Set your active hours in Windows Update as well.
+- **Telegram alerts** tell you if MT5 goes quiet and when it's back.
+
+`npm run service -- uninstall` closes the floor's FTMO positions on the way out. Shutting Windows down or restarting it may end the floor without that step: the positions keep their stop-loss in MT5, and with *Stay armed* on, trading re-arms after you log in.
+
 **Battery and heat.** The trading itself is light: the floor's server uses about 1% of one CPU core most of the time. What drains a MacBook is drawing the 3D floor and MetaTrader 5.
 - **Battery saver** (Settings → Graphics, on by default): the floor draws at most 30 frames a second while you use it and 15 when nobody touches it, instead of the display's 60 to 120. Nothing is drawn while another tab is open. The blinking lights stop, because each one kept the browser redrawing 60 times a second on every tab. On battery it drops to 24 and 6 frames a second and turns the shadows and glow off until the charger is back. The desks trade exactly the same.
 - **Close the browser tab when you're not watching.** The floor trades without it. Only the floor (`npm start` or the service) and MT5 have to run, and Telegram tells you what happens.
 - **MT5 on a Mac runs through a Windows layer and is heavy** (macOS lists it under *Using Significant Energy*). The MeridianBridge EA 1.2 does its part: MT5 syncs with the floor every 2 seconds when nothing is happening instead of twice a second, once a second while positions are open or a desk is about to trade, and twice a second only while orders go through. It re-reads the account history only after a trade, and redraws its chart comment only when something changes, not twice a second. Update it from the FTMO tab (*Put the update into MT5*, then *Compile* in MetaEditor). Also keep one chart open (the one with the EA) and minimise the window. Leave *Max bars in chart* at 100000 (Tools → Options → Charts): it's how far back MT5 can hand the floor your broker's history, and with one chart open it costs little. Untick *Enable news* (Tools → Options → Server).
 - **macOS:** let the display sleep: the floor keeps the Mac awake but not the screen, and it trades on with the display off. Use Low Power Mode on battery (System Settings → Battery). For running all day, keep the MacBook on its charger, on a hard surface.
 
-**Truly 24/7: a VPS.** A Mac at home still depends on your power, internet and macOS updates. For zero downtime, run MT5 and the floor on a Windows VPS near the broker's servers (from about $15–30 a month; FTMO allows it). Install Node.js and MT5 there, copy this folder, run `npm start` from a Task Scheduler task set to start at boot and restart on failure, and open the dashboard over Remote Desktop.
+**Truly 24/7: a VPS.** A Mac at home still depends on your power, internet and macOS updates. For zero downtime, run MT5 and the floor on a Windows VPS near the broker's servers (from about $15–30 a month; FTMO allows it). Install MT5 there and run the Windows setup (above; on a Windows Server without winget, install Node.js and Git first). Install the background service, set Windows to sign in automatically after a restart, and open the dashboard over Remote Desktop.
 
 ### Stay armed after a restart
 
@@ -924,7 +1007,7 @@ Copy `.env.example` to `.env`. The most useful settings:
 | `ALLOWED_HOSTS` | — | Extra host names allowed to open the dashboard (comma-separated), e.g. a custom local DNS name |
 | `WEBHOOK_SECRET` | auto | TradingView webhook secret (auto: random, in `data/webhook-secret.txt`, rotatable from the TradingView tab) |
 | `STARTING_CAPITAL` | `100000000` | Fund size, split evenly across the 20 desks |
-| `KEEP_AWAKE` | `1` | macOS: keep the Mac awake while the floor runs (`0` turns it off) |
+| `KEEP_AWAKE` | `1` | Keep the Mac or PC from sleeping while the floor runs (`0` turns it off) |
 | `RISK_PER_TRADE_PCT`, `DESK_DAILY_LOSS_PCT`, `FUND_DAILY_LOSS_PCT`, `MAX_LEVERAGE` | 0.5 / 2 / 1.2 / 4 | Risk framework |
 | `VAULT_DIR` | `data/vault` | Where the Obsidian vault is written, e.g. `~/Documents/Meridian Vault` (demo mode always uses `data/vault-demo`) |
 | `VAULT` | `1` | `0` turns the Obsidian vault off |
@@ -938,7 +1021,8 @@ npm test               # tests: indicators, broker, risk, webhooks, FTMO, news c
 npm run doctor         # checks every connection and whether the desks are trading FTMO, and says what to fix
 npm run service -- install  # run the floor non-stop as a background service (status / restart / logs / uninstall)
 npm run mock-mt5       # pretend FTMO MT5 terminal for trying the live flow (MOCK_PNL=-100 rehearses a drawdown)
-npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this Mac
+npm run install-ea     # copy the MT5 bridge EA into MetaTrader 5 on this computer
+npm run move -- export # everything the floor saved in one file, to move it to another computer (import there)
 npm run backtest -- 5  # fast-forward 5 simulated sessions (news included) and print each desk's results
 npm run daytrade-test  # replay every day trader on the real 1-minute bars saved in data/history
 npm run edge           # every desk on your saved history: who has an edge, and the odds of passing a challenge

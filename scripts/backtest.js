@@ -12,6 +12,7 @@ import { HistoryStore } from '../server/research/history.js';
 import { ResearchLab } from '../server/research/lab.js';
 import { config } from '../server/config.js';
 import { fmtUsd } from '../server/util/format.js';
+import { isMain } from '../server/util/isMain.js';
 
 const quietLog = { info() {}, warn() {} };
 
@@ -83,7 +84,7 @@ function loop({ clock, sim, fund }, { sessions, quiet, yieldEvery = 0 }) {
   })();
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const sessions = Number(process.argv[2]) || 3;
   console.log('Generating history for the research lab and running the floor…');
   const fund = await runFloor({ sessions, seed: Number(process.argv[3]) || 42, quiet: false });

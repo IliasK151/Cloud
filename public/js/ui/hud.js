@@ -1,4 +1,4 @@
-import { money, nyTime, signClass, escapeHtml, STATUS_COLORS, deskKey, sessionOf, SESSIONS } from '../format.js';
+import { money, nyTime, signClass, escapeHtml, STATUS_COLORS, deskKey, sessionOf, SESSIONS, ON_WINDOWS, OS } from '../format.js';
 import { fundBook, deskBook, hasFtmo, bookMode, setBookPref } from '../book.js';
 import { provingNote, setPlanSwitch } from './planSwitch.js';
 import { todayRailNote } from './todayCard.js';
@@ -94,7 +94,9 @@ export class Hud {
         const el = document.createElement('div');
         el.id = 'conn-help';
         el.className = 'conn-help';
-        el.innerHTML = '<b>Can\'t reach the trading floor.</b> Check that the Terminal window running <code>npm start</code> is still open. If it is, reload this page (Cmd+R). Still stuck? Run <code>npm run doctor</code> in a second Terminal window: it tells you exactly what\'s wrong.';
+        el.innerHTML = ON_WINDOWS
+          ? '<b>Can\'t reach the trading floor.</b> Check that the floor is running: its window (opened by <b>start</b>) is still open, or the background service is on. Then reload this page (Ctrl+R or F5). Still stuck? Double-click <b>doctor</b> in the trading-floor folder: it tells you exactly what\'s wrong.'
+          : `<b>Can't reach the trading floor.</b> Check that the ${OS.terminal} window running <code>npm start</code> is still open. If it is, reload this page (${OS.mod}+R). Still stuck? Run <code>npm run doctor</code> in a second ${OS.terminal} window: it tells you exactly what's wrong.`;
         document.body.appendChild(el);
       }, 6000);
     }

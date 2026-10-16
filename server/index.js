@@ -34,6 +34,7 @@ import { FloorMemory } from './brain/memory.js';
 import { NeuralBrain } from './neural/brain.js';
 import { Vault } from './vault/vault.js';
 import { entryChart } from './notify/chartShot.js';
+import { MACHINE, onWindows, keepAwakeWindowsArgs } from './util/platform.js';
 
 // As a background service (npm run service) the log files grow forever: start each run
 // with a fresh one, keeping the previous run's as .old.
@@ -165,7 +166,7 @@ const networkBind = !isLoopbackBind(bindHost);
 const lanMode = networkBind && config.floorPassword.length >= 10;
 if (networkBind && !lanMode) {
   log.warn(`\n  [security] HOST=${bindHost}: MT5 can connect from other machines (bridge token required), but the dashboard`);
-  log.warn('  [security] stays on this Mac. Set FLOOR_PASSWORD (10+ characters) in .env to open it on other devices.\n');
+  log.warn(`  [security] stays on this ${MACHINE}. Set FLOOR_PASSWORD (10+ characters) in .env to open it on other devices.\n`);
 }
 const guard = new LocalGuard({
   port: config.port, lan: lanMode, extraHosts: config.allowedHosts,
@@ -700,7 +701,7 @@ async function main() {
     for (const n of feeds.notes) log.info(`                      ${n}`);
     log.info(`  TradingView hook:   http://localhost:${config.webhookPort}/webhook   (public address: TradingView tab)`);
     log.info(`  Webhook secret:     ${secrets.webhook.slice(0, 4)}…  (full secret in the TradingView tab, kept off this screen)`);
-    log.info(`  Security:           ${lanMode ? 'dashboard open to your network, password required' : networkBind ? 'dashboard on this Mac only, MT5 bridge open to your network (token)' : 'dashboard on this Mac only'} · webhook firewall on · trades from TradingView only: ${firewall.settings.tradingViewOnly ? 'on' : 'OFF'}`);
+    log.info(`  Security:           ${lanMode ? 'dashboard open to your network, password required' : networkBind ? `dashboard on this ${MACHINE} only, MT5 bridge open to your network (token)` : `dashboard on this ${MACHINE} only`} · webhook firewall on · trades from TradingView only: ${firewall.settings.tradingViewOnly ? 'on' : 'OFF'}`);
     log.info('  Trouble connecting? Run: npm run doctor');
     log.info(`  FTMO / MT5 bridge:  http://127.0.0.1:${config.port}/api/bridge/sync  (token in the FTMO tab)`);
     log.info(`  Paper trading unless you connect MT5 and arm live trading in the FTMO tab.`);
@@ -719,11 +720,14 @@ async function main() {
   hookServer.on('error', (err) => log.warn(`[webhook] port ${config.webhookPort} unavailable: ${err.message}`));
 }
 
-// Keep the Mac awake for as long as the floor runs: caffeinate follows this process and
-// ends with it. (A MacBook still sleeps with its lid closed.) KEEP_AWAKE=0 turns it off.
-if (process.platform === 'darwin' && config.keepAwake) {
+// Keep the computer awake for as long as the floor runs: on a Mac caffeinate follows this
+// process and ends with it (a MacBook still sleeps with its lid closed); on Windows a hidden
+// PowerShell does the same (server/util/platform.js). The display may still turn off.
+// KEEP_AWAKE=0 turns it off.
+if (config.keepAwake) {
   try {
-    spawn('/usr/bin/caffeinate', ['-is', '-w', String(process.pid)], { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+    if (process.platform === 'darwin') spawn('/usr/bin/caffeinate', ['-is', '-w', String(process.pid)], { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+    else if (onWindows) spawn('powershell.exe', keepAwakeWindowsArgs(process.pid), { stdio: 'ignore', detached: true, windowsHide: true }).on('error', () => {}).unref();
   } catch { /* not fatal */ }
 }
 
@@ -761,6 +765,16 @@ async function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+// The floor's window closed (Windows gives a few seconds for this), or Ctrl+Break on Windows.
+process.on('SIGHUP', shutdown);
+if (onWindows) process.on('SIGBREAK', shutdown);
+// Run by the Windows background service (scripts/supervisor.js): it asks over its channel,
+// since Windows has no signals to stop a process cleanly. If the supervisor itself is gone,
+// stop too, so the next one can start the floor.
+if (process.send) {
+  process.on('message', (m) => { if (m?.type === 'shutdown') shutdown(); });
+  process.on('disconnect', shutdown);
+}
 
 // The port is taken. If it's the floor itself (the background service, or another window),
 // say so and open it: a second floor on another port would never see MT5, whose EA talks to
@@ -788,7 +802,7 @@ server.on('error', async (err) => {
   const url = `http://localhost:${config.port}`;
   const other = await floorOnPort(config.port);
   if (!other) log.warn(`\n  Port ${config.port} is used by another app. Quit that app and start the floor again.\n`);
-  else if (process.env.FLOOR_SERVICE === '1') log.warn(`  [service] The floor is already running in a Terminal window on port ${config.port}; the service takes over once that window is closed.`);
+  else if (process.env.FLOOR_SERVICE === '1') log.warn(`  [service] The floor is already running in a ${onWindows ? 'window of its own' : 'Terminal window'} on port ${config.port}; the service takes over once that window is closed.`);
   else {
     log.warn(`\n  The floor is already running${other.service ? ' in the background (the service)' : ' in another window'}: ${url}`);
     log.warn('  Opening it. No second floor is started (MT5 talks to the one that\'s running).\n');

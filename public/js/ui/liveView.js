@@ -1,5 +1,5 @@
 import { api } from '../net.js';
-import { money, escapeHtml, signClass } from '../format.js';
+import { money, escapeHtml, signClass, ON_WINDOWS, OS } from '../format.js';
 import { planSwitches, onPlanSwitch, provingNote, setPlanSwitch } from './planSwitch.js';
 import { ftmoStatus } from '../book.js';
 import { renderToday } from './todayCard.js';
@@ -106,7 +106,7 @@ export class LiveView {
 
   async #onStayArmed(input) {
     const on = input.checked;
-    if (on && !confirm('Stay armed after a restart?\n\nIf the floor, the Mac or MT5 restarts while live trading is armed, the floor arms it again by itself once MT5 is back and every check passes (the same account, Algo Trading on, no risk-guard stop).\n\nDisarm, Close all & disarm and a risk-guard stop always stay off until you arm again yourself.')) {
+    if (on && !confirm(`Stay armed after a restart?\n\nIf the floor, the ${OS.machine} or MT5 restarts while live trading is armed, the floor arms it again by itself once MT5 is back and every check passes (the same account, Algo Trading on, no risk-guard stop).\n\nDisarm, Close all & disarm and a risk-guard stop always stay off until you arm again yourself.`)) {
       input.checked = false;
       return;
     }
@@ -154,7 +154,7 @@ export class LiveView {
     }
     if (!a.hasToken) {
       el.innerHTML = `${title}
-        <p class="sub">A message when a trade opens or closes on FTMO, when the loss guard steps in, when MT5 disconnects, and a report at the end of the day. It uses your own free Telegram bot and takes about 2 minutes. The bot token stays on this Mac.</p>
+        <p class="sub">A message when a trade opens or closes on FTMO, when the loss guard steps in, when MT5 disconnects, and a report at the end of the day. It uses your own free Telegram bot and takes about 2 minutes. The bot token stays on this ${OS.machine}.</p>
         <ol class="tg-steps">
           <li>In Telegram, open <b>@BotFather</b>, send <code>/newbot</code>, and pick any name and username for your bot.</li>
           <li>BotFather answers with a <b>token</b> (it looks like <code>123456789:AAH…</code>). Paste it here:
@@ -263,7 +263,7 @@ export class LiveView {
     } else if (act === 'install-ea') {
       btn.disabled = true;
       const res = await this.#post('install-ea');
-      this.eaMsg = res.ok ? `✓ Copied into MT5 (${res.folders.length} folder${res.folders.length === 1 ? '' : 's'}). Now do step 2.` : res.error ? `✗ ${res.error}` : null;
+      this.eaMsg = res.ok ? `✓ Copied into MT5 (${res.folders.length} folder${res.folders.length === 1 ? '' : 's'}). Now open it in MetaEditor and press Compile.` : res.error ? `✗ ${res.error}` : null;
       this.render(true);
     } else if (act === 'enable-all') {
       for (const d of v.desks.filter((x) => x.eligible && !x.enabled)) await this.#post('desk', { agentId: d.id, enabled: true });
@@ -355,11 +355,11 @@ export class LiveView {
         ? 'The new version saves battery: MT5 syncs only as often as the floor needs (every 2 seconds when nothing is happening, twice a second while orders go through), reads the account history only after a trade, and stops redrawing its chart twice a second.'
         : 'The new version adds safety limits inside MT5 itself, as a last line of defence: every order must carry a stop-loss, the risk per order and the number of floor positions are capped, it never touches your own trades, and it can\'t open the same order twice. It also saves battery: MT5 syncs only as often as the floor needs.'} Takes about a minute. Disarm first and arm again afterwards; open positions keep their stop-loss.</p>
       <ol class="steps ea-steps">
-        <li><button class="btn primary" data-act="install-ea">Put the update into MT5</button> <span class="fine">${escapeHtml(this.eaMsg || 'Copies the new code into MT5\'s Expert Advisors folder on this Mac.')}</span></li>
+        <li><button class="btn primary" data-act="install-ea">Put the update into MT5</button> <span class="fine">${escapeHtml(this.eaMsg || `Copies the new code into MT5's Expert Advisors folder on this ${OS.machine}.`)}</span></li>
         <li>In MT5, in the <b>Navigator</b> panel, open <b>Expert Advisors</b>, right-click <b>MeridianBridge</b> → <b>Modify</b>. MetaEditor opens the EA${this.eaMsg?.startsWith('✓') ? ' (if it asks, reload the file)' : ''}.</li>
         <li>Press <b>Compile</b> (the button in MetaEditor's toolbar, or F7). MT5 reloads the EA on your chart by itself, keeping your bridge token. This box turns green within a second.</li>
       </ol>
-      <p class="fine">Step 1 says it can't find MT5 (e.g. MT5 runs in Parallels or on another PC)? <button class="mini-btn" data-act="copy-ea">Copy EA code</button> then, in MetaEditor after step 2, select all (Cmd+A), paste (Cmd+V) and press Compile.</p>`;
+      <p class="fine">Step 1 says it can't find MT5 (e.g. MT5 runs ${ON_WINDOWS ? 'on another computer' : 'in Parallels or on another PC'})? <button class="mini-btn" data-act="copy-ea">Copy EA code</button> then, in MetaEditor after step 2, select all (${OS.mod}+A), paste (${OS.mod}+V) and press Compile.</p>`;
   }
 
   // Five-step checklist that ticks itself off as MT5 connects and the account is set up.
@@ -485,11 +485,11 @@ export class LiveView {
       ${p ? `<div class="plan-switch stay-armed">
         <label class="switch"><input type="checkbox" data-stay-armed ${p.stayArmed ? 'checked' : ''} aria-label="Stay armed after a restart"><span></span></label>
         <div><b>Stay armed after a restart: ${p.stayArmed ? 'ON' : 'OFF'}</b><small>${p.stayArmed
-          ? (!v.armed && v.rememberedArmed ? 'Arming again by itself as soon as MT5 is connected and every check passes.' : 'If the floor, the Mac or MT5 restarts while armed, it arms again by itself once MT5 is back and every check passes. Disarm, Close all and a risk-guard stop stay off until you arm again.')
-          : 'After a restart (floor, Mac or MT5), live trading waits for you to arm it again.'}</small></div>
+          ? (!v.armed && v.rememberedArmed ? 'Arming again by itself as soon as MT5 is connected and every check passes.' : `If the floor, the ${OS.machine} or MT5 restarts while armed, it arms again by itself once MT5 is back and every check passes. Disarm, Close all and a risk-guard stop stay off until you arm again.`)
+          : `After a restart (floor, ${OS.machine} or MT5), live trading waits for you to arm it again.`}</small></div>
       </div>` : ''}
       ${v.mode === 'live' && v.ftmoOnly === undefined ? `<div class="plan-switch stay-armed">
-        <div><b>FTMO only: needs a restart of the floor</b><small>The floor is still running its code from before your last git pull, so it doesn't have this switch yet. In Terminal: <code>cd ~/trading-floor && npm run service -- restart</code>, then reload this page.</small></div>
+        <div><b>FTMO only: needs a restart of the floor</b><small>The floor is still running its code from before your last git pull, so it doesn't have this switch yet. Load the new code: ${OS.restart}, then reload this page.</small></div>
       </div>` : ''}
       ${v.mode === 'live' && v.ownWay !== undefined ? `<div class="plan-switch stay-armed">
         <label class="switch"><input type="checkbox" data-own-way ${v.ownWay ? 'checked' : ''} aria-label="Desks trade their own way"><span></span></label>
@@ -552,18 +552,19 @@ export class LiveView {
       const token = `<span class="field" style="display:inline-flex"><span class="code">${escapeHtml(v.token)}</span><button class="mini-btn" data-act="copy-token">Copy</button></span>`;
       const install = `
         <ol class="steps">
-          <li>In your <b>FTMO Client Area</b>, start a Free Trial or Challenge on <b>MetaTrader 5</b>. Download MT5 for Mac and log in with the account number, password and server shown there.</li>
+          <li>In your <b>FTMO Client Area</b>, start a Free Trial or Challenge on <b>MetaTrader 5</b>. Download MT5 for ${ON_WINDOWS ? 'Windows' : 'Mac'} and log in with the account number, password and server shown there.</li>
           <li>In MT5: <b>Tools → Options → Expert Advisors</b>. Tick <b>Allow algorithmic trading</b> and <b>Allow WebRequest for listed URL</b>, then add<div class="code-block">${origin}</div></li>
-          <li>Install the bridge Expert Advisor. On a Mac, drag-and-drop into MT5's folders usually doesn't work, so use one of these:
+          <li>Install the bridge Expert Advisor${ON_WINDOWS ? '' : '. On a Mac, drag-and-drop into MT5\'s folders usually doesn\'t work, so use one of these'}:
             <ul class="steps">
-              <li><b>Easiest:</b> in MT5 open <b>MetaEditor</b> (F4 or the IDE button). Choose <b>File → New → Expert Advisor (template)</b>, name it <code>MeridianBridge</code>, and click Next until Finish. Select all the template code and delete it. Then <button class="mini-btn" data-act="copy-ea">Copy EA code</button> and paste it in (Cmd+V, or Ctrl+V / right-click → Paste if that doesn't work). Press <b>Compile</b>.</li>
-              <li><b>Or with one command:</b> quit MT5, then run <code>npm run install-ea</code> in Terminal inside the trading-floor folder. Reopen MT5, right-click <b>Expert Advisors → Refresh</b> in the Navigator, then right-click MeridianBridge → <b>Modify</b> → <b>Compile</b>.</li>
+              ${ON_WINDOWS ? `<li><b>Easiest:</b> <button class="mini-btn" data-act="install-ea">Put the EA into MT5</button> ${escapeHtml(this.eaMsg || '')} Then in MT5's <b>Navigator</b> right-click <b>Expert Advisors → Refresh</b>, right-click <b>MeridianBridge</b> → <b>Modify</b> and press <b>Compile</b> in MetaEditor.</li>` : ''}
+              <li><b>${ON_WINDOWS ? 'Or by hand' : 'Easiest'}:</b> in MT5 open <b>MetaEditor</b> (F4 or the IDE button). Choose <b>File → New → Expert Advisor (template)</b>, name it <code>MeridianBridge</code>, and click Next until Finish. Select all the template code and delete it. Then <button class="mini-btn" data-act="copy-ea">Copy EA code</button> and paste it in (${ON_WINDOWS ? 'Ctrl+V' : 'Cmd+V, or Ctrl+V / right-click → Paste if that doesn\'t work'}). Press <b>Compile</b>.</li>
+              <li><b>Or with one command:</b> quit MT5, then run <code>npm run install-ea</code> in ${OS.terminal} inside the trading-floor folder. Reopen MT5, right-click <b>Expert Advisors → Refresh</b> in the Navigator, then right-click MeridianBridge → <b>Modify</b> → <b>Compile</b>.</li>
               <li>Or <a href="/mt5/MeridianBridge.mq5" download>download MeridianBridge.mq5</a> and copy it into <b>MQL5 → Experts</b> via <b>File → Open Data Folder</b>.</li>
             </ul></li>
           <li>In the Navigator, drag <b>MeridianBridge</b> onto any chart.${origin.endsWith(':3000') ? '' : ` Set its <b>Floor bridge URL</b> input to <code>${origin}/api/bridge/sync</code>.`} On the <b>Inputs</b> tab, paste this bridge token: ${token} On the Common tab, tick <b>Allow Algo Trading</b>.</li>
           <li>Switch on the <b>Algo Trading</b> button in the MT5 toolbar. This page detects the account within a second.</li>
         </ol>
-        <p class="fine">Keep MT5 open and your Mac awake while the desks trade. No MT5 at hand? Run <code>npm run mock-mt5</code> to try the whole flow with a pretend account.</p>`;
+        <p class="fine">Keep MT5 open and your ${OS.machine} awake while the desks trade. No MT5 at hand? Run <code>npm run mock-mt5</code> to try the whole flow with a pretend account.</p>`;
       if (!acc) {
         conn.innerHTML = `
           <h2>Connect your FTMO MetaTrader 5 account</h2>
@@ -580,7 +581,7 @@ export class LiveView {
             <li>Just updated the EA? In MetaEditor, <b>Compile</b> must finish with <b>0 errors</b> (bottom panel, "Errors" tab). If it shows errors, send a screenshot of them.</li>
             <li>If you removed and re-added the EA, paste the bridge token into its <b>Inputs</b> again (right-click the chart → Expert list → MeridianBridge → Properties): ${token}</li>
           </ol>
-          <p class="fine">Still stuck? Run <code>npm run doctor</code> in a second Terminal window: it checks every connection and says what to fix.</p>
+          <p class="fine">Still stuck? ${ON_WINDOWS ? 'Double-click <b>doctor</b> in the trading-floor folder' : 'Run <code>npm run doctor</code> in a second Terminal window'}: it checks every connection and says what to fix.</p>
           <details class="tv-more"><summary>Full install steps</summary>${install}</details>`;
       } else {
         conn.innerHTML = `

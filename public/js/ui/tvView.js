@@ -1,5 +1,5 @@
 import { api } from '../net.js';
-import { escapeHtml } from '../format.js';
+import { escapeHtml, OS } from '../format.js';
 
 // TradingView: a guided setup that gives the floor a public webhook address with one click,
 // proves TradingView can reach it, and writes the alert message for you. Plus a Pine script,
@@ -60,7 +60,7 @@ export class TradingViewView {
       <div class="grid tv-grid">
         <div class="card" id="tv-address">
           <h2>1 · Public address</h2>
-          <p class="sub">TradingView sends alerts from its servers on the internet, so the floor needs a public web address. One click opens a secure tunnel that only lets alerts in. The dashboard and its controls stay private on your Mac.</p>
+          <p class="sub">TradingView sends alerts from its servers on the internet, so the floor needs a public web address. One click opens a secure tunnel that only lets alerts in. The dashboard and its controls stay private on your ${OS.machine}.</p>
           <div id="tv-tunnel"></div>
           <details class="tv-more" id="tv-ngrok">
             <summary>Want an address that never changes? Use a free ngrok account</summary>
@@ -354,12 +354,12 @@ export class TradingViewView {
     const time = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     const kinds = { 'bad-secret': 'Wrong secret', ban: 'Banned', leak: 'Secret used outside TradingView', rate: 'Too many requests', setting: 'Setting', rotate: 'Secret rotated' };
     const protections = [
-      [true, g.lan ? 'Dashboard open on your Wi-Fi with a password; controls never reachable from the internet' : 'Dashboard and controls only on this Mac, never reachable from the internet'],
+      [true, g.lan ? 'Dashboard open on your Wi-Fi with a password; controls never reachable from the internet' : `Dashboard and controls only on this ${OS.machine}, never reachable from the internet`],
       [true, 'Every dashboard request carries a key that changes each launch, so other websites can\'t place trades, read your account or change settings'],
       [true, 'The internet reaches one thing only, the webhook: secret checked first, 5 wrong secrets from one address = banned for an hour, flood limits'],
       [fw.settings.tradingViewOnly, fw.settings.tradingViewOnly ? 'Trade alerts only from TradingView\'s own servers' : 'Trade alerts accepted from any address with the secret (TradingView-only is off)'],
       [!!caps, caps ? `MT5 EA safety caps: every order needs a stop-loss, at most ${caps.maxRiskPct}% risk per order and ${caps.maxPositions} floor positions, and it never touches your own trades` : acc ? 'Update the MeridianBridge EA to get its built-in safety caps (FTMO tab, step "Install the bridge")' : 'MT5 EA safety caps: every order needs a stop-loss and a capped risk, and your own trades are never touched'],
-      [true, 'Your FTMO password never leaves MT5; secrets on disk are readable by your Mac user only'],
+      [true, `Your FTMO password never leaves MT5; secrets on disk are readable by your ${OS.machine} user only`],
       [true, 'TradingView\'s chart runs isolated in its own sandbox, away from your account data'],
     ];
     el.innerHTML = `

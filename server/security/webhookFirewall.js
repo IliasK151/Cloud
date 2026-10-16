@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { isLoopbackAddress } from './localGuard.js';
+import { MACHINE } from '../util/platform.js';
 
 // The internet-facing firewall for the TradingView webhook: the only part of the floor
 // reachable from the internet (through the tunnel). Every request passes, in order:
@@ -149,7 +150,7 @@ export class WebhookFirewall extends EventEmitter {
       this.fails.delete(ip);
       this.record('ban', ip, `Banned ${ip} for an hour after ${BAN_AFTER_FAILS} wrong secrets`);
     } else {
-      this.record('bad-secret', ip, `Wrong secret from ${ip}${local ? ' (this Mac)' : ''}`);
+      this.record('bad-secret', ip, `Wrong secret from ${ip}${local ? ` (this ${MACHINE})` : ''}`);
     }
     return { ok: false, status: 401, error: 'unauthorized' };
   }

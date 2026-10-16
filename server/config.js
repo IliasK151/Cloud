@@ -52,7 +52,9 @@ const num = (value, fallback) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const feed = (process.env.FEED || 'live').toLowerCase() === 'sim' ? 'sim' : 'live';
+// `--demo` / `--live` on the command line (works the same in every shell, Windows too), else FEED.
+const feedArg = process.argv.includes('--demo') ? 'sim' : process.argv.includes('--live') ? 'live' : null;
+const feed = (feedArg || process.env.FEED || 'live').toLowerCase() === 'sim' ? 'sim' : 'live';
 
 // The Obsidian vault the floor writes (server/vault/vault.js): data/vault, or VAULT_DIR (for
 // example ~/Meridian Vault; not Desktop, Documents, Downloads or iCloud Drive, which macOS
@@ -84,7 +86,7 @@ export const config = {
   webhookSecretFromEnv: !!process.env.WEBHOOK_SECRET,
   bridgeToken: resolveBridgeToken(),
   openBrowser: process.env.OPEN_BROWSER !== '0',
-  // macOS: keep the Mac awake while the floor runs (trades, alerts and MT5 need it).
+  // Keep the computer awake while the floor runs (trades, alerts and MT5 need it).
   keepAwake: process.env.KEEP_AWAKE !== '0',
   dataDir: DATA_DIR,
   vault: process.env.VAULT !== '0', // VAULT=0 turns the vault off

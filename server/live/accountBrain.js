@@ -2,6 +2,7 @@ import { fmtUsd } from '../util/format.js';
 import { trainingOn, programRules, COST_LIMIT_R, COST_MAX_R } from './rules.js';
 import { VERDICT_EFFECT } from './review.js';
 import { spanText } from './baseline.js';
+import { MACHINE } from '../util/platform.js';
 
 // The account brain: the plan a professional prop trader follows to pass a challenge and
 // then keep getting paid. The paper desks can experiment; the account only gets the best
@@ -229,7 +230,7 @@ export class AccountBrain {
         const hours = rv ? Math.max(1, Math.round((Date.now() - rv.at) / 3_600_000)) : null;
         const ago = hours == null ? '' : hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
         if (!rv) return { text: 'Evidence first: the nightly review replays each desk on your own prices after the New York close. No review yet, so no desk is held back by it', ok: false };
-        if (!fresh) return { text: `Evidence first: the last nightly review is ${ago}, so the reviews have stopped (the Mac asleep after the close, or failing: see the Nightly review card). Its verdicts still apply until a new one runs`, ok: false };
+        if (!fresh) return { text: `Evidence first: the last nightly review is ${ago}, so the reviews have stopped (the ${MACHINE} asleep after the close, or failing: see the Nightly review card). Its verdicts still apply until a new one runs`, ok: false };
         return { text: `Evidence first: every night each desk is replayed on your own prices (last review ${ago}, ${rv.tradingDays} trading days). No edge: ${noPaper(this.live) ? 'off the account' : 'paper only'}. Unclear: half size`, ok: true };
       })(),
       (() => {
