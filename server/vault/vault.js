@@ -63,13 +63,14 @@ export function nyStamp(ms) {
 const yaml = (obj) => `---\n${Object.entries(obj).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}: ${Array.isArray(v) ? `[${v.map((x) => JSON.stringify(x)).join(', ')}]` : typeof v === 'string' ? JSON.stringify(v) : v}`).join('\n')}\n---\n`;
 
 export class Vault extends EventEmitter {
-  constructor({ dir, mode = 'live', fund, memory = null, live = null, neural = null, log = console, now = null }) {
+  constructor({ dir, mode = 'live', fund, memory = null, live = null, neural = null, llm = null, log = console, now = null }) {
     super();
     this.dir = dir;
     this.mode = mode;
     this.fund = fund;
     this.memory = memory;
     this.live = live;
+    this.llm = llm;
     this.neural = neural;
     this.log = log;
     this.now = now || (() => fund.clock.now()); // the floor's clock (demo mode runs its own)
@@ -110,6 +111,7 @@ export class Vault extends EventEmitter {
       if (e.kind === 'lesson') this.#touch(`desk:${e.agentId}`, 'lessons', 'daily', 'playbook');
     });
     this.neural?.on('learned', () => this.#touch('brain'));
+    this.llm?.on?.('reflection', () => this.#touch('brain'));
     this.live?.review?.on?.('report', () => this.#touch('review'));
     const every = setInterval(() => this.refresh(), VAULT.refreshMs);
     every.unref?.();
@@ -738,6 +740,7 @@ ${acct || '- No account activity today.'}
   }
 
   #brain() {
+    this.#claude();
     const v = this.neural?.view?.();
     if (!v?.ready) return;
     const sk = v.skill;
@@ -768,6 +771,27 @@ Every desk replayed on months of real 1-minute prices (${cell(base.source)}). A 
 ${base.desks.filter((d) => d.n).map((d) => { const a = this.fund.byId.get(d.id); return `| ${a ? `[[${a.profile.name}]]` : d.name} | [[${d.symbol}]] | ${d.n.toLocaleString('en-US')} | ${fmtR(d.avgR)} | ${d.ci ? `${fmtR(d.ci[0])} to ${fmtR(d.ci[1])}` : '—'} | **${d.verdict}** |`; }).join('\n')}
 `);
     }
+  }
+
+  // Claude, the LLM brain: its record, its evening reviews and the lesson book it keeps.
+  #claude() {
+    const v = this.llm?.view?.();
+    if (!v || (!v.connected && !v.lessons.length)) return;
+    const r = v.record;
+    const lessons = v.lessons.filter((l) => !l.retired);
+    this.write(path.join('Brain', 'Claude.md'), `${yaml({ model: v.model, mode: v.mode, judged: r.n, trusted: r.trusted, tags: ['brain'] })}
+# Claude · the LLM brain
+
+Reviews every setup before it fills, is scored on the result, and keeps this lesson book. ${r.trusted ? '**It has earned a say.**' : `Earning its say: ${cell(r.toTrust || '')}.`}
+
+- Judged ${r.n} trades: said take ${r.takes.n} (${fmtR(r.takes.avgR ?? 0)} on average), said skip ${r.skips.n} (${fmtR(r.skips.avgR ?? 0)}); right ${r.right != null ? `${Math.round(r.right * 100)}%` : '—'} of the time
+
+## Evening reviews
+${(v.reflections || []).filter((x) => x.ok).map((x) => `### ${x.day}\n${cell(x.summary)}`).join('\n\n') || 'None yet.'}
+
+## Lesson book
+${lessons.map((l) => `- **${l.kind}** ${cell(l.text)}${l.symbol ? ` · [[${l.symbol}]]` : ''}${l.session ? ` · ${l.session}` : ''} · ${l.source === 'boss' ? 'from you' : 'learned'} · right ${l.right || 0}, wrong ${l.wrong || 0}`).join('\n') || 'No lessons yet.'}
+`);
   }
 
   #review() {

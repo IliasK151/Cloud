@@ -41,11 +41,13 @@ export function connect() {
       return;
     }
     switch (msg.type) {
-      case 'init': store.init(msg); store.setLive(msg.live); store.setTunnel(msg.tunnel); store.emit('voices', msg.voices); store.setNews(msg.news); store.setBrain(msg.brain); break;
+      case 'init': store.init(msg); store.setLive(msg.live); store.setTunnel(msg.tunnel); store.emit('voices', msg.voices); store.setNews(msg.news); store.setBrain(msg.brain); store.setLlm(msg.llm); break;
       case 'news': store.setNews(msg.news); break;
       case 'brain': store.setBrain(msg.brain); break;
       case 'memory': store.emit('memory', msg.event); break;
       case 'neural': store.emit('neural', msg.event); break;
+      case 'llm': store.setLlm(msg.llm); break;
+      case 'llm-event': store.emit('llm-event', msg.event); break;
       case 'voices': store.emit('voices', msg.voices); break;
       case 'tunnel': store.setTunnel(msg.tunnel); break;
       case 'live': store.setLive(msg.live); break;

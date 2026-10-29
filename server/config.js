@@ -5,9 +5,13 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { isMainThread } from 'node:worker_threads';
 import { loadEnv } from './util/env.js';
+import { trustSystemCertificates } from './util/net.js';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv(path.join(ROOT, '.env'));
+// The computer's own certificate store too (antivirus, VPN or company proxy on Windows):
+// server/util/net.js. TRUST_SYSTEM_CERTS=0 turns it off.
+export const systemCertificates = process.env.TRUST_SYSTEM_CERTS === '0' ? 0 : trustSystemCertificates();
 
 // Everything the floor writes (secrets, account setup, track record) is readable by your
 // macOS user only: new files 0600, folders 0700. (Set once by the main thread: worker threads

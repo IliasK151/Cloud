@@ -3,9 +3,11 @@ import { api } from '../net.js';
 import { planSwitches, onPlanSwitch } from './planSwitch.js';
 import { MemoryGraph } from './memoryGraph.js';
 import { NeuralBrain3D } from './neuralBrain.js';
+import { LlmBrainPanel } from './llmBrain.js';
 
 // The Brain: how the floor thinks. At the top, the account brain (the plan that protects
-// the prop account) and which desks have earned real money. Then the neural brain every desk
+// the prop account) and which desks have earned real money. Then Claude, the LLM brain that
+// reviews every setup and answers the boss (llmBrain.js), the neural brain every desk
 // asks before a trade, live in 3D, and the floor's memory. Below, one live graph per
 // department: market evidence → each agent's own brain → the department's call, with the
 // debates in which they argue every trade before it is taken.
@@ -49,6 +51,7 @@ export class BrainView {
         <div class="card" id="bv-account"></div>
         <div class="card" id="bv-cleared"></div>
       </div>
+      <div class="card llm-card" id="bv-llm"></div>
       <div class="card mg-card" id="bv-neural"></div>
       <div class="card mg-card" id="bv-memory"></div>
       <div class="card vault-card" id="bv-vault"></div>
@@ -74,6 +77,7 @@ export class BrainView {
       const copy = e.target.closest('[data-act="vault-copy"]');
       if (copy) navigator.clipboard?.writeText(copy.dataset.path).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy the folder'; }, 1500); }).catch(() => {});
     });
+    this.llm = new LlmBrainPanel(this.store, this.root.querySelector('#bv-llm'), { onSelect: this.onSelect });
     this.neural = new NeuralBrain3D(this.store, this.root.querySelector('#bv-neural'), { onSelect: this.onSelect });
     this.memory = new MemoryGraph(this.store, this.root.querySelector('#bv-memory'), { onSelect: this.onSelect });
     this.built = true;
@@ -84,6 +88,7 @@ export class BrainView {
     this.visible = true;
     this.root.hidden = false;
     this.render(true);
+    this.llm.show();
     this.neural.show();
     this.memory.show();
     this.#vault();
@@ -110,6 +115,7 @@ export class BrainView {
   hide() {
     this.visible = false;
     this.root.hidden = true;
+    this.llm?.hide();
     this.neural?.hide();
     this.memory?.hide();
   }

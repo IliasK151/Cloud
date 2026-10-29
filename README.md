@@ -118,6 +118,15 @@ The Obsidian vault comes along if it's in `data/vault` (the default); if you set
 
 In the meantime those markets wait, with no prices. The floor keeps retrying in the background (Yahoo, and Binance for the coins), after about 1½, 3 and 6 minutes and then every 10 minutes, and each market gets real prices the moment its feed answers. With MT5 connected and the account set up in the FTMO tab, it doesn't matter: every mapped market (NAS100, SPX500, gold, oil, EURUSD, GBPUSD, USDJPY and the coins your broker lists) runs on **your broker's own prices** instead. It also gets about 6,000 of the broker's one-minute bars as research history. A market added to the floor after you set up the account (like GBPUSD) is mapped to your broker's symbol automatically on the next sync.
 
+
+**Markets with no prices.** When a market shows **NO PRICES**, the FTMO tab and `npm run doctor` say why its source didn't answer, in plain words, and what to do:
+- an antivirus web shield, a VPN or a company proxy intercepting secure connections;
+- a name that can't be looked up;
+- a firewall;
+- Yahoo's rate limit.
+
+On Windows, antivirus programs that scan HTTPS traffic are a common reason. The floor now trusts the computer's own certificate store as well as Node's, which fixes most of these cases. If one still fails, turn off the antivirus's HTTPS scanning for `node.exe`. The sure fix is MT5: it prices every market your broker lists **as soon as it connects**, before you've set the account up too (a new Free Trial account, say). Nothing trades until the account is set up and armed.
+
 ---
 
 ## The floor
@@ -392,6 +401,58 @@ npm run brain -- --examples server/research/brain-examples.json.gz   # retrain o
 ```
 
 It writes `server/research/brain.json`, the brain that ships with the floor, with its test on unseen months, and `brain-examples.json.gz`, the trades it learned from.
+
+## Claude: the LLM brain
+
+The Brain tab has a second brain next to the neural one: **Claude**, Anthropic's large language model, reading the floor the way a senior trader would. It works with your own Anthropic API key (optional, paid per use; see the costs below).
+
+![Claude in the Brain tab](docs/claude.jpg)
+
+- **Reviews every setup before it fills.** When a desk arms a setup, Claude reads it in the background, so the desk is never slowed down. It reads:
+  - the entry, stop, target and costs;
+  - the market's weekly, daily and 4-hour read, and the areas of interest near price;
+  - the liquidity around price and what was swept;
+  - the news ahead;
+  - the floor memory's record of trades like it, and what the desk itself has learned;
+  - its own lesson book, and its past calls on that desk.
+
+  Its verdict is **take or skip**, with an honest chance of profit, the R it expects, the reasons and the risks. It shows up live in the Brain tab and on the desk.
+- **Is scored on every result.** The verdict goes with the trade. When the trade closes, Claude's call is marked right or wrong, and so is every lesson it relied on. Its record shows:
+  - the average R of the trades it said to take, against the ones it said to skip;
+  - how often it was right;
+  - how well its chances matched what happened (the calibration).
+- **Keeps a lesson book, and prunes it by results.** After the New York close it reads the day: the trades, the setups, what was held back and why, its own calls and how they went. It writes at most five new lessons where the evidence supports one, specific to a market and session. It retires lessons the evidence turned against, and a lesson that keeps being wrong retires itself. You can teach it rules of your own ("Don't take gold longs into the US CPI release"), and those come first. The lessons join the floor memory graph and the Obsidian vault (`Brain/Claude.md`). The evening summary goes to your phone with the daily report.
+- **Answers your questions.** In the **Ask Claude** tab, ask anything: "why didn't Marcus trade today?", "how is gold set up for London?", "what did we learn this week?". It looks at the live floor through read-only tools before it answers: the desks, the markets, the trades, the account and its own lessons. It can't trade, arm, or change any setting.
+
+**How it learns.** A hosted model like Claude can't be retrained on your computer. It learns the way language-model agents do after their training: before every decision it reads its own experience (the scored lesson book and its past calls with their results), and it keeps that experience honest every evening. The neural brain next to it is the one that actually retrains its weights, from thousands of trades.
+
+**Its say grows only with its record.** Under *Say* in the Brain tab:
+
+| Setting | What Claude does |
+| --- | --- |
+| **Off** | No reviews; chat still works |
+| **Advise** (default) | Reviews every setup and learns, but never holds a trade back |
+| **Veto** | May hold back a setup it gives under 30%, but only once its record has earned it |
+
+Its record has earned a say after 30 trades judged, 8 of them skips, with the trades it said to skip at least 0.3R worse than the ones it said to take, and losing. Trades it holds back are followed on paper to the stop or the target, so it keeps learning whether it was right. It can never add a trade, make one bigger, touch your TradingView alerts or override FTMO's rules.
+
+**Set it up (2 minutes):**
+
+1. Create an API key at [console.anthropic.com → API keys](https://console.anthropic.com/settings/keys) and add some credit under Billing. The API is billed separately from a Claude.ai subscription.
+2. Brain tab → **Connect Claude**, and paste the key. It's checked with Anthropic, then kept on this computer only (`data/llm/key.json`, readable by your user only, never shown again or sent to the browser). Alternatively, put `ANTHROPIC_API_KEY=…` in `.env`.
+3. Pick the model and a **daily budget** (default $2). Claude pauses until the next day when the budget is spent.
+
+**Costs.**
+
+| Model | Cost per setup review | |
+| --- | --- | --- |
+| Claude Opus 5.5 | about 2–6 cents | The default, and the best judgement |
+| Claude Sonnet 5.5 | about half of Opus | |
+| Claude Haiku 5.5 | a fraction of a cent | |
+
+The evening review costs about the same as a few setup reviews. With twenty desks, most days fit within $1–2 on Opus. The Brain tab shows what it has spent today and this month.
+
+On Opus and Sonnet, a request the model declines is retried on Anthropic's recommended fallback model (server-side fallbacks), so a review is rarely lost. Demo mode never reviews setups or reflects: made-up prices teach it nothing. The chat works in both modes.
 
 ## The Obsidian vault: everything the desks know
 
@@ -1008,6 +1069,8 @@ Copy `.env.example` to `.env`. The most useful settings:
 | `WEBHOOK_SECRET` | auto | TradingView webhook secret (auto: random, in `data/webhook-secret.txt`, rotatable from the TradingView tab) |
 | `STARTING_CAPITAL` | `100000000` | Fund size, split evenly across the 20 desks |
 | `KEEP_AWAKE` | `1` | Keep the Mac or PC from sleeping while the floor runs (`0` turns it off) |
+| `ANTHROPIC_API_KEY` | none | Claude, the LLM brain (optional; or paste the key in the Brain tab) |
+| `TRUST_SYSTEM_CERTS` | `1` | Trust the computer's own certificate store as well as Node's (`0` turns it off) |
 | `RISK_PER_TRADE_PCT`, `DESK_DAILY_LOSS_PCT`, `FUND_DAILY_LOSS_PCT`, `MAX_LEVERAGE` | 0.5 / 2 / 1.2 / 4 | Risk framework |
 | `VAULT_DIR` | `data/vault` | Where the Obsidian vault is written, e.g. `~/Documents/Meridian Vault` (demo mode always uses `data/vault-demo`) |
 | `VAULT` | `1` | `0` turns the Obsidian vault off |
@@ -1043,7 +1106,9 @@ server/
                         strategies/dayTrader.js (every desk), fund orchestration, learning.js
   research/             long history store, strategy grammar, backtester, walk-forward validation search
   brain/                market brain (shared analysis), personas (each agent's own brain),
-                        committee (department debates, vetoes, grades, live thoughts)
+                        committee (department debates, vetoes, grades, live thoughts), memory.js (floor memory)
+  llm/                  Claude, the LLM brain: setup reviews, scoring, lesson book, evening reflection,
+                        chat with read-only floor tools, daily budget (official @anthropic-ai/sdk)
   tradingview/          alert parsing + authentication, one-click public address (tunnel)
   live/                 MT5 bridge protocol, FTMO rules + guard, account brain, live execution router
   voices/               realistic voices: Kokoro text-to-speech in a worker thread

@@ -3,6 +3,7 @@ import { SYMBOLS } from './symbols.js';
 import { SimFeed } from './simFeed.js';
 import { BinanceFeed } from './binanceFeed.js';
 import { YahooFeed } from './yahooFeed.js';
+import { netReason } from '../util/net.js';
 
 const LOOP_MS = 250;
 // After a live source failed at startup: try again after these delays (then every 10 min).
@@ -34,6 +35,7 @@ export class FeedManager extends EventEmitter {
     this.recoverAttempt = 0;
     this.binance = null;
     this.waiting = new Set(); // live mode: markets with no real prices yet
+    this.why = new Map(); // waiting market → why its source didn't answer, in words
     this.hooks = { sessionClose: () => {}, sessionOpen: () => {} };
     this.notes = [];
     // Real prices arriving for a waiting market (Yahoo answering again, or MT5's broker feed).
@@ -70,6 +72,7 @@ export class FeedManager extends EventEmitter {
       } else {
         this.log.warn(`[feed] ${bRes.reason.message}: ${binanceSyms.map((s) => s.id).join(', ')} wait for real prices (retrying in the background)`);
         fallback.push(...binanceSyms.map((s) => s.id));
+        for (const s of binanceSyms) this.why.set(s.id, bRes.reason.why?.text || bRes.reason.message);
       }
       if (yRes.status === 'fulfilled') {
         this.feeds.push(yahoo);
@@ -84,9 +87,11 @@ export class FeedManager extends EventEmitter {
         for (const f of failed) {
           if (!f.rateLimited) this.log.warn(`[feed] Yahoo ${f.id}: ${f.error}: waiting for real prices (retrying in the background)`);
           fallback.push(f.id);
+          this.why.set(f.id, f.error);
         }
       } else {
         fallback.push(...yahooSyms.map((s) => s.id));
+        for (const s of yahooSyms) this.why.set(s.id, netReason(yRes.reason).text);
       }
 
       if (fallback.length) {
@@ -102,9 +107,21 @@ export class FeedManager extends EventEmitter {
   }
 
   #noteWaiting() {
-    const left = [...this.waiting].join(', ');
     this.notes = this.notes.filter((n) => !n.startsWith('Waiting for real prices'));
-    if (left) this.notes.push(`Waiting for real prices (live source unreachable, nothing simulated): ${left}`);
+    for (const r of this.reasons()) this.notes.push(`Waiting for real prices (nothing simulated): ${r.ids.join(', ')}. ${r.source} ${r.text ? `didn't answer: ${r.text}` : 'is unreachable'}.`);
+  }
+
+  // The markets still waiting, grouped by source and by why that source didn't answer.
+  reasons() {
+    const groups = new Map();
+    for (const id of this.waiting) {
+      const source = SYMBOLS[id]?.source.type === 'binance' ? 'Binance' : 'Yahoo Finance';
+      const text = this.why.get(id) || '';
+      const key = `${source}|${text}`;
+      if (!groups.has(key)) groups.set(key, { source, text, ids: [] });
+      groups.get(key).ids.push(id);
+    }
+    return [...groups.values()];
   }
 
   #scheduleRecovery() {
@@ -124,6 +141,7 @@ export class FeedManager extends EventEmitter {
       try {
         if (await this.yahoo.recover(id)) this.log.info(`[feed] Yahoo is answering again: ${id} is on real prices`);
       } catch (err) {
+        this.why.set(id, netReason(err).text);
         if (err.rateLimited) break;
       }
     }
@@ -137,16 +155,19 @@ export class FeedManager extends EventEmitter {
         this.feeds = this.feeds.filter((f) => !(f instanceof BinanceFeed)).concat(feed);
         this.log.info(`[feed] Binance is answering again: ${coins.join(', ')} ${coins.length === 1 ? 'is' : 'are'} on real prices`);
         for (const id of coins) this.#promote(id, 'binance');
-      } catch {
+      } catch (err) {
         feed.stop();
+        for (const id of coins) this.why.set(id, err.why?.text || err.message);
       }
     }
+    this.#noteWaiting();
     if (this.waiting.size) this.#scheduleRecovery();
     if (this.yahoo && !this.feeds.includes(this.yahoo)) this.feeds.push(this.yahoo);
   }
 
   #promote(id, source) {
     if (!this.waiting.delete(id)) return;
+    this.why.delete(id);
     this.#noteWaiting();
     this.emit('recovered', id, source);
   }

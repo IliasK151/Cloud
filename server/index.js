@@ -32,6 +32,7 @@ import { summarize } from './live/dailyReport.js';
 import { TelegramNotifier } from './notify/telegram.js';
 import { FloorMemory } from './brain/memory.js';
 import { NeuralBrain } from './neural/brain.js';
+import { LlmBrain } from './llm/brain.js';
 import { Vault } from './vault/vault.js';
 import { entryChart } from './notify/chartShot.js';
 import { MACHINE, onWindows, keepAwakeWindowsArgs } from './util/platform.js';
@@ -81,6 +82,13 @@ const bridge = new Mt5Bridge();
 // Their own way, unless switched off there too: each desk trades its own strategy, with only
 // FTMO's own rules around it.
 const live = new LiveTrader({ fund, md, bridge, clock, mode: config.feed, dataDir: config.dataDir, token: config.bridgeToken, log, ftmoOnly: true, ownWay: true });
+// Why a market has no prices, for the FTMO tab (the public feed's own reason).
+live.feedReasons = () => feeds.reasons();
+// Claude, the floor's LLM brain (llm/brain.js): reviews every setup before it fills, is scored
+// on the results, reflects after the close and answers the boss in the Brain tab.
+const llm = new LlmBrain({ dataDir: config.dataDir, mode: config.feed, floor: { fund, live, memory, neural, news, md, feeds }, log });
+fund.env.llm = llm;
+md.on('bar', (id, bar) => llm.onBar(id, bar));
 // Alerts on the boss's phone (Telegram), from the live trader's big moments.
 const notifier = new TelegramNotifier({ dataDir: config.dataDir, log });
 // A trade's entry comes with its setup drawn as a chart: saved in data/charts (the FTMO tab
@@ -119,7 +127,7 @@ live.baseline = new Baseline(loadBaseline(BASELINE_FILE, log));
 // MT5 pages months of the broker's own bars into the research history (EA 1.3+).
 live.history = history;
 // The Obsidian vault: every desk's trades, ideas, lessons and numbers as linked notes.
-const vault = config.vault ? new Vault({ dir: config.vaultDir, mode: config.feed, fund, memory, live, neural, log }) : null;
+const vault = config.vault ? new Vault({ dir: config.vaultDir, mode: config.feed, fund, memory, live, neural, llm, log }) : null;
 if (config.feed === 'live') {
   setInterval(() => {
     try {
@@ -230,6 +238,30 @@ app.get('/api/news', localOnly, (req, res) => res.json(news.view()));
 app.get('/api/brain', localOnly, (req, res) => res.json(brainView()));
 app.get('/api/memory', localOnly, (req, res) => res.json(memory.graph(fund.agents)));
 app.get('/api/neural', localOnly, (req, res) => res.json(neural.view()));
+// Claude, the LLM brain. The API key goes in here and never comes back out: the view says only
+// whether there is one, and its last four characters.
+app.get('/api/llm', localOnly, (req, res) => res.json(llm.view()));
+app.post('/api/llm/:action', localOnly, express.json({ limit: '16kb' }), async (req, res) => {
+  const b = req.body || {};
+  const actions = {
+    key: () => llm.setKey(b.apiKey),
+    forget: () => llm.forgetKey(),
+    settings: () => llm.configure(b),
+    ask: () => llm.ask(b.question),
+    reflect: () => llm.reflect('asked'),
+    teach: () => llm.teach(b.text, { symbol: b.symbol, session: b.session }),
+    'forget-lesson': () => llm.forgetLesson(b.id),
+    'new-chat': () => llm.newChat(),
+  };
+  const fn = Object.hasOwn(actions, req.params.action) ? actions[req.params.action] : null;
+  if (!fn) return res.status(404).json({ ok: false, error: 'unknown action' });
+  try {
+    const result = await fn();
+    res.json({ ...result, llm: llm.view() });
+  } catch (err) {
+    res.json({ ok: false, error: err.message, llm: llm.view() });
+  }
+});
 app.get('/api/vault', localOnly, (req, res) => res.json(vault ? vault.view() : { enabled: false, dir: config.vaultDir }));
 app.post('/api/neural/learn', localOnly, (req, res) => {
   if (config.feed === 'sim') return res.json({ ok: false, error: 'The brain learns only from real prices: it learns in live mode (npm start), not in demo mode.' });
@@ -563,7 +595,7 @@ function broadcast(msg) {
 }
 
 wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view(), brain: brainView() }));
+  ws.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view(), brain: brainView(), llm: llm.view() }));
   let window = { start: Date.now(), n: 0 };
   ws.on('message', (buf) => {
     // At most 20 messages per 10 seconds from one page; anything malformed is ignored.
@@ -588,7 +620,7 @@ fund.on('equity', (sample) => broadcast({ type: 'equity', sample }));
 fund.on('alert', (alert) => broadcast({ type: 'alert', alert }));
 fund.on('reset', () => {
   store.save(fund.serialize());
-  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view(), brain: brainView() }));
+  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ type: 'init', ...fund.initPayload(), live: live.view(), tunnel: tunnel.view(), voices: voices.status(), news: news.view(), brain: brainView(), llm: llm.view() }));
 });
 broker.on('trade', (trade) => broadcast({ type: 'trade', trade }));
 tunnel.on('change', (view) => broadcast({ type: 'tunnel', tunnel: view }));
@@ -603,6 +635,23 @@ memory.on('event', (event) => broadcast({ type: 'memory', event }));
 // The neural brain too: each idea it judges flows through its network, each result flows
 // back, and a lesson flashes the connections it changed.
 for (const kind of ['thought', 'outcome', 'learning', 'learned']) neural.on(kind, (ev) => broadcast({ type: 'neural', event: { kind, ...ev } }));
+// Claude's thinking, live in the Brain tab: each review as it starts and lands, at most twice
+// a second for the rest.
+let llmPushAt = 0;
+let llmPushTimer = null;
+const pushLlm = () => {
+  clearTimeout(llmPushTimer);
+  llmPushTimer = null;
+  llmPushAt = Date.now();
+  if (wss.clients.size) broadcast({ type: 'llm', llm: llm.view() });
+};
+llm.on('update', () => {
+  if (llmPushTimer) return;
+  llmPushTimer = setTimeout(pushLlm, Math.max(0, 500 - (Date.now() - llmPushAt)));
+});
+for (const kind of ['review', 'outcome']) llm.on(kind, (rev) => broadcast({ type: 'llm-event', event: { kind, id: rev.id, desk: rev.desk, symbol: rev.symbol, status: rev.status, verdict: rev.verdict ?? null, p: rev.p ?? null, right: rev.right ?? null, r: rev.outcome?.r ?? null } }));
+llm.on('reflection', (r) => notifier.notify({ kind: 'daily', text: `🧠 Claude on ${r.day}: ${r.summary}${r.added.length ? `\nNew lessons: ${r.added.length}` : ''}${r.retired.length ? ` · retired: ${r.retired.length}` : ''}`, at: Date.now() }));
+setInterval(() => llm.tick(), 60_000).unref();
 neural.on('learned', (ev) => {
   if (ev.failed) return;
   fund.pushEvent({ kind: ev.adopted ? 'learn' : 'info', text: `NEURAL BRAIN · ${ev.text}` });
@@ -702,6 +751,7 @@ async function main() {
     log.info(`  TradingView hook:   http://localhost:${config.webhookPort}/webhook   (public address: TradingView tab)`);
     log.info(`  Webhook secret:     ${secrets.webhook.slice(0, 4)}…  (full secret in the TradingView tab, kept off this screen)`);
     log.info(`  Security:           ${lanMode ? 'dashboard open to your network, password required' : networkBind ? `dashboard on this ${MACHINE} only, MT5 bridge open to your network (token)` : `dashboard on this ${MACHINE} only`} · webhook firewall on · trades from TradingView only: ${firewall.settings.tradingViewOnly ? 'on' : 'OFF'}`);
+    log.info(`  LLM brain:          ${llm.connected ? `Claude connected (${llm.settings.model}, ${llm.settings.mode} mode, up to $${llm.settings.budgetUsd.toFixed(2)} a day)` : 'Claude not connected (Brain tab → Connect Claude)'}`);
     log.info('  Trouble connecting? Run: npm run doctor');
     log.info(`  FTMO / MT5 bridge:  http://127.0.0.1:${config.port}/api/bridge/sync  (token in the FTMO tab)`);
     log.info(`  Paper trading unless you connect MT5 and arm live trading in the FTMO tab.`);
@@ -749,6 +799,7 @@ async function shutdown() {
     store.save(fund.serialize());
     memory.flush();
     neural.stop();
+    llm.stop();
     vault?.stop();
   } catch (err) {
     log.warn('  Save failed:', err.message);

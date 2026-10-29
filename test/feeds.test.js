@@ -241,3 +241,49 @@ test('research history never waits forever: a feed that doesn\'t answer is skipp
   assert.equal(history.status().XAUUSD.source, 'broker');
   assert.ok(history.bars('XAUUSD').length >= 6000, 'the research desks get the broker\'s bars');
 });
+
+test('a market with no prices says why: an intercepted connection, a name that can\'t be found', async () => {
+  const { netReason } = await import('../server/util/net.js');
+  const realFetch = globalThis.fetch;
+  const failed = (code) => Object.assign(new Error('fetch failed'), { cause: Object.assign(new Error(code), { code }) });
+  globalThis.fetch = async () => { throw failed('ENOTFOUND'); };
+  const client = { paused: false, chart: async () => { throw failed('UNABLE_TO_GET_ISSUER_CERT_LOCALLY'); } };
+  const clock = new MarketClock('live');
+  const md = new MarketData(clock);
+  const feeds = new FeedManager({ md, clock, mode: 'live', log: quiet, yahooOptions: { client }, recoverDelaysMs: [60_000] });
+  try {
+    await feeds.start();
+    const why = feeds.reasons();
+    const yahoo = why.find((r) => r.source === 'Yahoo Finance');
+    const binance = why.find((r) => r.source === 'Binance');
+    assert.ok(yahoo.ids.includes('XAUUSD') && yahoo.ids.includes('EURUSD'));
+    assert.match(yahoo.text, /secure connection was intercepted \(UNABLE_TO_GET_ISSUER_CERT_LOCALLY\): an antivirus web shield, a VPN or a company proxy/);
+    assert.ok(binance.ids.includes('BTCUSD'));
+    assert.match(binance.text, /couldn't be looked up \(ENOTFOUND\)/);
+    assert.ok(feeds.notes.some((n) => /^Waiting for real prices \(nothing simulated\): .*XAUUSD.*Yahoo Finance didn't answer: its secure connection was intercepted/.test(n)));
+  } finally {
+    feeds.stop();
+    globalThis.fetch = realFetch;
+  }
+  // The plain words for each kind of failure.
+  assert.match(netReason({ rateLimited: true }).text, /rate-limiting/);
+  assert.match(netReason(Object.assign(new Error('timed out'), { name: 'AbortError' })).text, /didn't answer \(timed out\)/);
+  assert.match(netReason(failed('ECONNRESET')).text, /firewall, VPN or network filter/);
+  assert.match(netReason(failed('CERT_HAS_EXPIRED')).text, /date and time/);
+  assert.match(netReason(new Error('HTTP 403')).text, /refused this connection \(HTTP 403\)/);
+});
+
+test('Node trusts this computer\'s own certificates too (antivirus or company proxy on Windows)', async () => {
+  const { trustSystemCertificates } = await import('../server/util/net.js');
+  let set = null;
+  const fake = { getCACertificates: (k) => (k === 'default' ? ['A', 'B'] : ['B', 'C', 'D']), setDefaultCACertificates: (list) => { set = list; } };
+  assert.equal(trustSystemCertificates(fake), 2);
+  assert.deepEqual(set, ['A', 'B', 'C', 'D'], 'Node\'s own list, plus the ones only the computer has');
+  set = null;
+  assert.equal(trustSystemCertificates({ getCACertificates: () => ['A'], setDefaultCACertificates: (l) => { set = l; } }), 0);
+  assert.equal(set, null, 'nothing to add: nothing changed');
+  assert.equal(trustSystemCertificates({}), 0, 'an older Node without the API: left alone');
+  // The floor does it at startup.
+  const { systemCertificates } = await import('../server/config.js');
+  assert.ok(Number.isInteger(systemCertificates));
+});

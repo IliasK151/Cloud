@@ -544,8 +544,14 @@ export class LiveTrader extends EventEmitter {
     return this.fund.byId.get(link.agentId)?.profile.name.split(' ')[0] ?? link.agentId;
   }
 
+  // The account's markets → broker symbols; before the account is set up, the suggested ones
+  // (MT5 prices them all the same).
+  #symbolMap() {
+    return this.profile?.symbolMap || autoMap(this.bridge.symbols);
+  }
+
   #mappedFloorIds(brokerSymbol) {
-    const map = this.profile?.symbolMap || {};
+    const map = this.#symbolMap();
     return Object.keys(map).filter((id) => map[id] === brokerSymbol);
   }
 
@@ -637,7 +643,7 @@ export class LiveTrader extends EventEmitter {
   // the desks need weeks of it before their top-down read gives a bias.
   historyDepth(now = Date.now()) {
     const h = this.history;
-    const map = this.profile?.symbolMap;
+    const map = this.bridge.symbols?.length ? this.#symbolMap() : this.profile?.symbolMap;
     if (!h?.ready || !map || this.mode !== 'live') return [];
     const out = [];
     for (const [id, brokerSymbol] of Object.entries(map)) {
@@ -674,18 +680,19 @@ export class LiveTrader extends EventEmitter {
   #onSync() {
     const p = this.profile;
     if (p) this.#mapNewMarkets(p);
-    const map = p?.symbolMap || autoMap(this.bridge.symbols);
+    const map = this.#symbolMap();
     this.bridge.watch(Object.values(map).filter(Boolean));
     // MT5 syncs faster while a desk on the account is about to trade (a setup waiting for its
     // trigger, a pending entry, a paper position to follow); slower otherwise, to save battery.
     this.bridge.urgent = !!p && this.armed && this.fund.agents.some((a) => this.deskOn(a.id)
       && (a.setup?.armed || a.pending || a.book.positions.size));
     this.#learnCosts();
-    if (!p) return this.emit('change');
 
-    // Market data from MT5
+    // Market data from MT5: every market the broker lists, as soon as MT5 connects, before
+    // the account is set up too (a new Free Trial account, say). Prices only: nothing trades
+    // until the account is set up and armed.
     if (this.mode === 'live') {
-      for (const [id, brokerSym] of Object.entries(p.symbolMap)) {
+      for (const [id, brokerSym] of Object.entries(map)) {
         if (!brokerSym) continue;
         if (this.md.ownerOf(id) !== 'mt5') {
           // Enough of the broker's own bars for the research lab to test on real prices.
@@ -699,6 +706,7 @@ export class LiveTrader extends EventEmitter {
         this.md.setStatus(id, 'LIVE', 'ftmo');
       }
     }
+    if (!p) return this.emit('change');
 
     // Track our live positions
     const positions = this.bridge.positions;
@@ -1461,13 +1469,16 @@ export class LiveTrader extends EventEmitter {
     }
     const waiting = SYMBOL_IDS.filter((id) => this.md.get(id)?.status === 'WAITING');
     if (this.mode === 'live' && waiting.length) {
-      const unmapped = waiting.filter((id) => !p?.symbolMap?.[id]);
-      const how = !p
-        ? ' Set up the account below and MT5 prices every market your broker lists.'
+      const map = this.#symbolMap();
+      const unmapped = waiting.filter((id) => !map[id]);
+      const how = !this.bridge.connected
+        ? ' Connect MT5 (below): your broker\'s own prices take over every market it lists, whatever the public feed does.'
         : unmapped.length
           ? ` ${unmapped.join(', ')} ${unmapped.length === 1 ? 'isn\'t' : 'aren\'t'} mapped to a symbol on your broker: pick one in Edit setup and MT5 prices it at once.`
           : ' MT5 is sending your broker\'s prices for them now.';
-      warnings.push(`No real prices for ${waiting.join(', ')} right now: the live feed isn't answering. Nothing is simulated, so desks on ${waiting.length === 1 ? 'that market' : 'those markets'} stand aside until real prices arrive.${how}`);
+      // Why the public feed isn't answering, when it said (server/util/net.js).
+      const why = (this.feedReasons?.() || []).filter((r) => r.text && r.ids.some((id) => waiting.includes(id))).map((r) => ` ${r.source} didn't answer: ${r.text}.`).join('');
+      warnings.push(`No real prices for ${waiting.join(', ')} right now: the live feed isn't answering. Nothing is simulated, so desks on ${waiting.length === 1 ? 'that market' : 'those markets'} stand aside until real prices arrive.${why}${how}`);
     }
     // FTMO only: if the account can't take anything, nothing trades at all. Say so first.
     const ftmoOnlyBlock = this.ftmoOnly && this.mode === 'live' ? this.#accountBlock() : null;

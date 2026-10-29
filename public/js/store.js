@@ -127,6 +127,13 @@ class Store extends EventTarget {
     this.emit('brain', view);
   }
 
+  // Claude, the LLM brain (server/llm/brain.js).
+  setLlm(view) {
+    if (!view) return;
+    this.llm = view;
+    this.emit('llm', view);
+  }
+
   setNews(view) {
     if (!view) return;
     this.news = view;

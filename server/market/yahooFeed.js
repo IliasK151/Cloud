@@ -4,6 +4,7 @@
 // maintenance break).
 
 import { yahoo as sharedClient, toBars } from './yahooClient.js';
+import { netReason } from '../util/net.js';
 
 export class YahooFeed {
   constructor(md, symbols, log = console, { pollMs = 15_000, client = sharedClient } = {}) {
@@ -34,7 +35,8 @@ export class YahooFeed {
         this.live.add(s.id);
         ok.push(s.id);
       } catch (err) {
-        failed.push({ id: s.id, error: err.message, rateLimited: !!err.rateLimited });
+        const why = netReason(err);
+        failed.push({ id: s.id, error: why.text, kind: why.kind, rateLimited: !!err.rateLimited });
       }
     }
     this.timer = setInterval(() => this.#tick(), 1000);

@@ -229,6 +229,14 @@ async function main() {
       bad(`The Obsidian vault isn't being written: ${vault.lastError.text}`);
     } else if (vault.live) good(`The Obsidian vault is live: ${vault.notes.toLocaleString('en-US')} notes, last written ${vault.lastWrite ? ago(vault.lastWrite) : 'not yet'} (${vault.dir}).`);
   }
+  // Claude, the LLM brain (optional).
+  const llm = json(await get('/api/llm', auth));
+  if (llm?.connected) {
+    const left = `${llm.spend?.today != null ? `$${llm.spend.today.toFixed(2)}` : '$0'} of $${Number(llm.budgetUsd).toFixed(2)} spent today`;
+    if (llm.status === 'error' && llm.lastError) warn(`Claude (LLM brain) has a problem: ${llm.lastError.text}`);
+    else if (llm.status === 'budget') warn(`Claude (LLM brain) has spent today's budget (${left}); it's back tomorrow (Brain tab → Daily budget).`);
+    else good(`Claude (LLM brain) is connected: ${llm.model}, ${llm.mode} mode, ${left}, ${llm.record?.n ?? 0} trades judged.`);
+  } else if (llm) tip('Claude (LLM brain) isn\'t connected (optional): Brain tab → Connect Claude, with an Anthropic API key.');
   const alerts = json(await get('/api/alerts', auth));
   if (alerts && !alerts.hasToken) warn('Phone alerts aren\'t set up (optional): FTMO tab → Alerts on your phone.');
   else if (alerts && !alerts.enabled) warn('Phone alerts are set up but switched off (FTMO tab → Alerts on your phone).');

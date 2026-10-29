@@ -192,6 +192,18 @@ export class TraderAgent {
     }
     if (nb?.sizeMult != null) riskMultiplier *= nb.sizeMult;
 
+    // Claude, the LLM brain (llm/brain.js), reviewed this setup when it armed. Its verdict goes
+    // with the trade so it is scored on the result. In veto mode, once its record has earned
+    // it, a clear skip is held back (and followed on paper). It never adds or enlarges a trade.
+    const llm = this.env.llm?.gate?.(this, { symbol, side, entry, stop, tag }) ?? null;
+    if (llm && !llm.take) {
+      this.lastReject = llm.reason;
+      this.day.skipped++;
+      this.#whyNot(llm.reason);
+      this.setStage(llm.reason);
+      return false;
+    }
+
     // FTMO only: this exact trade, through every check the account makes before an order
     // (the account brain, costs on MT5, room under the loss guard, ...). Not there, not taken.
     const onFtmo = this.env.tradeGate?.(this, {
@@ -211,6 +223,7 @@ export class TraderAgent {
     const initialRisk = qty * Math.abs(entry - stop) * usdPerQuote(symbol, entry);
     let meta = review ? { thesis: review.thesis, grade: review.grade, score: Math.round(review.score * 100) / 100, verdict: review.shadowVerdict ?? null, debate: review.debate?.id ?? null, f: review.debate ? Object.fromEntries(Object.entries(review.debate.factors).map(([k, v]) => [k, v ? Math.round(v.value * 100) / 100 : null])) : null } : null;
     if (nb?.x) meta = { ...(meta || {}), neural: { x: nb.x, p: nb.p ?? null, expR: nb.expR ?? null, explore: !!nb.explore, version: nb.version ?? null } };
+    if (llm?.id) meta = { ...(meta || {}), llm: { id: llm.id, verdict: llm.verdict, p: llm.p } };
     const res = this.broker.execute(this.id, symbol, long ? qty : -qty, { reason, tag, stop, target, initialRisk, meta });
     if (!res) return false;
     const fillPx = res.fill.price;
@@ -439,6 +452,8 @@ export class TraderAgent {
     this.env.memory?.onTrade(this, trade, ctx);
     // The neural brain learns from what it sensed at entry and how the trade turned out.
     this.env.neural?.observe?.(this, trade);
+    // Claude's verdict on the setup, scored against how it went.
+    this.env.llm?.observe?.(this, trade);
   }
 
   // External signal (TradingView webhook).

@@ -51,6 +51,8 @@ export class DayTrader extends TraderAgent {
     if (order && this.position()) { order = null; this.pb.pending = null; }
     for (const ev of this.pb.events.splice(0)) this.note(`Setup cancelled: ${ev.why}`, 'setup');
     if (order) {
+      // Claude reviews the setup in the background (llm/brain.js); the desk carries on.
+      this.env.llm?.onSetup?.(this, order);
       if (order.market) this.#take(order);
       else {
         this.note(`${order.side === 'LONG' ? 'Buy' : 'Sell'} setup on ${this.symbol}: ${order.reason}. Waiting for the pullback to ${this.px(order.entry)}, stop ${this.px(order.stop)}, target ${this.px(order.target)}`, 'setup');

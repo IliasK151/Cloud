@@ -74,6 +74,27 @@ export class FloorMemory extends EventEmitter {
     this.#event({ kind: 'lesson', agentId: agent.id, id: lesson.id, text: lesson.title });
   }
 
+  // The LLM brain (llm/brain.js) learned something: it joins the graph as Claude's lesson.
+  onLlmLesson(lesson) {
+    if (!lesson?.text) return;
+    const L = this.state.lessons;
+    const id = `llm-${lesson.id}`;
+    if (L.some((l) => l.id === id)) return;
+    L.push({ id, agentId: 'llm', title: lesson.text, symbol: lesson.symbol || null, time: lesson.created ?? this.now(), status: lesson.kind });
+    if (L.length > LESSONS_KEPT) L.shift();
+    this.#touch();
+    this.#event({ kind: 'lesson', agentId: 'llm', id, text: lesson.text });
+  }
+
+  // Claude judged a desk's setup, and later how that call turned out: the graph lights up.
+  onLlmReview(rev) {
+    if (rev?.verdict) this.#event({ kind: 'review', agentId: rev.desk, verdict: rev.verdict, p: rev.p, symbol: rev.symbol });
+  }
+
+  onLlmOutcome(rev) {
+    if (rev?.outcome) this.#event({ kind: 'review-outcome', agentId: rev.desk, right: rev.right ?? null, r: rev.outcome.r, symbol: rev.symbol });
+  }
+
   // The committee met: who reviewed whose idea, and how they leaned.
   onDebate(d) {
     if (!d?.proposer) return;
@@ -157,6 +178,8 @@ export class FloorMemory extends EventEmitter {
         links.push({ s: `desk:${a.id}`, t: `mkt:${sym}`, kind: 'trades' });
       }
     }
+    // Claude, the LLM brain, once it has learned something or judged a setup.
+    if (this.state.lessons.some((l) => l.agentId === 'llm') || this.events.some((e) => e.kind === 'review')) add({ id: 'desk:llm', type: 'desk', agentId: 'llm', label: 'Claude', sub: 'LLM brain' });
     for (const [key, s] of Object.entries(this.state.situations)) markets.add(key.split('|')[0]);
     for (const sym of markets) add({ id: `mkt:${sym}`, type: 'market', label: sym });
     const syms = [...markets];
@@ -178,6 +201,7 @@ export class FloorMemory extends EventEmitter {
       if (!has.has(`desk:${l.agentId}`)) continue;
       add({ id: `lesson:${l.id}`, type: 'lesson', label: l.title, agentId: l.agentId, time: l.time, status: l.status });
       links.push({ s: `lesson:${l.id}`, t: `desk:${l.agentId}`, kind: 'learned' });
+      if (l.agentId === 'llm' && l.symbol && has.has(`mkt:${l.symbol}`)) links.push({ s: `lesson:${l.id}`, t: `mkt:${l.symbol}`, kind: 'about' });
     }
     for (const [k, r] of Object.entries(this.state.reviews)) {
       const [from, to] = k.split('>');

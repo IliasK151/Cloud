@@ -803,7 +803,13 @@ test('MT5 syncs only as often as needed: fast while orders go through, every 2 s
     return Number(reply.match(/^pace\|(\d+)$/m)?.[1]);
   };
   sync();
+  // MT5 prices every market as soon as it connects: it has answered those history requests
+  // (this test's MT5 sends no bars).
+  const requestHistory = bridge.requestHistory;
+  bridge.requestHistory = () => {};
+  bridge.historyWanted.clear();
   assert.equal(pace(), PACE.idle, 'nothing going on: every 2 seconds');
+  bridge.requestHistory = requestHistory;
   // A desk on the account is waiting for its trigger: once a second.
   live.setup({ program: '2-step', type: 'trial', size: 100_000 });
   live.setDesk('amara', true);
@@ -1668,6 +1674,8 @@ test('months of history: the floor pages back through MT5 until it has enough, M
     },
   };
   live.history = store;
+  // MT5 answered the first prices it was asked for when it connected.
+  bridge.historyWanted.clear();
   // A page of MT5 bars (server time = UTC here), `start` bars back.
   const page = (start, n = 10_000) => Array.from({ length: n }, (_, i) => {
     const t = now - (start + n - 1 - i) * 60;
@@ -1761,6 +1769,24 @@ test('months of history: the floor pages back through MT5 until it has enough, M
 });
 
 const pick = (h) => (h ? { count: h.count, start: h.start } : null);
+
+test('MT5 prices every market as soon as it connects, before the account is set up', async () => {
+  const { live, bridge, sync, fund } = setup();
+  const md = fund.env.md;
+  sync();
+  assert.equal(live.profile, null, 'not set up yet');
+  assert.ok(bridge.historyWanted.has('XAUUSD'), 'asked for gold\'s prices straight away');
+  const now = Math.floor(Date.now() / 60_000) * 60;
+  const rows = Array.from({ length: 60 }, (_, i) => [now - (60 - i) * 60, 3800, 3801, 3799, 3800, 1]);
+  sync({ history: { XAUUSD: rows } });
+  assert.equal(md.ownerOf('XAUUSD'), 'mt5', 'priced from the broker, account set up or not');
+  // A market with no prices says why, and what fixes it.
+  md.setStatus('NAS100', 'WAITING', 'none');
+  live.feedReasons = () => [{ source: 'Yahoo Finance', text: 'its secure connection was intercepted (UNABLE_TO_GET_ISSUER_CERT_LOCALLY)', ids: ['NAS100'] }];
+  const w = live.view().warnings.find((x) => /^No real prices for NAS100/.test(x));
+  assert.match(w, /Yahoo Finance didn't answer: its secure connection was intercepted/);
+  assert.match(w, /MT5 is sending your broker's prices for them now|mapped to a symbol/);
+});
 
 test('the bridge asks for history pages politely: one at a time, never while an order is on its way', () => {
   const b = new Mt5Bridge();

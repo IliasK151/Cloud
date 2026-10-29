@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { netReason } from '../util/net.js';
 
 // Live crypto prices from Binance public market data (no API key needed).
 // data-api.binance.vision / data-stream.binance.vision are Binance's market-data-only
@@ -56,7 +57,8 @@ export class BinanceFeed {
         lastErr = err;
       }
     }
-    throw new Error(`Binance unreachable (${lastErr?.message || 'unknown error'})`);
+    const why = netReason(lastErr);
+    throw Object.assign(new Error(`Binance unreachable: ${why.text}`), { why });
   }
 
   #connect() {
