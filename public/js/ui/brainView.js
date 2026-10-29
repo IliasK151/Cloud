@@ -4,8 +4,10 @@ import { planSwitches, onPlanSwitch } from './planSwitch.js';
 import { MemoryGraph } from './memoryGraph.js';
 import { NeuralBrain3D } from './neuralBrain.js';
 import { LlmBrainPanel } from './llmBrain.js';
+import { FloorMind } from './floorMind.js';
 
-// The Brain: how the floor thinks. At the top, the account brain (the plan that protects
+// The Brain: how the floor thinks. At the top, the floor's mind: every desk's thoughts live in
+// one 3D brain (floorMind.js). Then the account brain (the plan that protects
 // the prop account) and which desks have earned real money. Then Claude, the LLM brain that
 // reviews every setup and answers the boss (llmBrain.js), the neural brain every desk
 // asks before a trade, live in 3D, and the floor's memory. Below, one live graph per
@@ -47,6 +49,7 @@ export class BrainView {
   #build() {
     this.root.innerHTML = `
       <div class="dash-head"><div><h1>Brain</h1><p class="lede">How the floor thinks. No desk trades on its own say-so: every idea is argued by its department, graded, and only the best reach your account.</p></div></div>
+      <div class="card fm-card" id="bv-mind"></div>
       <div class="grid brain-top">
         <div class="card" id="bv-account"></div>
         <div class="card" id="bv-cleared"></div>
@@ -77,9 +80,11 @@ export class BrainView {
       const copy = e.target.closest('[data-act="vault-copy"]');
       if (copy) navigator.clipboard?.writeText(copy.dataset.path).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy the folder'; }, 1500); }).catch(() => {});
     });
+    this.mind = new FloorMind(this.store, this.root.querySelector('#bv-mind'), { onSelect: this.onSelect });
     this.llm = new LlmBrainPanel(this.store, this.root.querySelector('#bv-llm'), { onSelect: this.onSelect });
     this.neural = new NeuralBrain3D(this.store, this.root.querySelector('#bv-neural'), { onSelect: this.onSelect });
     this.memory = new MemoryGraph(this.store, this.root.querySelector('#bv-memory'), { onSelect: this.onSelect });
+    if (this.power) this.mind.setPower(this.power);
     this.built = true;
   }
 
@@ -88,6 +93,7 @@ export class BrainView {
     this.visible = true;
     this.root.hidden = false;
     this.render(true);
+    this.mind.show();
     this.llm.show();
     this.neural.show();
     this.memory.show();
@@ -112,9 +118,16 @@ export class BrainView {
       : `<h2>Obsidian vault</h2><p class="sub">Switched off (VAULT=0 in .env).</p>`;
   }
 
+  // Battery saver and the charger (main.js): the mind turns slower, without the glow.
+  setPower(p) {
+    this.power = { ...this.power, ...p };
+    this.mind?.setPower(this.power);
+  }
+
   hide() {
     this.visible = false;
     this.root.hidden = true;
+    this.mind?.hide();
     this.llm?.hide();
     this.neural?.hide();
     this.memory?.hide();

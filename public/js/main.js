@@ -174,6 +174,7 @@ function setEco(on) {
   document.documentElement.classList.toggle('eco', on);
   floor?.setEco(on);
   floor?.setActive(view === 'floor');
+  brainView.setPower({ eco: on });
 }
 setEco(eco);
 ecoBox?.addEventListener('change', () => {
@@ -182,7 +183,10 @@ ecoBox?.addEventListener('change', () => {
 });
 // Chrome tells the page whether the Mac is on its charger.
 navigator.getBattery?.().then((b) => {
-  const apply = () => floor?.setPower({ battery: !b.charging });
+  const apply = () => {
+    floor?.setPower({ battery: !b.charging });
+    brainView.setPower({ battery: !b.charging });
+  };
   b.addEventListener('chargingchange', apply);
   apply();
 }).catch(() => {});

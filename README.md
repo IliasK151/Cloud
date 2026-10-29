@@ -309,6 +309,42 @@ MT5 hands over only what it has downloaded so far and fetches the rest from the 
 
 ---
 
+## The floor's mind: every thought in one brain
+
+At the top of the **Brain** tab, the whole floor thinks in one 3D brain. It is made of thousands of glowing neurons, turns slowly, and you can drag it to turn it and scroll to zoom.
+
+![The floor's mind](docs/mind.jpg)
+
+**Where everything is.** The London desks think in the left half of the brain and the New York desks in the right. Each market sits in the same place on both sides, so Marcus (Nasdaq, London) mirrors Tyler (Nasdaq, New York). The Asia desk is at the back. Down the middle sit the parts every desk thinks with:
+- **Senses**: real prices, structure and liquidity.
+- **News**: the economic calendar.
+- **Neural net**: asked before every trade.
+- **Claude**: the LLM brain.
+- **Memory**: every trade, lesson and debate.
+- **Committee**: where each idea is argued.
+- **Risk**: the account brain.
+- **Execution**: MT5, at the brainstem.
+
+**Every bright signal is something that just happened:**
+
+| What happened | Where the signal goes | Colour |
+|---|---|---|
+| A price moves | Senses → the desks on that market | small blue sparks |
+| A desk reads its setup | Senses → the desk | light blue; its thought appears beside it |
+| It asks the neural net | desk → Neural net → back | green: would take it; grey: pass |
+| Claude reviews the setup | desk → Claude → back with its verdict | purple, then green or red |
+| The committee argues the idea | desk → Committee → each reviewer | green: agrees; red: doesn't |
+| The desk trades | desk → Risk → Execution | green: buy; red: sell |
+| The trade closes | Execution → desk → Memory | green: won; red: lost |
+| A desk learns a lesson | desk → Memory | gold |
+| The neural net learns | the whole brain | gold |
+
+Where a signal lands, a ring spreads and a wave of light runs through the neurons around it. A desk in a trade has a pulsing ring around it, and an armed desk blinks while it waits for its entry. The **stream of thought** beside the brain lists every thought in words with the path it took; click a line or a desk to open that desk. Click Claude, the neural net, the memory, the committee or risk to jump to its own card below. **Replay the last thoughts** plays the floor's most recent real thoughts again.
+
+Nothing in the brain is made up. The faint shimmer is only the brain at rest; every signal is a real price, read, review, trade or lesson as it happens. In demo mode the prices are simulated, and the card says so.
+
+**Battery.** The brain draws only while the Brain tab is open and the brain is on screen. On battery with the battery saver on (Settings), it runs at a calmer frame rate without the glow. A computer that can't keep up gets a lighter picture by itself.
+
 ## The Brain: every trade is argued before it's taken (the institutional way)
 
 *With the desks trading their own way (the default), no committee argues their ideas: the departments, grades and vetoes below apply only with "Desks trade their own way" switched off. The Brain tab still shows each desk's read of its market, the neural brain learning from every trade and the floor's memory.*
@@ -1117,7 +1153,8 @@ public/
   js/floor/             Three.js floor: room, desks, six-screen workstations,
                         animated traders (avatar/: head, hair, body, IK), video wall, camera
   js/ui/                HUD, trader panel + briefing + learning + research + brain, dashboard,
-                        Brain view (live department graphs), economic calendar, TradingView, FTMO
+                        Brain view (the floor's mind in 3D, live department graphs), economic calendar,
+                        TradingView, FTMO
   js/voice.js           voices: realistic (from the server) or system, lip-sync level
 tradingview/            Pine Script alert bridge
 ```

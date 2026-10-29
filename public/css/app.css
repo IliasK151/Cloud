@@ -931,3 +931,55 @@ html.eco .review-progress .spinner { animation: none; }
 .llm-connect input { background: var(--surface-2); color: var(--text-1); border: 1px solid var(--hairline-strong); border-radius: 7px; padding: 7px 9px; font: inherit; }
 .llm-card .btn { width: auto; flex: none; }
 .llm-teach .btn, .llm-ask-row .btn { padding-left: 14px; padding-right: 14px; }
+
+/* The floor's mind (Brain tab, top): every thought on the floor in one 3D brain. */
+.fm-card { margin-top: 14px; overflow: hidden; }
+.fm-head h2 { display: flex; align-items: center; gap: 8px; }
+.fm-card .pill { border: 1px solid currentColor; background: none; }
+.fm-card .pill.ok { color: var(--pos-text); }
+.fm-card .pill.warn { color: #f2b01e; }
+.fm-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.fm-card .btn { width: auto; flex: none; }
+.fm-actions [aria-pressed="false"] { color: var(--text-3); }
+.fm-body { grid-template-columns: minmax(0, 1fr) 300px; }
+@media (max-width: 1000px) { .fm-body { grid-template-columns: 1fr; } }
+.fm-stage { position: relative; height: 600px; border-radius: 14px; overflow: hidden; background: #04060b; border: 1px solid rgba(96, 165, 250, 0.14); box-shadow: inset 0 0 80px rgba(37, 99, 235, 0.06); isolation: isolate; }
+.fm-stage::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1; background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 55%, rgba(0, 0, 0, 0.55) 100%); }
+.fm-stage canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+.fm-stage canvas:active { cursor: grabbing; }
+.fm-labels, .fm-thoughts { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
+.fm-label { position: absolute; left: 0; top: 0; font-size: 10.5px; font-weight: 600; color: rgba(226, 232, 240, 0.92); white-space: nowrap; text-shadow: 0 0 6px #000, 0 1px 2px #000; will-change: transform, opacity; }
+.fm-label i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; box-shadow: 0 0 6px currentColor; }
+.fm-label.region { font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c); text-shadow: 0 0 10px #000, 0 0 3px #000; }
+.fm-label.hemi { font-size: 11px; letter-spacing: 0.38em; color: rgba(148, 163, 184, 0.5); font-weight: 600; transform-origin: center; }
+.fm-thought { position: absolute; left: 0; top: 0; width: 250px; display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 10px; background: rgba(7, 10, 17, 0.8); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 22px color-mix(in srgb, var(--c) 22%, transparent); font-size: 11.5px; line-height: 1.4; color: var(--text-2); opacity: 0; transition: opacity 0.35s ease; will-change: transform, opacity; }
+.fm-thought.on { opacity: 1; }
+.fm-thought.small { width: auto; max-width: 230px; padding: 5px 9px; font-size: 11px; display: block; color: var(--c); }
+.fm-thought.small b { color: var(--text-1); font-weight: 600; margin-right: 4px; }
+.fm-thought .av { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 9.5px; font-weight: 700; color: #fff; box-shadow: 0 0 10px color-mix(in srgb, var(--c) 60%, transparent); }
+.fm-thought b { color: var(--text-1); }
+.fm-thought small { color: var(--text-3); }
+.fm-thought p { margin: 2px 0 0; }
+.fm-tip { z-index: 3; max-width: 300px; }
+.fm-legend { position: absolute; right: 12px; bottom: 8px; z-index: 2; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 10px; max-width: 60%; font-size: 10.5px; color: var(--text-3); pointer-events: none; }
+.fm-legend i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: 0; box-shadow: 0 0 6px currentColor; }
+.fm-hint { z-index: 2; }
+.fm-side { display: flex; flex-direction: column; min-height: 0; }
+.fm-feed { list-style: none; margin: 0 0 10px; padding: 0; max-height: 520px; overflow: auto; display: grid; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.fm-feed li { position: relative; padding: 6px 8px 6px 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.025); }
+.fm-feed li.fm-new { animation: fm-in 0.5s ease; }
+.fm-feed li::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: var(--c); box-shadow: 0 0 8px var(--c); }
+.fm-feed li[data-agent] { cursor: pointer; }
+.fm-feed li[data-agent]:hover { background: rgba(255, 255, 255, 0.06); }
+.fm-feed li.fm-empty { background: none; padding-left: 0; }
+.fm-feed li.fm-empty::before { display: none; }
+.fm-feed p { margin: 2px 0 0; }
+.fm-route { display: block; margin-top: 3px; font-size: 10.5px; color: var(--c); opacity: 0.85; }
+@keyframes fm-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (max-width: 700px) {
+  .fm-stage { height: 440px; }
+  .fm-label.desk { font-size: 9.5px; }
+  .fm-thought { width: 200px; font-size: 11px; }
+  .fm-legend { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .fm-feed li.fm-new { animation: none; } .fm-thought { transition: none; } }
