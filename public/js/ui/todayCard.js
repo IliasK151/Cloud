@@ -102,6 +102,7 @@ const MEANING = {
   'Costs too high for the stop': 'The spread and commission would eat more than a quarter of the trade\'s risk before it starts. The stop is too tight for that market\'s costs.',
   'Weekend crypto: enough positions open': 'From before the update, when every desk switched to crypto at the weekend. Only the crypto desks trade at the weekend now.',
   'Neural brain\'s paper experiment': 'The neural brain expected this idea to lose, so it never goes to the account. A few such ideas still trade small on paper, so the brain learns whether it was right to pass on them.',
+  'Deep brain\'s paper experiment': 'The deep brain expected this idea to lose, so it never goes to the account. A few such ideas still trade small on paper, so it learns whether it was right to pass on them.',
   'FTMO order-action limit': 'FTMO allows 2,000 order actions a day; the floor stops new trades at 1,000, far below it.',
 };
 
@@ -122,6 +123,7 @@ const MEANING_FTMO_ONLY = {
   'Loses over the long run': 'Replayed on many months of real 1-minute prices, thousands of trades, this desk lost money with confidence. It stays off the account (on the Free Trial, practice still lets it trade small).',
   'Desk out of form': 'The desk\'s last 12 trades on real prices lost on average, so it stays off the account until that average is 0R or better (on the Free Trial, practice still lets it trade small).',
   'Neural brain\'s paper experiment': 'The neural brain expected this idea to lose, so it never goes to the account, and with FTMO only on it isn\'t taken at all.',
+  'Deep brain\'s paper experiment': 'The deep brain expected this idea to lose, so it never goes to the account, and with FTMO only on it isn\'t taken at all.',
 };
 const meaningOf = (k, ftmoOnly) => (ftmoOnly && MEANING_FTMO_ONLY[k]) || MEANING[k] || '';
 

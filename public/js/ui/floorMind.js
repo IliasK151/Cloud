@@ -18,6 +18,7 @@ import { escapeHtml, initials, nyTime } from '../format.js';
 //   a price moves               Senses → the desks on that market (small sparks)
 //   a desk reads its setup      Senses → the desk, and its thought appears beside it
 //   it asks the neural net      desk → Neural net → back (green: would take, grey: pass)
+//   the deep brain reads it     desk → Deep brain → back (its transformer, experts and memory)
 //   Claude reviews it           desk → Claude → back with its verdict
 //   the committee argues it     desk → Committee → each reviewer (green agrees, red doesn't)
 //   it trades                   desk → Risk → Execution (green: buy, red: sell)
@@ -33,6 +34,7 @@ const REGIONS = [
   { id: 'senses', label: 'Senses', color: '#38bdf8', pos: [0, 0.16, -1.16], card: null, tip: 'Real prices, from MT5 or the public feed. Every desk\'s top-down read, its liquidity levels and structure start here.' },
   { id: 'news', label: 'News', color: '#f59e0b', pos: [0, 0.64, -0.66], card: null, tip: 'The economic calendar: desks stand aside around the releases that move their market.' },
   { id: 'neural', label: 'Neural net', color: '#60a5fa', pos: [0, 0.14, -0.12], card: '#bv-neural', tip: 'The neural network every desk asks before a trade: its chance of profit. It retrains itself on the floor\'s own trades.' },
+  { id: 'deep', label: 'Deep brain', color: '#f472b6', pos: [0, 0.4, 0.3], card: '#bv-deep', tip: 'The deep brain: a transformer that reads the 24 candles before every idea, five market experts and a memory of past trades. It learns on this computer from real prices.' },
   { id: 'memory', label: 'Memory', color: '#2dd4bf', pos: [0, -0.36, -0.42], card: '#bv-memory', tip: 'Every trade, lesson and debate, linked: the floor\'s long-term memory. Desks recall it before they trade.' },
   { id: 'claude', label: 'Claude', color: '#c084fc', pos: [0, 0.56, 0.84], card: '#bv-llm', tip: 'Claude, the LLM brain: reviews every setup, is scored on every result and keeps a lesson book.' },
   { id: 'committee', label: 'Committee', color: '#e2e8f0', pos: [0, 0.8, 0.12], card: '#bv-depts', tip: 'Each department argues every idea before it trades.' },
@@ -40,9 +42,10 @@ const REGIONS = [
   { id: 'exec', label: 'Execution', color: '#4ade80', pos: [0, -1.22, -0.46], card: null, tip: 'Orders go out here: to MT5 on your account, and to the paper book.' },
 ];
 // The wiring always drawn, faintly: how the parts of the mind connect.
-const SKELETON = [['news', 'senses'], ['senses', 'neural'], ['neural', 'memory'], ['neural', 'claude'], ['claude', 'risk'], ['committee', 'risk'], ['committee', 'claude'], ['risk', 'exec'], ['memory', 'exec']];
+const SKELETON = [['news', 'senses'], ['senses', 'neural'], ['senses', 'deep'], ['deep', 'memory'], ['deep', 'risk'], ['neural', 'memory'], ['neural', 'claude'], ['claude', 'risk'], ['committee', 'risk'], ['committee', 'claude'], ['risk', 'exec'], ['memory', 'exec']];
 
 const COL = {
+  deep: '#f472b6',
   price: '#38bdf8', read: '#7dd3fc', buy: '#34d399', sell: '#fb7185', win: '#4ade80', loss: '#f87171', gold: '#fbbf24',
   claude: '#c084fc', neural: '#60a5fa', memory: '#2dd4bf', news: '#f59e0b', white: '#e2e8f0', grey: '#94a3b8',
 };
@@ -394,6 +397,7 @@ export class FloorMind {
     store.on('neural', (ev) => this.#think('neural', ev));
     store.on('llm-event', (ev) => this.#think('llm', ev));
     store.on('memory', (ev) => this.#think('memory', ev));
+    store.on('deep', (ev) => this.#think('deep', ev));
     store.on('snapshot', () => this.#onSnapshot());
     store.on('init', () => this.#layout());
   }
@@ -743,6 +747,30 @@ export class FloorMind {
         const c = ev.right == null ? COL.grey : ev.right ? COL.win : COL.loss;
         return { desk: d, sym: ev.symbol, color: COL.claude, legs: [L('exec', 'claude', c)], text: `Claude's call on ${name(d)}'s ${ev.symbol} ${ev.right == null ? 'was scored' : ev.right ? 'was right' : 'was wrong'} (${fmtR(ev.r)}).` };
       }
+      return null;
+    }
+    if (source === 'deep') {
+      const d = desk(ev?.desk);
+      if (ev?.kind === 'thought' && d) {
+        const v = ev.verdict === 'learning' ? (ev.would === 'take' ? 'take' : 'pass') : ev.verdict;
+        const c = v === 'take' ? COL.win : v === 'explore' ? COL.gold : v === 'yours' ? COL.neural : COL.grey;
+        const word = ev.verdict === 'learning' ? `would ${ev.would === 'take' ? 'take it' : 'pass'}` : v === 'take' ? 'take it' : v === 'explore' ? 'explore it on paper' : v === 'yours' ? 'your alert' : 'pass';
+        // Named only when one candle really stood out (more than half again an even share).
+        const top = ev.top?.[0]?.w > 1.5 / Math.max(1, ev.candles?.length || 24) ? ev.top[0] : null;
+        const read = top ? ` It looked hardest at the ${top.tf === 60 ? '1-hour' : top.tf === 1 ? '1-minute' : `${top.tf}-minute`} candle ending ${nyTime((top.t + top.tf * 60) * 1000)}.` : '';
+        const near = ev.near?.length ? ` ${ev.nearWon} of its ${ev.near.length} closest past trades won.` : '';
+        return {
+          desk: d, sym: ev.symbol, time: ev.at, color: COL.deep, legs: [L(d, 'deep', COL.deep), L('deep', d, c)],
+          text: `Deep brain on ${name(d)}'s ${ev.symbol} ${String(ev.side || '').toLowerCase()}: ${pct(ev.p)} chance of profit, ${fmtR(ev.expR)} expected → ${word}.${read}${near}`,
+          hubCaption: ['deep', `${pct(ev.p)} · ${word}`, c],
+        };
+      }
+      if (ev?.kind === 'outcome' && d) {
+        const c = ev.won ? COL.win : COL.loss;
+        return { desk: d, sym: ev.symbol, color: c, legs: [L('exec', 'deep', c)], text: `${name(d)}'s ${ev.symbol} closed ${fmtR(ev.r)} (the deep brain said ${pct(ev.p)})${ev.kept ? ': a new star in its memory' : ''}.` };
+      }
+      if (ev?.kind === 'learning') return { at: 'deep', color: COL.gold, legs: [L('memory', 'deep', COL.gold)], text: 'The deep brain is learning from your saved prices…' };
+      if (ev?.kind === 'learned' && !ev.failed) return { at: 'deep', color: COL.gold, legs: [], flare: COL.gold, text: ev.text || 'The deep brain finished learning.' };
       return null;
     }
     if (source === 'memory') {

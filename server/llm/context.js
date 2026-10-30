@@ -80,6 +80,7 @@ export function setupBrief(floor, agent, order) {
     floorMemory: recall?.trades ? { text: recall.text, trades: recall.trades, avgR: recall.avgR, winRate: r2(recall.winRate) } : null,
     deskRecord: { trades: agent.lifetime?.trades ?? 0, avgR: r2(agent.lifetime?.countR ? agent.lifetime.sumR / agent.lifetime.countR : null), lastLesson: L?.last?.title ?? null },
     neuralBrain: floor.neural?.view ? (() => { const v = floor.neural.view(); return { mode: v.mode || null, aucOnUnseenTrades: r2(v.skill?.auc ?? null) }; })() : null,
+    deepBrain: floor.deep?.ready ? (() => { const sk = floor.deep.skill(); return { mode: sk.trusted ? 'has a say' : 'learning', aucOnUnseenTrades: r2(sk.auc ?? null) }; })() : null,
   };
 }
 

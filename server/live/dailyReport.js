@@ -23,6 +23,7 @@ const CATEGORIES = [
   [/only the Day Trading Desk trades/i, 'Day Trading Desk only'],
   [/Pairs trades|Market making relies/i, 'Can\'t trade a prop account'],
   [/neural brain passed/i, 'Neural brain\'s paper experiment'],
+  [/deep brain passed/i, 'Deep brain\'s paper experiment'],
   [/weekend crypto:/i, 'Weekend crypto: enough positions open'],
   [/against the top-down/i, 'Against the top-down bias'],
   [/one desk per market/i, 'Another desk is in that market'],

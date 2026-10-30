@@ -192,6 +192,20 @@ export class TraderAgent {
     }
     if (nb?.sizeMult != null) riskMultiplier *= nb.sizeMult;
 
+    // The deep brain (deep/brain.js): a transformer that reads the candles before the idea,
+    // five market experts and a memory of past trades. Like the neural brain it only watches
+    // until it has earned a say, then passes the ideas it expects to lose (a few still trade
+    // small on paper). With the desks trading their own way it watches and learns only.
+    const db = this.env.deep?.judge?.(this, { symbol, side, entry, stop, target, x: nb?.x ?? null, external: tag === 'TV', noSay: ownWay }) ?? null;
+    if (db && !db.take) {
+      this.lastReject = db.reason;
+      this.day.skipped++;
+      this.#whyNot(`the deep brain passed: ${db.reason}`);
+      this.setStage(`Deep brain passed: ${db.reason}`);
+      return false;
+    }
+    if (db?.sizeMult != null) riskMultiplier *= db.sizeMult;
+
     // Claude, the LLM brain (llm/brain.js), reviewed this setup when it armed. Its verdict goes
     // with the trade so it is scored on the result. In veto mode, once its record has earned
     // it, a clear skip is held back (and followed on paper). It never adds or enlarges a trade.
@@ -209,6 +223,7 @@ export class TraderAgent {
     const onFtmo = this.env.tradeGate?.(this, {
       symbol, side, entry, stop, target, tag, testAlert, grade: review?.grade ?? null,
       neural: nb?.x ? { p: nb.p, expR: nb.expR, explore: !!nb.explore } : null, riskMult: riskMultiplier, learnMult: learn.sizeMult,
+      deep: db?.id ? { p: db.p, expR: db.expR, explore: !!db.explore } : null,
     }) ?? null;
     if (onFtmo) {
       this.day.skipped++;
@@ -224,6 +239,7 @@ export class TraderAgent {
     let meta = review ? { thesis: review.thesis, grade: review.grade, score: Math.round(review.score * 100) / 100, verdict: review.shadowVerdict ?? null, debate: review.debate?.id ?? null, f: review.debate ? Object.fromEntries(Object.entries(review.debate.factors).map(([k, v]) => [k, v ? Math.round(v.value * 100) / 100 : null])) : null } : null;
     if (nb?.x) meta = { ...(meta || {}), neural: { x: nb.x, p: nb.p ?? null, expR: nb.expR ?? null, explore: !!nb.explore, version: nb.version ?? null } };
     if (llm?.id) meta = { ...(meta || {}), llm: { id: llm.id, verdict: llm.verdict, p: llm.p } };
+    if (db?.id) meta = { ...(meta || {}), deep: { id: db.id, p: db.p, expR: db.expR, explore: !!db.explore, verdict: db.verdict, version: db.version ?? null } };
     const res = this.broker.execute(this.id, symbol, long ? qty : -qty, { reason, tag, stop, target, initialRisk, meta });
     if (!res) return false;
     const fillPx = res.fill.price;
@@ -236,6 +252,8 @@ export class TraderAgent {
       debate: review?.debate?.id ?? null,
       // The neural brain's call on this trade (the account brain reads it).
       neural: nb?.x ? { p: nb.p, expR: nb.expR, explore: !!nb.explore, verdict: nb.verdict ?? null, version: nb.version ?? null } : null,
+      // The deep brain's call on it.
+      deep: db?.id ? { p: db.p, expR: db.expR, explore: !!db.explore, verdict: db.verdict, version: db.version ?? null } : null,
       // The setup as the desk saw it when it pulled the trigger (for the entry chart).
       setupLevels: (this.setup.levels || []).filter((l) => Number.isFinite(l?.price)).slice(0, 8).map((l) => ({ label: l.label, price: l.price })),
       checklist: (this.setup.checklist || []).filter((c) => c?.ok).map((c) => c.label).slice(0, 6),
@@ -425,10 +443,10 @@ export class TraderAgent {
       this.day.losses++; this.lifetime.losses++;
       this.day.grossLoss += -trade.pnl; this.lifetime.grossLoss += -trade.pnl;
     }
-    // The neural brain's explorations (ideas it passed on, tried small on paper) are its
-    // experiments, not the desk's record: the desk's measured edge and form are what the
+    // The neural and deep brains' explorations (ideas they passed on, tried small on paper) are
+    // their experiments, not the desk's record: the desk's measured edge and form are what the
     // account goes by, and the account never takes those.
-    const experiment = !!trade.neural?.explore;
+    const experiment = !!trade.neural?.explore || !!trade.deep?.explore;
     if (trade.r != null && !experiment) { this.lifetime.sumR += trade.r; this.lifetime.countR++; }
     if (trade.r != null && !trade.simFeed && !experiment) {
       this.lifetime.realN++;
@@ -452,6 +470,7 @@ export class TraderAgent {
     this.env.memory?.onTrade(this, trade, ctx);
     // The neural brain learns from what it sensed at entry and how the trade turned out.
     this.env.neural?.observe?.(this, trade);
+    this.env.deep?.observe?.(this, trade);
     // Claude's verdict on the setup, scored against how it went.
     this.env.llm?.observe?.(this, trade);
   }

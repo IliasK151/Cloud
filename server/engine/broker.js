@@ -157,6 +157,8 @@ export class Broker extends EventEmitter {
       ...(t.meta ? { thesis: t.meta.thesis, grade: t.meta.grade, score: t.meta.score, verdict: t.meta.verdict, f: t.meta.f } : {}),
       // Claude's verdict on the setup (llm/brain.js), scored when the trade closes.
       ...(t.meta?.llm ? { llm: t.meta.llm } : {}),
+      // The deep brain's call at entry (deep/brain.js), which it learns from when the trade closes.
+      ...(t.meta?.deep ? { deep: t.meta.deep } : {}),
     };
     // The neural brain's call at entry. What it sensed (x) is there for it to learn from, but
     // isn't saved or sent to the browser with every trade (not enumerable).

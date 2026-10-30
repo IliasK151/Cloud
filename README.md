@@ -319,6 +319,7 @@ At the top of the **Brain** tab, the whole floor thinks in one 3D brain. It is m
 - **Senses**: real prices, structure and liquidity.
 - **News**: the economic calendar.
 - **Neural net**: asked before every trade.
+- **Deep brain**: the transformer, its experts and its memory (below).
 - **Claude**: the LLM brain.
 - **Memory**: every trade, lesson and debate.
 - **Committee**: where each idea is argued.
@@ -332,6 +333,7 @@ At the top of the **Brain** tab, the whole floor thinks in one 3D brain. It is m
 | A price moves | Senses → the desks on that market | small blue sparks |
 | A desk reads its setup | Senses → the desk | light blue; its thought appears beside it |
 | It asks the neural net | desk → Neural net → back | green: would take it; grey: pass |
+| The deep brain reads it | desk → Deep brain → back | pink, then green or grey |
 | Claude reviews the setup | desk → Claude → back with its verdict | purple, then green or red |
 | The committee argues the idea | desk → Committee → each reviewer | green: agrees; red: doesn't |
 | The desk trades | desk → Risk → Execution | green: buy; red: sell |
@@ -339,7 +341,7 @@ At the top of the **Brain** tab, the whole floor thinks in one 3D brain. It is m
 | A desk learns a lesson | desk → Memory | gold |
 | The neural net learns | the whole brain | gold |
 
-Where a signal lands, a ring spreads and a wave of light runs through the neurons around it. A desk in a trade has a pulsing ring around it, and an armed desk blinks while it waits for its entry. The **stream of thought** beside the brain lists every thought in words with the path it took; click a line or a desk to open that desk. Click Claude, the neural net, the memory, the committee or risk to jump to its own card below. **Replay the last thoughts** plays the floor's most recent real thoughts again.
+Where a signal lands, a ring spreads and a wave of light runs through the neurons around it. A desk in a trade has a pulsing ring around it, and an armed desk blinks while it waits for its entry. The **stream of thought** beside the brain lists every thought in words with the path it took; click a line or a desk to open that desk. Click Claude, the deep brain, the neural net, the memory, the committee or risk to jump to its own card below. **Replay the last thoughts** plays the floor's most recent real thoughts again.
 
 Nothing in the brain is made up. The faint shimmer is only the brain at rest; every signal is a real price, read, review, trade or lesson as it happens. In demo mode the prices are simulated, and the card says so.
 
@@ -437,6 +439,46 @@ npm run brain -- --examples server/research/brain-examples.json.gz   # retrain o
 ```
 
 It writes `server/research/brain.json`, the brain that ships with the floor, with its test on unseen months, and `brain-examples.json.gz`, the trades it learned from.
+
+## The deep brain: a transformer, five experts and a memory
+
+The Brain tab has a third network, right under the floor's mind. It combines three ideas from large language models into one brain, written out in full in `server/deep/` (no outside library), and every desk asks it before a trade.
+
+![The deep brain (on a demo floor)](docs/deep.jpg)
+
+**1. It reads the candles (a transformer).** The 24 candles before an idea become tokens, the way an LLM's text becomes words:
+- six 1-hour, six 15-minute, six 5-minute and six 1-minute candles, all ending at the moment of the idea, so nothing after it is ever read;
+- each candle as 8 numbers: body, the wick each way, range, where it closed against the entry, volume, and the time of day. They are turned to the trade's side and sized in the market's own movement, so gold, the yen and Bitcoin read alike.
+
+The idea is the 25th token, made from the ~50 senses the neural brain sees. Two attention layers of four heads let every candle read the others and the idea read them all. The Brain tab draws the real attention weights: the brighter a line from the idea to a candle, the harder that head looked at it, and the candles it read hardest are named ("15-min · 03:12 · 31%").
+
+**2. It asks its experts (a mixture of experts).** The idea's final vector goes to a router that weighs five experts: indices, FX, gold, oil and crypto. The router starts by asking the market's own expert and learns how much to ask the others too. Their answers merge into the chance the trade ends in profit, and from that, with the desk's own average win and loss, the R it expects after costs.
+
+**3. It remembers (a memory).** Every trade it knows is kept as the vector the network made of it, so trades the network sees as alike sit close together. A new idea is compared with all of them, and its 12 closest past trades, with how they ended, show next to its answer ("8 of 12 won · average +0.42R"). In the tab they form a galaxy: green stars won, red lost, and the floor's own trades shine brightest.
+
+**How it learns, on your computer, from real prices only:**
+1. **Practice trades.** Every desk is replayed, minute by minute, through the floor's own code on the 1-minute prices saved in `data/history` (your broker's from MT5, and the public feeds'; never simulated ones). Each entry is kept with the candles before it and how it ended.
+2. **Pre-training, like an LLM.** Before it sees a trade, it learns to read candles by guessing whether price is higher 15 minutes later, at thousands of moments across your history. No labels are needed.
+3. **Learning trades.** The whole network then learns which trades won. It learns from:
+   - the replays;
+   - the floor's own trades on real prices, which count 3×;
+   - the neural brain's long history (senses only), which counts half.
+
+   A share of the senses is hidden on every pass, so it can't lean on memorising a few of them.
+4. **The fair test.** The newest quarter of the trades with candles is kept back. The new version, the version before it and the neural brain all judge those trades, which none of them learned from. A new version is kept only if its chances fit what happened better and its picks did at least as well.
+
+It learns the first time as soon as a market has 21 days of saved prices and the replays give it at least 60 trades. That takes a few minutes in the background, and the card says what it's still waiting for. After that it relearns after the New York close once it has 30 new trades of its own or a week of new prices. The card shows each lesson's progress, the fair test side by side with the neural brain, and the data it learned from. Demo mode never teaches it. Everything it keeps is in `data/deep/`, and a new version sends a message to your phone.
+
+**It earns its say like the neural brain.**
+- **Watching:** it judges every idea and learns from every trade, but decides nothing.
+- **A say:** only when its record on trades it hadn't learned from shows a ranking skill of 0.55 or better and picks at least 0.05R better than taking every trade, over 300 or more trades. Until it has 300 of its own, the fair test from its last lesson stands in.
+- **With a say,** it passes the ideas it expects to lose. A quarter of them still trade at a quarter size on paper, so it keeps learning whether passing was right.
+- **Its limits:**
+  - It never adds a trade or makes one bigger.
+  - Its explorations never go to your account.
+  - With the desks trading their own way (the default), it watches and learns only.
+
+**An honest note.** A transformer can find patterns in the candles that the hand-made senses miss, and its tests show it finds them when they are there. Whether your markets have such patterns is only known once it has learned from your prices. The fair test tells you, and until it shows real skill it decides nothing.
 
 ## Claude: the LLM brain
 
@@ -1143,6 +1185,9 @@ server/
   research/             long history store, strategy grammar, backtester, walk-forward validation search
   brain/                market brain (shared analysis), personas (each agent's own brain),
                         committee (department debates, vetoes, grades, live thoughts), memory.js (floor memory)
+  neural/               the neural brain: senses, a network written out in full, nightly retraining in a worker
+  deep/                 the deep brain: candle tokens, a transformer with a mixture of experts (hand-written
+                        backprop), a memory of past trades, replays + pre-training + the fair test in a worker
   llm/                  Claude, the LLM brain: setup reviews, scoring, lesson book, evening reflection,
                         chat with read-only floor tools, daily budget (official @anthropic-ai/sdk)
   tradingview/          alert parsing + authentication, one-click public address (tunnel)

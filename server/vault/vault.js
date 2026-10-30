@@ -25,7 +25,7 @@ import { protectedFolder, folderName } from '../util/macFolders.js';
 //   Lessons/         every lesson a desk learned from its own trades
 //   Markets/         each market: the situations the floor remembers there, and who trades it
 //   Playbook/        what works and what loses across the floor, in situations with evidence
-//   Brain/           the neural brain, the long-run record, the nightly review, the account plan
+//   Brain/           the neural brain, the deep brain, the long-run record, the nightly review, the account plan
 //
 // It mirrors the same knowledge the desks trade on (their learners, the floor memory, the
 // neural brain and the evidence), so what you read is what they know. Real prices only: demo
@@ -63,7 +63,7 @@ export function nyStamp(ms) {
 const yaml = (obj) => `---\n${Object.entries(obj).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}: ${Array.isArray(v) ? `[${v.map((x) => JSON.stringify(x)).join(', ')}]` : typeof v === 'string' ? JSON.stringify(v) : v}`).join('\n')}\n---\n`;
 
 export class Vault extends EventEmitter {
-  constructor({ dir, mode = 'live', fund, memory = null, live = null, neural = null, llm = null, log = console, now = null }) {
+  constructor({ dir, mode = 'live', fund, memory = null, live = null, neural = null, deep = null, llm = null, log = console, now = null }) {
     super();
     this.dir = dir;
     this.mode = mode;
@@ -72,6 +72,7 @@ export class Vault extends EventEmitter {
     this.live = live;
     this.llm = llm;
     this.neural = neural;
+    this.deep = deep;
     this.log = log;
     this.now = now || (() => fund.clock.now()); // the floor's clock (demo mode runs its own)
     this.cache = new Map(); // note → the generated part last written
@@ -111,6 +112,7 @@ export class Vault extends EventEmitter {
       if (e.kind === 'lesson') this.#touch(`desk:${e.agentId}`, 'lessons', 'daily', 'playbook');
     });
     this.neural?.on('learned', () => this.#touch('brain'));
+    this.deep?.on?.('learned', () => this.#touch('brain'));
     this.llm?.on?.('reflection', () => this.#touch('brain'));
     this.live?.review?.on?.('report', () => this.#touch('review'));
     const every = setInterval(() => this.refresh(), VAULT.refreshMs);
@@ -741,6 +743,7 @@ ${acct || '- No account activity today.'}
 
   #brain() {
     this.#claude();
+    this.#deep();
     const v = this.neural?.view?.();
     if (!v?.ready) return;
     const sk = v.skill;
@@ -771,6 +774,26 @@ Every desk replayed on months of real 1-minute prices (${cell(base.source)}). A 
 ${base.desks.filter((d) => d.n).map((d) => { const a = this.fund.byId.get(d.id); return `| ${a ? `[[${a.profile.name}]]` : d.name} | [[${d.symbol}]] | ${d.n.toLocaleString('en-US')} | ${fmtR(d.avgR)} | ${d.ci ? `${fmtR(d.ci[0])} to ${fmtR(d.ci[1])}` : '—'} | **${d.verdict}** |`; }).join('\n')}
 `);
     }
+  }
+
+  // The deep brain: what it is, how it did on trades it never learned from, and its lessons.
+  #deep() {
+    const v = this.deep?.view?.();
+    if (!v?.ready) return;
+    const t = v.validation;
+    const row = (name, s) => (s ? `| ${name} | ${s.auc ?? '—'} | ${fmtR(s.pickedR)} | ${fmtR(s.allR)} | ${s.n} |` : null);
+    this.write(path.join('Brain', 'Deep brain.md'), `${yaml({ version: v.version, status: v.status, skill: v.skill?.auc ?? null, tags: ['brain'] })}
+# Deep brain · version ${v.version}
+
+A transformer reads the 24 candles before every idea (1-hour, 15-minute, 5-minute, 1-minute), a router asks five market experts (indices, FX, gold, oil, crypto), and it remembers ${(v.memory?.n ?? 0).toLocaleString('en-US')} past trades. **${v.status === 'trusted' ? 'It has a say' : 'Learning: it judges every idea and learns from every trade, the desks decide'}.** ${cell(v.skill?.text || '')}
+
+- Learned from ${(v.data?.replays ?? 0).toLocaleString('en-US')} practice trades replayed on your saved prices, ${v.own?.n ?? 0} of the floor's own trades and ${(v.data?.shipped ?? 0).toLocaleString('en-US')} from the long history
+- Pre-training: ${v.pretrain ? `right ${Math.round((v.pretrain.hit ?? 0) * 100)}% of the time on whether price was higher 15 minutes later (50% is a coin)` : '—'}
+- Lessons: ${(v.versions || []).slice(-8).reverse().map((r) => `${nyStamp(r.at).day} ${r.adopted ? `learned (v${r.version})` : 'kept what it knew'}`).join(' · ') || 'none yet'}
+
+## The fair test${t ? ` (the newest ${t.n} trades, which it never learned from)` : ''}
+${t ? `| | Skill | Its picks | Every trade | Trades |\n|---|---|---|---|---|\n${[row('Deep brain', t.challenger), row('The version before', t.champion), row('Neural brain', t.mlp)].filter(Boolean).join('\n')}` : 'After its first lesson.'}
+`);
   }
 
   // Claude, the LLM brain: its record, its evening reviews and the lesson book it keeps.

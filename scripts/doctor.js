@@ -229,6 +229,12 @@ async function main() {
       bad(`The Obsidian vault isn't being written: ${vault.lastError.text}`);
     } else if (vault.live) good(`The Obsidian vault is live: ${vault.notes.toLocaleString('en-US')} notes, last written ${vault.lastWrite ? ago(vault.lastWrite) : 'not yet'} (${vault.dir}).`);
   }
+  // The deep brain (transformer, experts, memory): learns on this computer from real prices.
+  const deep = json(await get('/api/deep', auth));
+  if (deep?.learning) good(`The deep brain is learning now: ${deep.learning.text || 'starting'}.`);
+  else if (deep?.ready) good(`The deep brain is v${deep.version}, ${deep.status === 'trusted' ? 'with a say' : 'watching and learning'}: skill ${deep.skill?.auc ?? '—'} on trades it never learned from, ${deep.memory?.n?.toLocaleString('en-US') ?? 0} trades in its memory.`);
+  else if (deep?.demo) tip('The deep brain learns from real prices only: it starts learning in live mode.');
+  else if (deep) tip(`The deep brain hasn't learned yet: ${deep.lastError ? deep.lastError.text : `it starts once a market has ${deep.settings?.minHistoryDays ?? 21} days of saved prices (MT5 pages months of them in)`}.`);
   // Claude, the LLM brain (optional).
   const llm = json(await get('/api/llm', auth));
   if (llm?.connected) {

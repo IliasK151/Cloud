@@ -46,6 +46,7 @@ export function connect() {
       case 'brain': store.setBrain(msg.brain); break;
       case 'memory': store.emit('memory', msg.event); break;
       case 'neural': store.emit('neural', msg.event); break;
+      case 'deep': store.emit('deep', msg.event); break;
       case 'llm': store.setLlm(msg.llm); break;
       case 'llm-event': store.emit('llm-event', msg.event); break;
       case 'voices': store.emit('voices', msg.voices); break;

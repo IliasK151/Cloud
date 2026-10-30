@@ -226,3 +226,28 @@ test('a vault in a folder macOS keeps the non-stop service out of says so, in pl
   assert.equal(warned.length, 1);
   assert.equal(vault.view().live, false);
 });
+
+test('the vault has a note for the deep brain: what it is, its fair test and its lessons', () => {
+  const { fund } = floor('sim');
+  const dir = tmp();
+  const deep = {
+    on() {},
+    view: () => ({
+      ready: true, version: 3, status: 'learning', memory: { n: 1234 }, own: { n: 41 },
+      skill: { auc: 0.53, text: 'On the newest 120 trades of its last lesson, which it never learned from: ranking skill 0.53' },
+      data: { replays: 480, shipped: 15296 }, pretrain: { hit: 0.52 },
+      versions: [{ at: Date.UTC(2026, 9, 28, 22), adopted: true, version: 3 }],
+      validation: { n: 120, challenger: { auc: 0.53, pickedR: 0.12, allR: -0.05, n: 120 }, champion: null, mlp: { auc: 0.51, pickedR: -0.02, allR: -0.05, n: 120 } },
+    }),
+  };
+  const vault = new Vault({ dir, mode: 'sim', fund, deep, live: { token: SECRET }, log: { warn() {}, info() {} } });
+  vault.start();
+  vault.stop();
+  const note = read(dir, path.join('Brain', 'Deep brain.md'));
+  assert.match(note, /# Deep brain · version 3/);
+  assert.match(note, /remembers 1,234 past trades/);
+  assert.match(note, /\| Deep brain \| 0.53 \| \+0.12R \| −0.05R \| 120 \|/);
+  assert.match(note, /\| Neural brain \| 0.51 \|/);
+  assert.match(note, /right 52% of the time/);
+  assert.ok(!note.includes(SECRET));
+});

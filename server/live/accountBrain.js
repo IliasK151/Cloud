@@ -255,6 +255,14 @@ export class AccountBrain {
           ? { text: `Neural brain has a say: on trades it hadn't seen it ranks winners above losers (skill ${sk.auc}). Ideas it expects to lose stay off the account${noPaper(this.live) ? ' and, with FTMO only on, aren\'t traded at all' : ', a few trade small on paper so it keeps learning'}. It never sends a trade these rules hold back`, ok: true }
           : { text: `Neural brain is learning: it judges every idea and learns from every trade, but decides nothing for the account until it tells winners from losers on trades it hasn't seen (skill ${sk.auc ?? '—'} now, it needs ${nb.trust.minAuc})`, ok: true };
       })(),
+      (() => {
+        const db = lt.fund?.env?.deep;
+        const sk = db?.ready ? db.skill() : null;
+        if (!sk) return null;
+        return sk.trusted
+          ? { text: `Deep brain has a say: on trades it hadn't seen it ranks winners above losers (skill ${sk.auc}). Ideas it expects to lose stay off the account${noPaper(this.live) ? ' and, with FTMO only on, aren\'t traded at all' : ', a few trade small on paper so it keeps learning'}. It never sends a trade these rules hold back`, ok: true }
+          : { text: `Deep brain is learning: it reads the candles before every idea and learns from every trade, but decides nothing for the account until it tells winners from losers on trades it hasn't seen (skill ${sk.auc ?? '—'} now, it needs ${db.trust.minAuc})`, ok: true };
+      })(),
       { text: 'Top-down first: every desk trades with its market\'s weekly, daily and 4-hour bias, never against it', ok: true },
       { text: CROWD_RULE, ok: true },
       { text: `Desks earn their place: a desk whose last ${LIMITS.formWindow} trades on real prices average below 0R ${noPaper(this.live) ? 'stays off the account' : 'trades paper only'} until its record recovers`, ok: true },
@@ -344,6 +352,8 @@ export class AccountBrain {
     // An idea the neural brain passed on, taken small on paper so it learns whether it was
     // right: an experiment, never for the account (training or not).
     if (plan.neural?.explore) return { ok: false, reason: `the neural brain passed on this idea (${Math.round((plan.neural.p ?? 0) * 100)}% chance, ${fmtR(plan.neural.expR)} expected): ${noPaper(this.live) ? 'with FTMO only on, it isn\'t traded' : 'it trades small on paper only, so the brain learns whether it was right'}` };
+    // The same for the deep brain's explorations (deep/brain.js).
+    if (plan.deep?.explore) return { ok: false, reason: `the deep brain passed on this idea (${Math.round((plan.deep.p ?? 0) * 100)}% chance, ${fmtR(plan.deep.expR)} expected): ${noPaper(this.live) ? 'with FTMO only on, it isn\'t traded' : 'it trades small on paper only, so the brain learns whether it was right'}` };
     // FTMO's own rules and the risk limits hold even while training.
     if (st.ruleStop) return { ok: false, reason: st.ruleStop };
     if (st.cooloff) return { ok: false, reason: st.cooloff.text };

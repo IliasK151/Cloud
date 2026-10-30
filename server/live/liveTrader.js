@@ -946,7 +946,7 @@ export class LiveTrader extends EventEmitter {
     if (!Number.isFinite(intent.stop) || !Number.isFinite(intent.entry)) return null;
     const plan = {
       risk: Math.abs(intent.entry - intent.stop), entry: intent.entry, target: intent.target ?? null, tag: intent.tag || '',
-      grade: intent.grade ?? null, neural: intent.neural ?? null, riskMult: intent.riskMult, learnMult: intent.learnMult,
+      grade: intent.grade ?? null, neural: intent.neural ?? null, deep: intent.deep ?? null, riskMult: intent.riskMult, learnMult: intent.learnMult,
     };
     const d = this.#decide(agent, { symbol: intent.symbol, qty: intent.side === 'SHORT' ? -1 : 1, trade: {} }, plan);
     return d.skip ? this.#refuse(agent, intent.symbol, d.skip) : null;
@@ -1223,7 +1223,7 @@ export class LiveTrader extends EventEmitter {
   // account checks before an order, in one place: #openLive sends what passes, and with
   // FTMO only on, the desk asks it before taking the trade at all (gate()).
   //   pos:  { symbol, qty (its sign is the side), trade: { simFeed } }
-  //   plan: { risk (stop distance), entry, target, tag, grade, neural, testAlert, riskMult, learnMult }
+  //   plan: { risk (stop distance), entry, target, tag, grade, neural, deep, testAlert, riskMult, learnMult }
   #decide(agent, pos, plan) {
     const p = this.profile;
     const acc = this.account;
